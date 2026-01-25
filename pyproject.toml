@@ -1,0 +1,62 @@
+[project]
+name = "aurora-memory"
+version = "0.2.0"
+description = "AURORA narrative memory — production pack with causal inference, coherence checking, and self-narrative."
+requires-python = ">=3.10"
+authors = [{name="AURORA Contributors"}]
+readme = "README.md"
+license = {text = "MIT"}
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.11",
+  "networkx>=3.2",
+  "pydantic>=2.6",
+  "pydantic-settings>=2.2",
+  "orjson>=3.9",
+]
+
+[project.optional-dependencies]
+api = [
+  "fastapi>=0.110",
+  "uvicorn>=0.27",
+]
+jobs = [
+  "apscheduler>=3.10",
+]
+postgres = [
+  "sqlalchemy>=2.0",
+  "psycopg>=3.1",
+  "pgvector>=0.2.5",
+]
+telemetry = [
+  "prometheus-client>=0.20",
+  "opentelemetry-api>=1.23",
+  "opentelemetry-sdk>=1.23",
+]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=4.1",
+]
+all = [
+  "aurora-memory[api,jobs,telemetry,dev]",
+]
+
+[project.scripts]
+aurora = "aurora.cli:main"
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aurora*"]
