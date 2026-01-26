@@ -125,6 +125,45 @@ class Plot:
         freshness = 1.0 / math.log1p(age)
         return freshness * math.log1p(self.access_count + 1)
 
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "id": self.id,
+            "ts": self.ts,
+            "text": self.text,
+            "actors": list(self.actors),
+            "embedding": self.embedding.tolist(),
+            "surprise": self.surprise,
+            "pred_error": self.pred_error,
+            "redundancy": self.redundancy,
+            "goal_relevance": self.goal_relevance,
+            "tension": self.tension,
+            "story_id": self.story_id,
+            "access_count": self.access_count,
+            "last_access_ts": self.last_access_ts,
+            "status": self.status,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "Plot":
+        """Reconstruct from state dict."""
+        return cls(
+            id=d["id"],
+            ts=d["ts"],
+            text=d["text"],
+            actors=tuple(d["actors"]),
+            embedding=np.array(d["embedding"], dtype=np.float32),
+            surprise=d.get("surprise", 0.0),
+            pred_error=d.get("pred_error", 0.0),
+            redundancy=d.get("redundancy", 0.0),
+            goal_relevance=d.get("goal_relevance", 0.0),
+            tension=d.get("tension", 0.0),
+            story_id=d.get("story_id"),
+            access_count=d.get("access_count", 0),
+            last_access_ts=d.get("last_access_ts", now_ts()),
+            status=d.get("status", "active"),
+        )
+
 
 @dataclass
 class StoryArc:
@@ -190,6 +229,48 @@ class StoryArc:
         size = math.log1p(len(self.plot_ids))
         return freshness * (size + math.log1p(self.reference_count + 1))
 
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "id": self.id,
+            "created_ts": self.created_ts,
+            "updated_ts": self.updated_ts,
+            "plot_ids": self.plot_ids,
+            "centroid": self.centroid.tolist() if self.centroid is not None else None,
+            "dist_mean": self.dist_mean,
+            "dist_m2": self.dist_m2,
+            "dist_n": self.dist_n,
+            "gap_mean": self.gap_mean,
+            "gap_m2": self.gap_m2,
+            "gap_n": self.gap_n,
+            "actor_counts": self.actor_counts,
+            "tension_curve": self.tension_curve,
+            "status": self.status,
+            "reference_count": self.reference_count,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "StoryArc":
+        """Reconstruct from state dict."""
+        centroid = d.get("centroid")
+        return cls(
+            id=d["id"],
+            created_ts=d["created_ts"],
+            updated_ts=d["updated_ts"],
+            plot_ids=d.get("plot_ids", []),
+            centroid=np.array(centroid, dtype=np.float32) if centroid is not None else None,
+            dist_mean=d.get("dist_mean", 0.0),
+            dist_m2=d.get("dist_m2", 0.0),
+            dist_n=d.get("dist_n", 0),
+            gap_mean=d.get("gap_mean", 0.0),
+            gap_m2=d.get("gap_m2", 0.0),
+            gap_n=d.get("gap_n", 0),
+            actor_counts=d.get("actor_counts", {}),
+            tension_curve=d.get("tension_curve", []),
+            status=d.get("status", "developing"),
+            reference_count=d.get("reference_count", 0),
+        )
+
 
 @dataclass
 class Theme:
@@ -223,6 +304,38 @@ class Theme:
         freshness = 1.0 / math.log1p(age)
         return freshness * math.log1p(len(self.story_ids) + 1) * self.confidence()
 
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "id": self.id,
+            "created_ts": self.created_ts,
+            "updated_ts": self.updated_ts,
+            "story_ids": self.story_ids,
+            "prototype": self.prototype.tolist() if self.prototype is not None else None,
+            "a": self.a,
+            "b": self.b,
+            "name": self.name,
+            "description": self.description,
+            "theme_type": self.theme_type,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "Theme":
+        """Reconstruct from state dict."""
+        prototype = d.get("prototype")
+        return cls(
+            id=d["id"],
+            created_ts=d["created_ts"],
+            updated_ts=d["updated_ts"],
+            story_ids=d.get("story_ids", []),
+            prototype=np.array(prototype, dtype=np.float32) if prototype is not None else None,
+            a=d.get("a", 1.0),
+            b=d.get("b", 1.0),
+            name=d.get("name", ""),
+            description=d.get("description", ""),
+            theme_type=d.get("theme_type", "pattern"),
+        )
+
 
 # -----------------------------------------------------------------------------
 # Learnable components (no threshold-based behavior)
@@ -253,6 +366,7 @@ class OnlineKDE:
         self.reservoir = reservoir
         self.k_sigma = k_sigma
         self.rng = np.random.default_rng(seed)
+        self._seed = seed
         self._vecs: List[np.ndarray] = []
 
     def add(self, x: np.ndarray) -> None:
@@ -290,22 +404,58 @@ class OnlineKDE:
     def surprise(self, x: np.ndarray) -> float:
         return -self.log_density(x)
 
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "dim": self.dim,
+            "reservoir": self.reservoir,
+            "k_sigma": self.k_sigma,
+            "seed": self._seed,
+            "vecs": [v.tolist() for v in self._vecs],
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "OnlineKDE":
+        """Reconstruct from state dict."""
+        obj = cls(
+            dim=d["dim"],
+            reservoir=d["reservoir"],
+            k_sigma=d["k_sigma"],
+            seed=d["seed"],
+        )
+        obj._vecs = [np.array(v, dtype=np.float32) for v in d.get("vecs", [])]
+        return obj
+
 
 class LowRankMetric:
     """Low-rank Mahalanobis metric: d(x,y)^2 = ||L(x-y)||^2.
 
     Interpretable as learning a task- and user-adapted "information geometry" metric
     from retrieval feedback.
+    
+    Parameter stability:
+        - window_size: Sliding window for Adagrad accumulator reset.
+          Every `window_size` updates, the accumulator G is rescaled to prevent
+          the learning rate from decaying to near-zero over time.
+        - decay_factor: Applied to G during periodic recomputation (default 0.5).
     """
-    def __init__(self, dim: int, rank: int = 64, seed: int = 0):
+    def __init__(self, dim: int, rank: int = 64, seed: int = 0, window_size: int = 10000, decay_factor: float = 0.5):
         self.dim = dim
         self.rank = min(rank, dim)
+        self._seed = seed
+        self.window_size = window_size
+        self.decay_factor = decay_factor
+        
         rng = np.random.default_rng(seed)
         self.L = np.eye(dim, dtype=np.float32)[: self.rank].copy()
         self.L += (0.01 * rng.normal(size=self.L.shape)).astype(np.float32)
 
         self.G = np.zeros_like(self.L)  # Adagrad accumulator
         self.t = 0
+        
+        # Statistics for monitoring
+        self._total_loss = 0.0
+        self._update_count = 0
 
     def d2(self, x: np.ndarray, y: np.ndarray) -> float:
         z = (x - y).astype(np.float32)
@@ -319,6 +469,9 @@ class LowRankMetric:
         """Online OASIS-like update with Adagrad.
 
         margin is not a threshold on similarity; it's a geometric separation unit.
+        
+        Includes sliding window mechanism: periodically rescales the Adagrad
+        accumulator to prevent learning rate from vanishing.
         """
         self.t += 1
         ap = (anchor - positive).astype(np.float32)
@@ -337,7 +490,62 @@ class LowRankMetric:
         base = 1.0 / math.sqrt(self.t + 1.0)
         step = base * grad / (np.sqrt(self.G) + 1e-8)
         self.L -= step
+        
+        # Track statistics
+        self._total_loss += loss
+        self._update_count += 1
+        
+        # Sliding window: periodically rescale G to maintain plasticity
+        # This prevents the Adagrad accumulator from growing unboundedly
+        # which would cause the learning rate to approach zero
+        if self.t > 0 and self.t % self.window_size == 0:
+            self._rescale_accumulator()
+        
         return float(loss)
+
+    def _rescale_accumulator(self) -> None:
+        """Rescale the Adagrad accumulator to maintain learning capacity.
+        
+        This implements a "soft reset" that preserves learned structure
+        while preventing the accumulator from growing too large.
+        """
+        self.G *= self.decay_factor
+
+    def average_loss(self) -> float:
+        """Return average triplet loss over all updates."""
+        return self._total_loss / self._update_count if self._update_count > 0 else 0.0
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "dim": self.dim,
+            "rank": self.rank,
+            "seed": self._seed,
+            "window_size": self.window_size,
+            "decay_factor": self.decay_factor,
+            "L": self.L.tolist(),
+            "G": self.G.tolist(),
+            "t": self.t,
+            "total_loss": self._total_loss,
+            "update_count": self._update_count,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "LowRankMetric":
+        """Reconstruct from state dict."""
+        obj = cls(
+            dim=d["dim"],
+            rank=d["rank"],
+            seed=d.get("seed", 0),
+            window_size=d.get("window_size", 10000),
+            decay_factor=d.get("decay_factor", 0.5),
+        )
+        obj.L = np.array(d["L"], dtype=np.float32)
+        obj.G = np.array(d["G"], dtype=np.float32)
+        obj.t = d["t"]
+        obj._total_loss = d.get("total_loss", 0.0)
+        obj._update_count = d.get("update_count", 0)
+        return obj
 
 
 class ThompsonBernoulliGate:
@@ -345,9 +553,16 @@ class ThompsonBernoulliGate:
 
     We do not decide by "score > threshold". We sample a parameter vector w and
     encode with probability sigmoid(w·x). The mapping is learned from delayed rewards.
+    
+    Parameter stability:
+        - forgetting_factor (lambda): Prevents precision from infinite accumulation.
+          prec = lambda * prec + grad * grad, where lambda=0.99 ensures ~1% decay per update.
+        - This keeps the system "plastic" and able to adapt to distribution shifts.
     """
-    def __init__(self, feature_dim: int, seed: int = 0):
+    def __init__(self, feature_dim: int, seed: int = 0, forgetting_factor: float = 0.99):
         self.d = feature_dim
+        self._seed = seed
+        self.lambda_ = forgetting_factor  # Forgetting factor for precision
         self.rng = np.random.default_rng(seed)
 
         self.w_mean = np.zeros(self.d, dtype=np.float32)
@@ -355,6 +570,10 @@ class ThompsonBernoulliGate:
         self.grad2 = np.zeros(self.d, dtype=np.float32)  # RMS
 
         self.t = 0
+        
+        # Statistics tracking for monitoring
+        self._encode_count = 0
+        self._skip_count = 0
 
     def _sample_w(self) -> np.ndarray:
         std = np.sqrt(1.0 / (self.prec + 1e-9))
@@ -365,10 +584,19 @@ class ThompsonBernoulliGate:
         return sigmoid(float(np.dot(w, x)))
 
     def decide(self, x: np.ndarray) -> bool:
-        return bool(self.rng.random() < self.prob(x))
+        result = bool(self.rng.random() < self.prob(x))
+        if result:
+            self._encode_count += 1
+        else:
+            self._skip_count += 1
+        return result
 
     def update(self, x: np.ndarray, reward: float) -> None:
-        """Bandit update: reward in [-1, 1] from downstream task success."""
+        """Bandit update: reward in [-1, 1] from downstream task success.
+        
+        Uses forgetting factor to prevent precision from accumulating indefinitely,
+        which would cause variance to approach zero and freeze the policy.
+        """
         self.t += 1
         y = 1.0 if reward > 0 else 0.0
         p = sigmoid(float(np.dot(self.w_mean, x)))
@@ -379,7 +607,45 @@ class ThompsonBernoulliGate:
         base = 1.0 / math.sqrt(self.t + 1.0)
         step = base * grad / (np.sqrt(self.grad2) + 1e-6)
         self.w_mean += step
-        self.prec += grad * grad
+        
+        # Apply forgetting factor to prevent precision from growing unboundedly
+        # This ensures the system remains "plastic" and can adapt to distribution shifts
+        self.prec = self.lambda_ * self.prec + grad * grad
+
+    def pass_rate(self) -> float:
+        """Return the gate pass rate (encode / total decisions)."""
+        total = self._encode_count + self._skip_count
+        return self._encode_count / total if total > 0 else 0.5
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "d": self.d,
+            "seed": self._seed,
+            "lambda": self.lambda_,
+            "w_mean": self.w_mean.tolist(),
+            "prec": self.prec.tolist(),
+            "grad2": self.grad2.tolist(),
+            "t": self.t,
+            "encode_count": self._encode_count,
+            "skip_count": self._skip_count,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "ThompsonBernoulliGate":
+        """Reconstruct from state dict."""
+        obj = cls(
+            feature_dim=d["d"],
+            seed=d.get("seed", 0),
+            forgetting_factor=d.get("lambda", 0.99),
+        )
+        obj.w_mean = np.array(d["w_mean"], dtype=np.float32)
+        obj.prec = np.array(d["prec"], dtype=np.float32)
+        obj.grad2 = np.array(d["grad2"], dtype=np.float32)
+        obj.t = d["t"]
+        obj._encode_count = d.get("encode_count", 0)
+        obj._skip_count = d.get("skip_count", 0)
+        return obj
 
 
 # -----------------------------------------------------------------------------
@@ -405,6 +671,27 @@ class EdgeBelief:
             self.a += 1.0
         else:
             self.b += 1.0
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "edge_type": self.edge_type,
+            "a": self.a,
+            "b": self.b,
+            "use_count": self.use_count,
+            "last_used_ts": self.last_used_ts,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "EdgeBelief":
+        """Reconstruct from state dict."""
+        return cls(
+            edge_type=d["edge_type"],
+            a=d["a"],
+            b=d["b"],
+            use_count=d["use_count"],
+            last_used_ts=d["last_used_ts"],
+        )
 
 
 class MemoryGraph:
@@ -432,11 +719,65 @@ class MemoryGraph:
     def nodes_of_kind(self, kind: str) -> List[str]:
         return [n for n, d in self.g.nodes(data=True) if d.get("kind") == kind]
 
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize graph structure to JSON-compatible dict.
+        
+        Note: Node payloads are NOT serialized here - they should be 
+        serialized separately (plots, stories, themes dicts).
+        """
+        nodes = []
+        for node_id, data in self.g.nodes(data=True):
+            nodes.append({
+                "id": node_id,
+                "kind": data.get("kind", ""),
+            })
+        
+        edges = []
+        for src, dst, data in self.g.edges(data=True):
+            belief: EdgeBelief = data.get("belief")
+            edges.append({
+                "src": src,
+                "dst": dst,
+                "belief": belief.to_state_dict() if belief else None,
+            })
+        
+        return {
+            "nodes": nodes,
+            "edges": edges,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any], payloads: Dict[str, Any] = None) -> "MemoryGraph":
+        """Reconstruct graph from state dict.
+        
+        Args:
+            d: State dict with nodes and edges
+            payloads: Optional dict mapping node_id -> payload object
+        """
+        payloads = payloads or {}
+        obj = cls()
+        
+        for node in d.get("nodes", []):
+            node_id = node["id"]
+            kind = node["kind"]
+            payload = payloads.get(node_id)
+            obj.g.add_node(node_id, kind=kind, payload=payload)
+        
+        for edge in d.get("edges", []):
+            belief_data = edge.get("belief")
+            belief = EdgeBelief.from_state_dict(belief_data) if belief_data else EdgeBelief(edge_type="unknown")
+            obj.g.add_edge(edge["src"], edge["dst"], belief=belief)
+        
+        return obj
+
 
 class VectorIndex:
     """Brute-force vector index with kind filtering.
 
     Replace with FAISS/pgvector for production.
+    
+    DEPRECATED: Use aurora.storage.vector_store.VectorStore instead for production.
+    This class is kept for backward compatibility and testing.
     """
     def __init__(self, dim: int):
         self.dim = dim
@@ -472,6 +813,24 @@ class VectorIndex:
         hits.sort(key=lambda x: x[1], reverse=True)
         return hits[:k]
 
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "dim": self.dim,
+            "ids": self.ids,
+            "vecs": [v.tolist() for v in self.vecs],
+            "kinds": self.kinds,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "VectorIndex":
+        """Reconstruct from state dict."""
+        obj = cls(dim=d["dim"])
+        obj.ids = d["ids"]
+        obj.vecs = [np.array(v, dtype=np.float32) for v in d["vecs"]]
+        obj.kinds = d["kinds"]
+        return obj
+
 
 # -----------------------------------------------------------------------------
 # Nonparametric hierarchical assignment (CRP)
@@ -482,6 +841,7 @@ class CRPAssigner:
 
     def __init__(self, alpha: float = 1.0, seed: int = 0):
         self.alpha = alpha
+        self._seed = seed
         self.rng = np.random.default_rng(seed)
 
     def sample(self, logps: Dict[str, float]) -> Tuple[Optional[str], Dict[str, float]]:
@@ -496,6 +856,18 @@ class CRPAssigner:
         if choice == "__new__":
             return None, post
         return choice, post
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "alpha": self.alpha,
+            "seed": self._seed,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "CRPAssigner":
+        """Reconstruct from state dict."""
+        return cls(alpha=d["alpha"], seed=d.get("seed", 0))
 
 
 class StoryModel:
@@ -556,6 +928,48 @@ class RetrievalTrace:
     query_emb: np.ndarray
     attractor_path: List[np.ndarray]
     ranked: List[Tuple[str, float, str]]  # (id, score, kind)
+
+
+@dataclass
+class EvolutionSnapshot:
+    """Read-only snapshot of memory state for background evolution.
+    
+    Captures everything needed to compute evolution without modifying state.
+    """
+    # Story data
+    story_ids: List[str]
+    story_statuses: Dict[str, str]
+    story_centroids: Dict[str, Optional[np.ndarray]]
+    story_tension_curves: Dict[str, List[float]]
+    story_updated_ts: Dict[str, float]
+    story_gap_means: Dict[str, float]
+    
+    # Theme data
+    theme_ids: List[str]
+    theme_story_counts: Dict[str, int]
+    theme_prototypes: Dict[str, Optional[np.ndarray]]
+    
+    # CRP parameters
+    crp_theme_alpha: float
+    
+    # RNG state for reproducibility
+    rng_state: Dict[str, Any]
+
+
+@dataclass
+class EvolutionPatch:
+    """Computed changes from evolution, to be applied atomically.
+    
+    Represents a diff that can be applied to the memory state.
+    """
+    # Story status changes: story_id -> new_status
+    status_changes: Dict[str, str]
+    
+    # Theme assignments: [(story_id, theme_id)]
+    theme_assignments: List[Tuple[str, str]]
+    
+    # New themes to create: [(theme_id, prototype)]
+    new_themes: List[Tuple[str, np.ndarray]]
 
 
 class FieldRetriever:
@@ -670,6 +1084,33 @@ class MemoryConfig:
     # retrieval preferences
     retrieval_kinds: Tuple[str, ...] = ("theme", "story", "plot")
 
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
+        return {
+            "dim": self.dim,
+            "metric_rank": self.metric_rank,
+            "max_plots": self.max_plots,
+            "kde_reservoir": self.kde_reservoir,
+            "story_alpha": self.story_alpha,
+            "theme_alpha": self.theme_alpha,
+            "gate_feature_dim": self.gate_feature_dim,
+            "retrieval_kinds": list(self.retrieval_kinds),
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "MemoryConfig":
+        """Reconstruct from state dict."""
+        return cls(
+            dim=d.get("dim", 384),
+            metric_rank=d.get("metric_rank", 64),
+            max_plots=d.get("max_plots", 5000),
+            kde_reservoir=d.get("kde_reservoir", 4096),
+            story_alpha=d.get("story_alpha", 1.0),
+            theme_alpha=d.get("theme_alpha", 0.5),
+            gate_feature_dim=d.get("gate_feature_dim", 6),
+            retrieval_kinds=tuple(d.get("retrieval_kinds", ["theme", "story", "plot"])),
+        )
+
 
 class AuroraMemory:
     """AURORA Memory: emergent narrative memory from first principles.
@@ -683,6 +1124,7 @@ class AuroraMemory:
 
     def __init__(self, cfg: MemoryConfig = MemoryConfig(), seed: int = 0):
         self.cfg = cfg
+        self._seed = seed
         self.rng = np.random.default_rng(seed)
 
         # learnable primitives
@@ -1008,6 +1450,165 @@ class AuroraMemory:
         self._pressure_manage()
 
     # -------------------------------------------------------------------------
+    # Async Evolution: Copy-on-Write for non-blocking processing
+    # -------------------------------------------------------------------------
+
+    def create_evolution_snapshot(self) -> "EvolutionSnapshot":
+        """Create a read-only snapshot for evolution processing.
+        
+        This captures the current state without holding locks, allowing
+        evolution to proceed in a background thread while new ingests continue.
+        """
+        return EvolutionSnapshot(
+            story_ids=list(self.stories.keys()),
+            story_statuses={sid: s.status for sid, s in self.stories.items()},
+            story_centroids={sid: s.centroid.copy() if s.centroid is not None else None 
+                           for sid, s in self.stories.items()},
+            story_tension_curves={sid: list(s.tension_curve) for sid, s in self.stories.items()},
+            story_updated_ts={sid: s.updated_ts for sid, s in self.stories.items()},
+            story_gap_means={sid: s.gap_mean_safe() for sid, s in self.stories.items()},
+            theme_ids=list(self.themes.keys()),
+            theme_story_counts={tid: len(t.story_ids) for tid, t in self.themes.items()},
+            theme_prototypes={tid: t.prototype.copy() if t.prototype is not None else None
+                            for tid, t in self.themes.items()},
+            crp_theme_alpha=self.crp_theme.alpha,
+            rng_state=self.rng.bit_generator.state,
+        )
+
+    def compute_evolution_patch(self, snapshot: "EvolutionSnapshot") -> "EvolutionPatch":
+        """Compute evolution changes from snapshot (pure function, no side effects).
+        
+        This can run in a background thread without locks.
+        """
+        # Use a local RNG to avoid state mutation
+        rng = np.random.default_rng()
+        rng.bit_generator.state = snapshot.rng_state
+        
+        # 1) Determine story status changes
+        status_changes: Dict[str, str] = {}
+        for sid in snapshot.story_ids:
+            if snapshot.story_statuses[sid] != "developing":
+                continue
+            
+            # Activity probability
+            ts = now_ts()
+            updated = snapshot.story_updated_ts[sid]
+            tau = snapshot.story_gap_means[sid]
+            idle = max(0.0, ts - updated)
+            p_active = math.exp(-idle / max(tau, 1e-6))
+            
+            if rng.random() < p_active:
+                continue
+            
+            # Resolve vs abandon
+            curve = snapshot.story_tension_curves[sid]
+            if len(curve) >= 3:
+                slope = curve[-1] - curve[0]
+                p_resolve = sigmoid(-slope)
+            else:
+                p_resolve = 0.5
+            
+            new_status = "resolved" if rng.random() < p_resolve else "abandoned"
+            status_changes[sid] = new_status
+        
+        # 2) Compute theme assignments for newly resolved stories
+        theme_assignments: List[Tuple[str, Optional[str]]] = []  # (story_id, theme_id or None for new)
+        new_themes: List[Tuple[str, np.ndarray]] = []  # (theme_id, prototype)
+        
+        # Build updated theme counts (accounting for new assignments)
+        current_theme_counts = dict(snapshot.theme_story_counts)
+        
+        for sid, new_status in status_changes.items():
+            if new_status != "resolved":
+                continue
+            
+            centroid = snapshot.story_centroids[sid]
+            if centroid is None:
+                continue
+            
+            # Compute log probabilities for existing themes
+            logps: Dict[str, float] = {}
+            for tid in snapshot.theme_ids:
+                prior = math.log(current_theme_counts.get(tid, 0) + 1e-6)
+                prototype = snapshot.theme_prototypes.get(tid)
+                if prototype is not None:
+                    # Simple distance-based likelihood
+                    d2 = float(np.dot(centroid - prototype, centroid - prototype))
+                    logps[tid] = prior - 0.5 * d2
+                else:
+                    logps[tid] = prior
+            
+            # Add new theme option (CRP)
+            logps["__new__"] = math.log(snapshot.crp_theme_alpha)
+            
+            # Sample
+            keys = list(logps.keys())
+            probs = softmax([logps[k] for k in keys])
+            choice = rng.choice(keys, p=np.array(probs, dtype=np.float64))
+            
+            if choice == "__new__":
+                # Create new theme
+                new_theme_id = det_id("theme", sid)
+                new_themes.append((new_theme_id, centroid.copy()))
+                theme_assignments.append((sid, new_theme_id))
+                current_theme_counts[new_theme_id] = 1
+            else:
+                theme_assignments.append((sid, choice))
+                current_theme_counts[choice] = current_theme_counts.get(choice, 0) + 1
+        
+        return EvolutionPatch(
+            status_changes=status_changes,
+            theme_assignments=theme_assignments,
+            new_themes=new_themes,
+        )
+
+    def apply_evolution_patch(self, patch: "EvolutionPatch") -> None:
+        """Apply computed evolution changes atomically.
+        
+        Should be called with appropriate locking if needed.
+        """
+        # 1) Apply story status changes
+        for sid, new_status in patch.status_changes.items():
+            if sid in self.stories:
+                self.stories[sid].status = new_status
+        
+        # 2) Create new themes
+        for theme_id, prototype in patch.new_themes:
+            theme = Theme(id=theme_id, created_ts=now_ts(), updated_ts=now_ts())
+            theme.prototype = prototype
+            self.themes[theme_id] = theme
+            self.graph.add_node(theme_id, "theme", theme)
+            self.vindex.add(theme_id, prototype, kind="theme")
+        
+        # 3) Apply theme assignments and weave edges
+        for sid, tid in patch.theme_assignments:
+            if sid not in self.stories or tid not in self.themes:
+                continue
+            
+            story = self.stories[sid]
+            theme = self.themes[tid]
+            
+            theme.story_ids.append(sid)
+            theme.updated_ts = now_ts()
+            
+            # Update prototype (online mean)
+            if story.centroid is not None:
+                if theme.prototype is None:
+                    theme.prototype = story.centroid.copy()
+                else:
+                    n = len(theme.story_ids)
+                    theme.prototype = l2_normalize(
+                        theme.prototype * ((n - 1) / n) + story.centroid * (1.0 / n)
+                    )
+            
+            # Weave edges
+            self.graph.ensure_edge(sid, tid, "thematizes")
+            self.graph.ensure_edge(tid, sid, "exemplified_by")
+        
+        # 4) Pressure management
+        self._pressure_manage()
+
+    # -------------------------------------------------------------------------
     # Pressure management (resource constraints -> compression)
     # -------------------------------------------------------------------------
 
@@ -1066,6 +1667,100 @@ class AuroraMemory:
 
     def get_theme(self, theme_id: str) -> Theme:
         return self.themes[theme_id]
+
+    # -------------------------------------------------------------------------
+    # State serialization (JSON-compatible, replaces pickle)
+    # -------------------------------------------------------------------------
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize entire AuroraMemory state to JSON-compatible dict.
+        
+        This replaces pickle-based serialization with structured JSON,
+        enabling:
+        - Human-readable state inspection
+        - Cross-version compatibility
+        - Partial state recovery
+        - State diffing and debugging
+        """
+        return {
+            "version": 2,  # State format version for forward compatibility
+            "cfg": self.cfg.to_state_dict(),
+            "seed": self._seed,
+            
+            # Learnable components
+            "kde": self.kde.to_state_dict(),
+            "metric": self.metric.to_state_dict(),
+            "gate": self.gate.to_state_dict(),
+            
+            # Nonparametric assignment
+            "crp_story": self.crp_story.to_state_dict(),
+            "crp_theme": self.crp_theme.to_state_dict(),
+            
+            # Memory data
+            "plots": {pid: p.to_state_dict() for pid, p in self.plots.items()},
+            "stories": {sid: s.to_state_dict() for sid, s in self.stories.items()},
+            "themes": {tid: t.to_state_dict() for tid, t in self.themes.items()},
+            
+            # Graph structure (payloads reference plots/stories/themes)
+            "graph": self.graph.to_state_dict(),
+            
+            # Vector index (deprecated in production, use VectorStore)
+            "vindex": self.vindex.to_state_dict(),
+            
+            # Bookkeeping
+            "recent_encoded_plot_ids": self._recent_encoded_plot_ids,
+        }
+
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "AuroraMemory":
+        """Reconstruct AuroraMemory from state dict.
+        
+        Handles version migration if needed.
+        """
+        version = d.get("version", 1)
+        
+        # Reconstruct config
+        cfg = MemoryConfig.from_state_dict(d["cfg"])
+        seed = d.get("seed", 0)
+        
+        # Create new instance with config
+        obj = cls(cfg=cfg, seed=seed)
+        
+        # Restore learnable components
+        obj.kde = OnlineKDE.from_state_dict(d["kde"])
+        obj.metric = LowRankMetric.from_state_dict(d["metric"])
+        obj.gate = ThompsonBernoulliGate.from_state_dict(d["gate"])
+        
+        # Restore CRP assigners
+        obj.crp_story = CRPAssigner.from_state_dict(d["crp_story"])
+        obj.crp_theme = CRPAssigner.from_state_dict(d["crp_theme"])
+        
+        # Restore memory data
+        obj.plots = {pid: Plot.from_state_dict(pd) for pid, pd in d.get("plots", {}).items()}
+        obj.stories = {sid: StoryArc.from_state_dict(sd) for sid, sd in d.get("stories", {}).items()}
+        obj.themes = {tid: Theme.from_state_dict(td) for tid, td in d.get("themes", {}).items()}
+        
+        # Build payload lookup for graph reconstruction
+        payloads: Dict[str, Any] = {}
+        payloads.update(obj.plots)
+        payloads.update(obj.stories)
+        payloads.update(obj.themes)
+        
+        # Restore graph
+        obj.graph = MemoryGraph.from_state_dict(d["graph"], payloads=payloads)
+        
+        # Restore vector index
+        obj.vindex = VectorIndex.from_state_dict(d["vindex"])
+        
+        # Rebuild models with restored metric
+        obj.story_model = StoryModel(metric=obj.metric)
+        obj.theme_model = ThemeModel(metric=obj.metric)
+        obj.retriever = FieldRetriever(metric=obj.metric, vindex=obj.vindex, graph=obj.graph)
+        
+        # Restore bookkeeping
+        obj._recent_encoded_plot_ids = d.get("recent_encoded_plot_ids", [])
+        
+        return obj
 
 
 # -----------------------------------------------------------------------------

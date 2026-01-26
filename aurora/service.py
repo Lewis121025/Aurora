@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import threading
 import time
@@ -22,6 +23,79 @@ from aurora.algorithms.aurora_core import AuroraMemory, MemoryConfig, LowRankMet
 from aurora.algorithms.causal import CausalMemoryGraph, CausalEdgeBelief
 from aurora.algorithms.coherence import CoherenceGuardian, CoherenceReport
 from aurora.algorithms.self_narrative import SelfNarrativeEngine, SelfNarrative
+
+logger = logging.getLogger(__name__)
+
+
+def create_llm_provider(settings: AuroraSettings) -> LLMProvider:
+    """Create LLM provider based on settings.
+    
+    Supports:
+    - "ark": 火山方舟 (Volcengine Ark) - requires ark_api_key
+    - "mock": Local mock for testing
+    """
+    if settings.llm_provider == "ark" and settings.ark_api_key:
+        try:
+            from aurora.llm.ark import ArkLLMWithFallback
+            logger.info(f"Using Ark LLM provider with model: {settings.ark_llm_model}")
+            return ArkLLMWithFallback(
+                api_key=settings.ark_api_key,
+                model=settings.ark_llm_model,
+                base_url=settings.ark_base_url,
+                max_retries=settings.llm_max_retries,
+                timeout=settings.llm_timeout,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create Ark LLM provider: {e}, falling back to mock")
+            return MockLLM()
+    else:
+        if settings.llm_provider == "ark" and not settings.ark_api_key:
+            logger.warning("Ark LLM provider selected but no API key provided, using mock")
+        return MockLLM()
+
+
+def create_embedding_provider(settings: AuroraSettings):
+    """Create embedding provider based on settings.
+    
+    Supports:
+    - "bailian": 阿里云百炼 (Alibaba Bailian) - requires bailian_api_key
+    - "ark": 火山方舟 (Volcengine Ark) - requires ark_api_key + endpoint
+    - "mock": Local hash embedding for testing
+    """
+    # 阿里云百炼
+    if settings.embedding_provider == "bailian" and settings.bailian_api_key:
+        try:
+            from aurora.embeddings.bailian import BailianEmbeddingWithFallback
+            logger.info(f"Using Bailian embedding provider with model: {settings.bailian_embedding_model}")
+            return BailianEmbeddingWithFallback(
+                api_key=settings.bailian_api_key,
+                model=settings.bailian_embedding_model,
+                base_url=settings.bailian_base_url,
+                fallback_dim=settings.dim,
+                use_cache=settings.embedding_cache_enabled,
+                cache_size=settings.embedding_cache_size,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create Bailian embedding provider: {e}, falling back to hash")
+    
+    # 火山方舟 (需要 endpoint ID)
+    elif settings.embedding_provider == "ark" and settings.ark_api_key:
+        try:
+            from aurora.embeddings.ark import ArkEmbeddingWithFallback
+            logger.info(f"Using Ark embedding provider")
+            return ArkEmbeddingWithFallback(
+                api_key=settings.ark_api_key,
+                fallback_dim=settings.dim,
+                use_cache=settings.embedding_cache_enabled,
+                cache_size=settings.embedding_cache_size,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to create Ark embedding provider: {e}, falling back to hash")
+    
+    # 本地 Hash 嵌入
+    from aurora.embeddings.hash import HashEmbedding
+    logger.info("Using local Hash embedding provider")
+    return HashEmbedding(dim=settings.dim)
 
 
 @dataclass
@@ -77,7 +151,7 @@ class AuroraTenant:
     def __init__(self, *, user_id: str, settings: AuroraSettings, llm: Optional[LLMProvider] = None):
         self.user_id = user_id
         self.settings = settings
-        self.llm: LLMProvider = llm or MockLLM()
+        self.llm: LLMProvider = llm or create_llm_provider(settings)
 
         self._lock = threading.RLock()
 
