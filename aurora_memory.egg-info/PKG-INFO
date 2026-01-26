@@ -20,18 +20,26 @@ Requires-Dist: openai>=1.12; extra == "ark"
 Provides-Extra: jobs
 Requires-Dist: apscheduler>=3.10; extra == "jobs"
 Provides-Extra: postgres
-Requires-Dist: sqlalchemy>=2.0; extra == "postgres"
-Requires-Dist: psycopg>=3.1; extra == "postgres"
+Requires-Dist: asyncpg>=0.29.0; extra == "postgres"
 Requires-Dist: pgvector>=0.2.5; extra == "postgres"
+Provides-Extra: redis
+Requires-Dist: redis>=5.0.0; extra == "redis"
+Requires-Dist: hiredis>=2.2.0; extra == "redis"
+Provides-Extra: kafka
+Requires-Dist: aiokafka>=0.10.0; extra == "kafka"
 Provides-Extra: telemetry
 Requires-Dist: prometheus-client>=0.20; extra == "telemetry"
 Requires-Dist: opentelemetry-api>=1.23; extra == "telemetry"
 Requires-Dist: opentelemetry-sdk>=1.23; extra == "telemetry"
+Provides-Extra: mcp
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0; extra == "dev"
 Requires-Dist: pytest-cov>=4.1; extra == "dev"
+Requires-Dist: aiosqlite>=0.19.0; extra == "dev"
+Provides-Extra: production
+Requires-Dist: aurora-memory[api,ark,kafka,postgres,redis,telemetry]; extra == "production"
 Provides-Extra: all
-Requires-Dist: aurora-memory[api,ark,dev,jobs,telemetry]; extra == "all"
+Requires-Dist: aurora-memory[api,ark,dev,jobs,kafka,postgres,redis,telemetry]; extra == "all"
 
 # AURORA 叙事记忆系统
 
@@ -47,7 +55,7 @@ AURORA (Adaptive Uncertainty-Reducing, Resource-Optimal, Recursive Autobiographi
 - **一致性守护**：概率矛盾检测、信念网络、自动冲突解决
 - **自我叙事**：动态能力认知、关系建模、身份演化
 - **生产就绪**：事件溯源、多租户、REST API、容器化
-- **火山方舟集成**：支持 Doubao LLM 和嵌入模型
+- **多云集成**：火山方舟 LLM + 阿里云百炼嵌入
 
 ## 快速开始
 
@@ -55,38 +63,43 @@ AURORA (Adaptive Uncertainty-Reducing, Resource-Optimal, Recursive Autobiographi
 # 安装基础版本
 pip install -e .
 
-# 安装带火山方舟支持的版本
-pip install -e ".[ark]"
-
-# 安装完整版本（包括 API、调度器、监控等）
+# 安装带 API 支持的完整版本
 pip install -e ".[all]"
 ```
 
-### 配置火山方舟
+### 配置 API Keys
 
 ```bash
 # 复制配置示例
 cp .env.example .env
 
-# 编辑 .env 文件，设置您的 API Key
-AURORA_ARK_API_KEY=your-api-key-here
+# 编辑 .env 文件，设置 API Keys
+# 火山方舟 LLM
+AURORA_ARK_API_KEY=your-ark-api-key
+# 阿里云百炼 嵌入
+AURORA_BAILIAN_API_KEY=your-bailian-api-key
 ```
 
-或者通过环境变量设置：
+或通过环境变量设置：
 
 ```bash
+# LLM (火山方舟 Doubao)
 export AURORA_LLM_PROVIDER=ark
-export AURORA_ARK_API_KEY=your-api-key-here
+export AURORA_ARK_API_KEY=your-ark-api-key
+
+# 嵌入 (阿里云百炼)
+export AURORA_EMBEDDING_PROVIDER=bailian
+export AURORA_BAILIAN_API_KEY=your-bailian-api-key
 ```
 
 ### 运行演示
 
 ```bash
-# 运行演示（使用配置的 LLM）
-python -m aurora demo
+# 运行测试
+python test_ark_integration.py
 
 # 启动 API 服务
-pip install -e ".[api,ark]"
+pip install -e ".[api]"
 aurora serve --port 8000
 ```
 

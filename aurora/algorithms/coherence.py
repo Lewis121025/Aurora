@@ -21,11 +21,14 @@ import math
 import numpy as np
 import networkx as nx
 
-from aurora.algorithms.aurora_core import (
-    Plot, StoryArc, Theme, MemoryGraph,
-    LowRankMetric, now_ts, l2_normalize, cosine_sim, sigmoid, softmax
-)
+from aurora.algorithms.models.plot import Plot
+from aurora.algorithms.models.story import StoryArc
+from aurora.algorithms.models.theme import Theme
+from aurora.algorithms.graph.memory_graph import MemoryGraph
+from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.causal import CausalEdgeBelief, CausalMemoryGraph
+from aurora.utils.math_utils import l2_normalize, cosine_sim, sigmoid, softmax
+from aurora.utils.time_utils import now_ts
 
 
 # -----------------------------------------------------------------------------

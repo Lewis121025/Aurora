@@ -19,7 +19,9 @@ from aurora.llm.mock import MockLLM
 from aurora.llm import prompts
 from aurora.llm.schemas import PlotExtraction
 
-from aurora.algorithms.aurora_core import AuroraMemory, MemoryConfig, LowRankMetric
+from aurora.algorithms.aurora_core import AuroraMemory
+from aurora.algorithms.models.config import MemoryConfig
+from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.causal import CausalMemoryGraph, CausalEdgeBelief
 from aurora.algorithms.coherence import CoherenceGuardian, CoherenceReport
 from aurora.algorithms.self_narrative import SelfNarrativeEngine, SelfNarrative

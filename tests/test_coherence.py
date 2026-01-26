@@ -7,9 +7,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from aurora.algorithms.aurora_core import (
-    Plot, StoryArc, Theme, MemoryGraph, LowRankMetric, now_ts
-)
+from aurora.algorithms.models.plot import Plot
+from aurora.algorithms.models.story import StoryArc
+from aurora.algorithms.models.theme import Theme
+from aurora.algorithms.graph.memory_graph import MemoryGraph
+from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.coherence import (
     ConflictType,
     Conflict,
@@ -23,6 +25,7 @@ from aurora.algorithms.coherence import (
     CoherenceGuardian,
 )
 from aurora.algorithms.causal import CausalEdgeBelief
+from aurora.utils.time_utils import now_ts
 
 
 @pytest.fixture

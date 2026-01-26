@@ -7,9 +7,9 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from aurora.algorithms.aurora_core import (
-    Plot, Theme, LowRankMetric, now_ts
-)
+from aurora.algorithms.models.plot import Plot
+from aurora.algorithms.models.theme import Theme
+from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.self_narrative import (
     CapabilityBelief,
     RelationshipBelief,
@@ -17,6 +17,7 @@ from aurora.algorithms.self_narrative import (
     SelfNarrativeEngine,
     IdentityTracker,
 )
+from aurora.utils.time_utils import now_ts
 
 
 @pytest.fixture
