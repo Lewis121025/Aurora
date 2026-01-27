@@ -5,7 +5,7 @@ description = "AURORA narrative memory — production pack with causal inference
 requires-python = ">=3.10"
 authors = [{name="AURORA Contributors"}]
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "Proprietary"}
 dependencies = [
   "numpy>=1.24",
   "scipy>=1.11",
