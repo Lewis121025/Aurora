@@ -42,6 +42,12 @@ telemetry = [
   "opentelemetry-api>=1.23",
   "opentelemetry-sdk>=1.23",
 ]
+faiss = [
+  "faiss-cpu>=1.7.4",
+]
+faiss-gpu = [
+  "faiss-gpu>=1.7.4",
+]
 mcp = [
   # MCP SDK when available
 ]
@@ -52,10 +58,10 @@ dev = [
 ]
 # Production bundle with all storage backends
 production = [
-  "aurora-memory[api,ark,postgres,redis,kafka,telemetry]",
+  "aurora-memory[api,ark,postgres,redis,kafka,telemetry,faiss]",
 ]
 all = [
-  "aurora-memory[api,ark,jobs,postgres,redis,kafka,telemetry,dev]",
+  "aurora-memory[api,ark,jobs,postgres,redis,kafka,telemetry,faiss,dev]",
 ]
 
 [project.scripts]

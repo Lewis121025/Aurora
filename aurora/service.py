@@ -95,7 +95,7 @@ def create_embedding_provider(settings: AuroraSettings):
             logger.warning(f"Failed to create Ark embedding provider: {e}, falling back to hash")
     
     # 本地 Hash 嵌入
-    from aurora.embeddings.hash import HashEmbedding
+    from aurora.algorithms.components.embedding import HashEmbedding
     logger.info("Using local Hash embedding provider")
     return HashEmbedding(dim=settings.dim)
 

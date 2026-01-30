@@ -111,6 +111,14 @@ class MemoryConfig:
     # Retrieval preferences
     retrieval_kinds: Tuple[str, ...] = ("theme", "story", "plot")
 
+    # Vector index: "auto" (FAISS if available), "faiss", "brute"
+    vector_backend: str = "auto"
+    
+    # FAISS HNSW parameters (only used when vector_backend is "faiss" or "auto")
+    faiss_m: int = 32  # HNSW connections per layer (8-64, higher = better recall)
+    faiss_ef_construction: int = 64  # Construction-time search depth
+    faiss_ef_search: int = 32  # Query-time search depth (increase for better recall)
+
     # Algorithm config (nested, optional for backward compatibility)
     algo: Optional[AlgorithmConfig] = field(default=None)
 
@@ -129,6 +137,10 @@ class MemoryConfig:
             "theme_alpha": self.theme_alpha,
             "gate_feature_dim": self.gate_feature_dim,
             "retrieval_kinds": list(self.retrieval_kinds),
+            "vector_backend": self.vector_backend,
+            "faiss_m": self.faiss_m,
+            "faiss_ef_construction": self.faiss_ef_construction,
+            "faiss_ef_search": self.faiss_ef_search,
             "algo": self.algo.to_state_dict() if self.algo else None,
         }
 
@@ -146,5 +158,9 @@ class MemoryConfig:
             theme_alpha=d.get("theme_alpha", 0.5),
             gate_feature_dim=d.get("gate_feature_dim", 6),
             retrieval_kinds=tuple(d.get("retrieval_kinds", ["theme", "story", "plot"])),
+            vector_backend=d.get("vector_backend", "auto"),
+            faiss_m=d.get("faiss_m", 32),
+            faiss_ef_construction=d.get("faiss_ef_construction", 64),
+            faiss_ef_search=d.get("faiss_ef_search", 32),
             algo=algo,
         )

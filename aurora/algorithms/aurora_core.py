@@ -36,7 +36,16 @@ from aurora.algorithms.components.embedding import HashEmbedding
 from aurora.algorithms.graph.memory_graph import MemoryGraph
 from aurora.algorithms.graph.vector_index import VectorIndex
 
+try:
+    from aurora.algorithms.graph.faiss_index import FAISSVectorIndex, FAISS_AVAILABLE
+except ImportError:
+    FAISSVectorIndex = None
+    FAISS_AVAILABLE = False
+
 from aurora.algorithms.retrieval.field_retriever import FieldRetriever
+
+import logging
+logger = logging.getLogger(__name__)
 
 
 class AuroraMemory:
@@ -62,7 +71,9 @@ class AuroraMemory:
 
         # memory stores
         self.graph = MemoryGraph()
-        self.vindex = VectorIndex(dim=cfg.dim)
+        
+        # Vector index - use FAISS if configured and available
+        self.vindex = self._create_vector_index(cfg)
 
         self.plots: Dict[str, Plot] = {}
         self.stories: Dict[str, StoryArc] = {}
@@ -79,6 +90,32 @@ class AuroraMemory:
 
         # bookkeeping for delayed credit assignment
         self._recent_encoded_plot_ids: List[str] = []  # sliding window
+
+    # -------------------------------------------------------------------------
+    # Vector index creation
+    # -------------------------------------------------------------------------
+
+    def _create_vector_index(self, cfg: MemoryConfig):
+        """Create vector index based on configuration."""
+        if cfg.vector_backend == "faiss":
+            if not FAISS_AVAILABLE:
+                raise ImportError("FAISS required. Install: pip install faiss-cpu")
+            return FAISSVectorIndex(
+                dim=cfg.dim,
+                M=cfg.faiss_m,
+                ef_construction=cfg.faiss_ef_construction,
+                ef_search=cfg.faiss_ef_search,
+            )
+        
+        if cfg.vector_backend == "auto" and FAISS_AVAILABLE:
+            return FAISSVectorIndex(
+                dim=cfg.dim,
+                M=cfg.faiss_m,
+                ef_construction=cfg.faiss_ef_construction,
+                ef_search=cfg.faiss_ef_search,
+            )
+        
+        return VectorIndex(dim=cfg.dim)
 
     # -------------------------------------------------------------------------
     # Feature computation for value-of-information (VOI) encoding
