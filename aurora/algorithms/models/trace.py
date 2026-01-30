@@ -16,7 +16,7 @@ import numpy as np
 @dataclass
 class RetrievalTrace:
     """
-    Trace of a retrieval operation.
+    Trace of a retrieval operation with relationship-centric extensions.
 
     Captures the query, intermediate states, and ranked results
     for analysis and learning.
@@ -26,12 +26,22 @@ class RetrievalTrace:
         query_emb: Query embedding vector
         attractor_path: Path of embeddings during mean-shift
         ranked: List of (id, score, kind) tuples for ranked results
+        
+    Relationship-centric extensions:
+        asker_id: The ID of the entity asking the query
+        activated_identity: The identity activated for this relationship
+        relationship_context: Summary of relationship context
     """
 
     query: str
     query_emb: np.ndarray
     attractor_path: List[np.ndarray]
     ranked: List[Tuple[str, float, str]]  # (id, score, kind)
+    
+    # Relationship-centric extensions
+    asker_id: Optional[str] = None
+    activated_identity: Optional[str] = None
+    relationship_context: Optional[str] = None
 
 
 @dataclass

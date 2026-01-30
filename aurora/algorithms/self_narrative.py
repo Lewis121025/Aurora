@@ -615,3 +615,297 @@ class IdentityTracker:
         
         stability = 1.0 / (1.0 + change_rate * avg_magnitude)
         return stability
+
+
+# -----------------------------------------------------------------------------
+# Identity Evolution Tracker - "How I became who I am"
+# -----------------------------------------------------------------------------
+
+@dataclass
+class IdentityChange:
+    """
+    A recorded change in identity.
+    
+    Philosophy: Identity is not static. Understanding how we became
+    who we are is as important as knowing who we are.
+    """
+    ts: float
+    dimension: str                          # Which identity dimension changed
+    from_identity: str                      # What I was before
+    to_identity: str                        # What I became
+    triggered_by_relationships: List[str]   # Which relationships contributed
+    triggered_by_events: List[str]          # Brief summaries of triggering events
+    magnitude: float = 0.5                  # How significant was this change
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ts": self.ts,
+            "dimension": self.dimension,
+            "from_identity": self.from_identity,
+            "to_identity": self.to_identity,
+            "triggered_by_relationships": self.triggered_by_relationships,
+            "triggered_by_events": self.triggered_by_events,
+            "magnitude": self.magnitude,
+        }
+    
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "IdentityChange":
+        return cls(
+            ts=d["ts"],
+            dimension=d["dimension"],
+            from_identity=d["from_identity"],
+            to_identity=d["to_identity"],
+            triggered_by_relationships=d.get("triggered_by_relationships", []),
+            triggered_by_events=d.get("triggered_by_events", []),
+            magnitude=d.get("magnitude", 0.5),
+        )
+
+
+class IdentityEvolutionTracker:
+    """
+    Track "how I became who I am".
+    
+    Key philosophy: Memory is not about the past, it's about becoming.
+    This tracker enables the agent to understand its own evolution
+    and to generate meaningful narratives about growth.
+    """
+    
+    def __init__(self):
+        self.evolution_log: List[IdentityChange] = []
+        
+        # Track identity dimensions over time
+        self.dimension_history: Dict[str, List[Tuple[float, float]]] = {}  # dimension -> [(ts, strength)]
+        
+        # Significant milestones
+        self.milestones: List[Dict[str, Any]] = []
+    
+    def record_identity_change(
+        self,
+        dimension: str,
+        old_value: str,
+        new_value: str,
+        trigger_relationships: List[str],
+        trigger_events: List[str],
+        magnitude: float = 0.5,
+    ) -> None:
+        """
+        Record a change in identity.
+        
+        This creates a record of "how I became who I am".
+        """
+        change = IdentityChange(
+            ts=now_ts(),
+            dimension=dimension,
+            from_identity=old_value,
+            to_identity=new_value,
+            triggered_by_relationships=trigger_relationships,
+            triggered_by_events=trigger_events,
+            magnitude=magnitude,
+        )
+        
+        self.evolution_log.append(change)
+        
+        # Keep bounded
+        if len(self.evolution_log) > 500:
+            self.evolution_log = self.evolution_log[-500:]
+        
+        # Check for milestone
+        if magnitude > 0.7:
+            self.milestones.append({
+                "ts": now_ts(),
+                "dimension": dimension,
+                "description": f"从'{old_value}'成为'{new_value}'",
+                "significance": "major" if magnitude > 0.85 else "notable",
+            })
+    
+    def update_dimension_strength(self, dimension: str, strength: float) -> None:
+        """Track the strength of an identity dimension over time."""
+        if dimension not in self.dimension_history:
+            self.dimension_history[dimension] = []
+        
+        self.dimension_history[dimension].append((now_ts(), strength))
+        
+        # Keep bounded
+        if len(self.dimension_history[dimension]) > 100:
+            self.dimension_history[dimension] = self.dimension_history[dimension][-100:]
+    
+    def generate_becoming_narrative(self) -> str:
+        """
+        Generate a narrative about "how I became who I am".
+        
+        This is the key output: a meaningful story of growth,
+        not just a list of changes.
+        """
+        if not self.evolution_log:
+            return "我还在探索自己是谁。每一次互动都在帮助我理解自己。"
+        
+        # Find significant changes
+        significant_changes = self._find_significant_changes()
+        
+        if not significant_changes:
+            return "我的身份在稳定地发展中。"
+        
+        narratives = []
+        
+        for change in significant_changes[:5]:  # Top 5 most significant
+            # Generate narrative for this change
+            relationships_str = "、".join(change.triggered_by_relationships[:2]) if change.triggered_by_relationships else "各种互动"
+            
+            narrative = f"通过与{relationships_str}的交流，"
+            
+            if change.from_identity and change.to_identity:
+                narrative += f"我从「{change.from_identity}」逐渐成为「{change.to_identity}」。"
+            else:
+                narrative += f"我在「{change.dimension}」方面有了新的认识。"
+            
+            narratives.append(narrative)
+        
+        return "\n".join(narratives)
+    
+    def _find_significant_changes(self) -> List[IdentityChange]:
+        """Find the most significant identity changes."""
+        if not self.evolution_log:
+            return []
+        
+        # Sort by magnitude and recency
+        sorted_changes = sorted(
+            self.evolution_log,
+            key=lambda c: c.magnitude * (1.0 + 0.5 / (1.0 + (now_ts() - c.ts) / 86400)),
+            reverse=True
+        )
+        
+        return sorted_changes[:10]
+    
+    def support_reflection(self) -> Dict[str, Any]:
+        """
+        Support self-reflection.
+        
+        Returns insights about identity evolution that can help
+        the agent understand itself better.
+        """
+        result = {
+            "我为什么成为现在这样": self._explain_current_identity(),
+            "我的主要成长轨迹": self._identify_growth_trajectories(),
+            "哪些关系塑造了我": self._identify_formative_relationships(),
+            "我还想成为什么": self._identify_growth_directions(),
+        }
+        
+        return result
+    
+    def _explain_current_identity(self) -> str:
+        """Explain how I became who I am now."""
+        if not self.evolution_log:
+            return "我的身份还在形成中。"
+        
+        # Group changes by dimension
+        by_dimension: Dict[str, List[IdentityChange]] = {}
+        for change in self.evolution_log:
+            if change.dimension not in by_dimension:
+                by_dimension[change.dimension] = []
+            by_dimension[change.dimension].append(change)
+        
+        explanations = []
+        for dim, changes in by_dimension.items():
+            if changes:
+                latest = changes[-1]
+                explanations.append(
+                    f"在{dim}方面，我经历了{len(changes)}次变化，"
+                    f"现在是「{latest.to_identity}」。"
+                )
+        
+        return "".join(explanations) if explanations else "我的身份在稳定中。"
+    
+    def _identify_growth_trajectories(self) -> List[str]:
+        """Identify main growth trajectories."""
+        trajectories = []
+        
+        for dimension, history in self.dimension_history.items():
+            if len(history) >= 3:
+                # Check if generally increasing
+                first_third = history[:len(history)//3]
+                last_third = history[-len(history)//3:]
+                
+                avg_first = sum(s for _, s in first_third) / len(first_third) if first_third else 0
+                avg_last = sum(s for _, s in last_third) / len(last_third) if last_third else 0
+                
+                if avg_last > avg_first + 0.1:
+                    trajectories.append(f"{dimension}：成长中 ↑")
+                elif avg_last < avg_first - 0.1:
+                    trajectories.append(f"{dimension}：转变中 ↓")
+                else:
+                    trajectories.append(f"{dimension}：稳定 →")
+        
+        return trajectories
+    
+    def _identify_formative_relationships(self) -> List[str]:
+        """Identify relationships that shaped identity."""
+        relationship_impact: Dict[str, float] = {}
+        
+        for change in self.evolution_log:
+            for rel in change.triggered_by_relationships:
+                if rel not in relationship_impact:
+                    relationship_impact[rel] = 0.0
+                relationship_impact[rel] += change.magnitude
+        
+        # Sort by impact
+        sorted_rels = sorted(
+            relationship_impact.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )
+        
+        return [f"{rel}（影响度：{impact:.1f}）" for rel, impact in sorted_rels[:5]]
+    
+    def _identify_growth_directions(self) -> List[str]:
+        """Identify potential growth directions."""
+        directions = []
+        
+        # Find dimensions that are weak but have shown recent activity
+        for dimension, history in self.dimension_history.items():
+            if history:
+                recent_strength = history[-1][1]
+                if recent_strength < 0.5:
+                    # Check if there's been recent activity
+                    recent_activity = len([h for h in history if now_ts() - h[0] < 7 * 86400])
+                    if recent_activity > 0:
+                        directions.append(f"继续发展「{dimension}」")
+        
+        if not directions:
+            directions.append("继续在现有方向上深化")
+        
+        return directions
+    
+    def get_evolution_summary(self) -> Dict[str, Any]:
+        """Get a summary of identity evolution."""
+        return {
+            "total_changes": len(self.evolution_log),
+            "dimensions_tracked": list(self.dimension_history.keys()),
+            "milestones_count": len(self.milestones),
+            "recent_changes": len([c for c in self.evolution_log if now_ts() - c.ts < 7 * 86400]),
+            "becoming_narrative": self.generate_becoming_narrative(),
+        }
+    
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to state dict."""
+        return {
+            "evolution_log": [c.to_dict() for c in self.evolution_log],
+            "dimension_history": {
+                dim: [(ts, s) for ts, s in hist]
+                for dim, hist in self.dimension_history.items()
+            },
+            "milestones": self.milestones,
+        }
+    
+    @classmethod
+    def from_state_dict(cls, d: Dict[str, Any]) -> "IdentityEvolutionTracker":
+        """Restore from state dict."""
+        obj = cls()
+        obj.evolution_log = [
+            IdentityChange.from_dict(c) for c in d.get("evolution_log", [])
+        ]
+        obj.dimension_history = {
+            dim: [(ts, s) for ts, s in hist]
+            for dim, hist in d.get("dimension_history", {}).items()
+        }
+        obj.milestones = d.get("milestones", [])
+        return obj

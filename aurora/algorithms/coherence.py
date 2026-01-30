@@ -27,6 +27,7 @@ from aurora.algorithms.models.theme import Theme
 from aurora.algorithms.graph.memory_graph import MemoryGraph
 from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.causal import CausalEdgeBelief, CausalMemoryGraph
+from aurora.algorithms.tension import TensionManager, Tension, TensionType, TensionResolution
 from aurora.utils.math_utils import l2_normalize, cosine_sim, sigmoid, softmax
 from aurora.utils.time_utils import now_ts
 
@@ -765,9 +766,15 @@ class ConflictResolver:
 
 class CoherenceGuardian:
     """
-    Main interface for coherence maintenance.
+    Main interface for coherence maintenance with FUNCTIONAL CONTRADICTION MANAGEMENT.
     
-    Combines detection, scoring, and resolution.
+    Key philosophy change:
+    - Not all contradictions need resolution
+    - Some contradictions provide flexibility (adaptive)
+    - Some contradictions indicate growth (developmental)
+    - Only action-blocking or identity-threatening contradictions must be resolved
+    
+    Integrates TensionManager for intelligent contradiction handling.
     """
     
     def __init__(self, metric: LowRankMetric, seed: int = 0):
@@ -776,6 +783,9 @@ class CoherenceGuardian:
         self.scorer = CoherenceScorer(metric, self.detector, seed)
         self.resolver = ConflictResolver(metric, seed)
         self.belief_network = BeliefNetwork()
+        
+        # TensionManager for functional contradiction management
+        self.tension_manager = TensionManager(seed=seed)
     
     def full_check(
         self,
@@ -789,6 +799,153 @@ class CoherenceGuardian:
         return self.scorer.compute_coherence(
             graph, plots, stories, themes, causal_beliefs
         )
+    
+    def full_check_with_tension_analysis(
+        self,
+        graph: MemoryGraph,
+        plots: Dict[str, Plot],
+        stories: Dict[str, StoryArc],
+        themes: Dict[str, Theme],
+        causal_beliefs: Optional[Dict[Tuple[str, str], CausalEdgeBelief]] = None,
+    ) -> Tuple[CoherenceReport, Dict[str, Any]]:
+        """
+        Run full coherence check with tension analysis.
+        
+        Returns:
+            (CoherenceReport, tension_analysis)
+            
+        The tension_analysis includes:
+        - conflicts_to_resolve: Conflicts that must be resolved
+        - conflicts_to_preserve: Conflicts that provide flexibility
+        - conflicts_to_accept: Conflicts that indicate growth
+        """
+        report = self.scorer.compute_coherence(
+            graph, plots, stories, themes, causal_beliefs
+        )
+        
+        # Analyze each conflict through the tension lens
+        conflicts_to_resolve = []
+        conflicts_to_preserve = []
+        conflicts_to_accept = []
+        conflicts_to_defer = []
+        
+        for conflict in report.conflicts:
+            # Convert Conflict to Tension for analysis
+            tension = self._conflict_to_tension(conflict, plots, stories, themes)
+            if tension is None:
+                continue
+            
+            # Classify and decide what to do
+            tension_type = self.tension_manager.classify_tension(tension)
+            
+            if tension_type in [TensionType.ACTION_BLOCKING, TensionType.IDENTITY_THREATENING]:
+                conflicts_to_resolve.append({
+                    "conflict": conflict,
+                    "tension": tension,
+                    "reason": f"必须解决：{tension_type.value}"
+                })
+            elif tension_type == TensionType.ADAPTIVE:
+                conflicts_to_preserve.append({
+                    "conflict": conflict,
+                    "tension": tension,
+                    "reason": "保留：提供灵活性的适应性矛盾"
+                })
+            elif tension_type == TensionType.DEVELOPMENTAL:
+                conflicts_to_accept.append({
+                    "conflict": conflict,
+                    "tension": tension,
+                    "reason": "接受：成长的标志"
+                })
+            else:
+                conflicts_to_defer.append({
+                    "conflict": conflict,
+                    "tension": tension,
+                    "reason": "需要更多信息"
+                })
+        
+        tension_analysis = {
+            "conflicts_to_resolve": conflicts_to_resolve,
+            "conflicts_to_preserve": conflicts_to_preserve,
+            "conflicts_to_accept": conflicts_to_accept,
+            "conflicts_to_defer": conflicts_to_defer,
+            "summary": {
+                "total": len(report.conflicts),
+                "to_resolve": len(conflicts_to_resolve),
+                "to_preserve": len(conflicts_to_preserve),
+                "to_accept": len(conflicts_to_accept),
+                "to_defer": len(conflicts_to_defer),
+            }
+        }
+        
+        return report, tension_analysis
+    
+    def _conflict_to_tension(
+        self,
+        conflict: Conflict,
+        plots: Dict[str, Plot],
+        stories: Dict[str, StoryArc],
+        themes: Dict[str, Theme],
+    ) -> Optional[Tension]:
+        """Convert a Conflict to a Tension for analysis."""
+        # Get the elements involved
+        element_a = self._get_element(conflict.node_a, plots, stories, themes)
+        element_b = self._get_element(conflict.node_b, plots, stories, themes)
+        
+        if element_a is None or element_b is None:
+            return None
+        
+        # Get embeddings
+        emb_a = self._get_embedding(element_a)
+        emb_b = self._get_embedding(element_b)
+        
+        # Use TensionManager to detect and create tension
+        tension = self.tension_manager.detect_tension(
+            {"id": conflict.node_a, "type": conflict.type.value, "text": conflict.description},
+            {"id": conflict.node_b, "type": conflict.type.value, "text": ""},
+            emb_a, emb_b
+        )
+        
+        if tension is None:
+            # Create tension from conflict
+            import uuid
+            tension = Tension(
+                id=str(uuid.uuid4()),
+                element_a_id=conflict.node_a,
+                element_a_type=conflict.type.value,
+                element_b_id=conflict.node_b,
+                element_b_type=conflict.type.value,
+                description=conflict.description,
+                severity=conflict.severity,
+            )
+            self.tension_manager.tensions[tension.id] = tension
+        
+        return tension
+    
+    def _get_element(
+        self,
+        node_id: str,
+        plots: Dict[str, Plot],
+        stories: Dict[str, StoryArc],
+        themes: Dict[str, Theme],
+    ) -> Optional[Any]:
+        """Get element by ID from any collection."""
+        if node_id in plots:
+            return plots[node_id]
+        if node_id in stories:
+            return stories[node_id]
+        if node_id in themes:
+            return themes[node_id]
+        return None
+    
+    def _get_embedding(self, element: Any) -> Optional[np.ndarray]:
+        """Get embedding from element."""
+        if hasattr(element, 'embedding') and element.embedding is not None:
+            return element.embedding
+        if hasattr(element, 'centroid') and element.centroid is not None:
+            return element.centroid
+        if hasattr(element, 'prototype') and element.prototype is not None:
+            return element.prototype
+        return None
     
     def auto_resolve(
         self,
@@ -821,6 +978,73 @@ class CoherenceGuardian:
                 resolved += 1
         
         return resolved
+    
+    def smart_resolve(
+        self,
+        report: CoherenceReport,
+        graph: MemoryGraph,
+        plots: Dict[str, Plot],
+        stories: Dict[str, StoryArc],
+        themes: Dict[str, Theme],
+        max_resolutions: int = 3,
+    ) -> Dict[str, Any]:
+        """
+        Smart conflict resolution using TensionManager.
+        
+        Only resolves conflicts that NEED resolution.
+        Preserves adaptive and developmental tensions.
+        
+        Returns summary of actions taken.
+        """
+        _, tension_analysis = self.full_check_with_tension_analysis(
+            graph, plots, stories, themes
+        )
+        
+        actions_taken = {
+            "resolved": [],
+            "preserved": [],
+            "accepted": [],
+        }
+        
+        # Only resolve action-blocking or identity-threatening
+        for item in tension_analysis["conflicts_to_resolve"][:max_resolutions]:
+            conflict = item["conflict"]
+            tension = item["tension"]
+            
+            # Generate and apply resolution
+            if not conflict.resolutions:
+                conflict.resolutions = self._generate_resolutions(conflict)
+            
+            if self.resolver.resolve(conflict, graph, plots, stories, themes):
+                resolution = self.tension_manager.handle_tension(tension)
+                actions_taken["resolved"].append({
+                    "conflict_id": f"{conflict.node_a}-{conflict.node_b}",
+                    "description": conflict.description,
+                    "action": resolution.action,
+                    "rationale": resolution.rationale,
+                })
+        
+        # Mark adaptive tensions as preserved
+        for item in tension_analysis["conflicts_to_preserve"]:
+            tension = item["tension"]
+            resolution = self.tension_manager.handle_tension(tension)
+            actions_taken["preserved"].append({
+                "conflict_description": item["conflict"].description,
+                "reason": item["reason"],
+                "action": resolution.action,
+            })
+        
+        # Mark developmental tensions as accepted
+        for item in tension_analysis["conflicts_to_accept"]:
+            tension = item["tension"]
+            resolution = self.tension_manager.handle_tension(tension)
+            actions_taken["accepted"].append({
+                "conflict_description": item["conflict"].description,
+                "reason": item["reason"],
+                "action": resolution.action,
+            })
+        
+        return actions_taken
     
     def _generate_resolutions(self, conflict: Conflict) -> List[Resolution]:
         """Generate resolution options for a conflict"""
@@ -893,3 +1117,7 @@ class CoherenceGuardian:
                     )
         
         return self.belief_network.propagate_beliefs()
+    
+    def get_tension_summary(self) -> Dict[str, Any]:
+        """Get summary of all tracked tensions."""
+        return self.tension_manager.get_tension_summary()
