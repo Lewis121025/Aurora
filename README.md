@@ -132,4 +132,9 @@ pytest tests/ -v
 
 ## License
 
-MIT
+**Proprietary** - All rights reserved.
+
+This software is proprietary and confidential. Unauthorized copying, modification, 
+distribution, or use is strictly prohibited without express written permission.
+
+For licensing inquiries, please contact the copyright holder.
