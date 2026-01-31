@@ -8,9 +8,13 @@ Data structures for retrieval traces and evolution snapshots.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from aurora.algorithms.retrieval.field_retriever import QueryType
 
 
 @dataclass
@@ -31,6 +35,9 @@ class RetrievalTrace:
         asker_id: The ID of the entity asking the query
         activated_identity: The identity activated for this relationship
         relationship_context: Summary of relationship context
+        
+    Query type awareness:
+        query_type: Detected or specified query type for adaptive retrieval
     """
 
     query: str
@@ -42,6 +49,9 @@ class RetrievalTrace:
     asker_id: Optional[str] = None
     activated_identity: Optional[str] = None
     relationship_context: Optional[str] = None
+    
+    # Query type awareness (use Any to avoid circular import at runtime)
+    query_type: Optional[Any] = None  # QueryType enum
 
 
 @dataclass

@@ -53,6 +53,18 @@ from aurora.algorithms.models import (
 from aurora.hub import AuroraHub
 from aurora.config import AuroraSettings
 
+# Exceptions
+from aurora.exceptions import (
+    AuroraError,
+    MemoryNotFoundError,
+    ConfigurationError,
+    SerializationError,
+    EmbeddingError,
+    LLMError,
+    StorageError,
+    ValidationError,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -61,11 +73,20 @@ __all__ = [
     "TensionManager",
     # Models
     "Plot",
-    "StoryArc", 
+    "StoryArc",
     "Theme",
     "MemoryConfig",
     "RetrievalTrace",
     # Hub
     "AuroraHub",
     "AuroraSettings",
+    # Exceptions
+    "AuroraError",
+    "MemoryNotFoundError",
+    "ConfigurationError",
+    "SerializationError",
+    "EmbeddingError",
+    "LLMError",
+    "StorageError",
+    "ValidationError",
 ]

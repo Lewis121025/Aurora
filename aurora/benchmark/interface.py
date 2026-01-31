@@ -38,6 +38,171 @@ from aurora.utils.time_utils import now_ts
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# Mock Model Detection
+# =============================================================================
+
+def _is_mock_embedder(embedder) -> bool:
+    """Check if embedder is a mock/hash embedding (not for production benchmarks).
+    
+    Args:
+        embedder: Embedding provider instance
+        
+    Returns:
+        True if embedder is HashEmbedding or similar mock
+    """
+    if embedder is None:
+        return True
+    
+    # Check class name
+    class_name = type(embedder).__name__
+    mock_names = {"HashEmbedding", "MockEmbedding", "FakeEmbedding", "DummyEmbedding"}
+    if class_name in mock_names:
+        return True
+    
+    # Check module path
+    module = type(embedder).__module__
+    if "hash" in module.lower() or "mock" in module.lower():
+        return True
+    
+    return False
+
+
+def _is_mock_llm(llm_provider) -> bool:
+    """Check if LLM provider is a mock (not for production benchmarks).
+    
+    Args:
+        llm_provider: LLM provider instance
+        
+    Returns:
+        True if provider is MockLLM or similar
+    """
+    if llm_provider is None:
+        return True
+    
+    # Check class name
+    class_name = type(llm_provider).__name__
+    mock_names = {"MockLLM", "FakeLLM", "DummyLLM", "MockProvider"}
+    if class_name in mock_names:
+        return True
+    
+    # Check module path
+    module = type(llm_provider).__module__
+    if "mock" in module.lower():
+        return True
+    
+    return False
+
+
+def verify_benchmark_ready(
+    memory,
+    llm=None,
+    verbose: bool = True,
+) -> Tuple[bool, List[str]]:
+    """Verify if the configuration is ready for meaningful benchmark evaluation.
+    
+    Checks:
+    1. Embedding model is not a mock (HashEmbedding)
+    2. LLM provider is not a mock (MockLLM)
+    
+    Using mock models will result in significantly lower benchmark scores
+    that do not reflect actual system performance.
+    
+    Args:
+        memory: AuroraMemory instance to check
+        llm: Optional LLM provider to check
+        verbose: If True, print warnings to console
+        
+    Returns:
+        Tuple of (is_ready, warnings):
+            - is_ready: True if real models are configured
+            - warnings: List of warning messages
+            
+    Example:
+        from aurora.benchmark.interface import verify_benchmark_ready
+        from aurora.algorithms.aurora_core import AuroraMemory
+        
+        memory = AuroraMemory(seed=42)
+        is_ready, warnings = verify_benchmark_ready(memory)
+        
+        if not is_ready:
+            print("⚠️ Configuration issues:")
+            for w in warnings:
+                print(f"  - {w}")
+    """
+    warnings: List[str] = []
+    is_ready = True
+    
+    # Check embedder
+    embedder = getattr(memory, "embedder", None)
+    if _is_mock_embedder(embedder):
+        is_ready = False
+        embedder_name = type(embedder).__name__ if embedder else "None"
+        warnings.append(
+            f"Embedding model is '{embedder_name}' (mock). "
+            "Use a real embedding model (e.g., Bailian, Ark) for accurate benchmark results."
+        )
+    
+    # Check LLM provider
+    if llm is not None and _is_mock_llm(llm):
+        is_ready = False
+        llm_name = type(llm).__name__
+        warnings.append(
+            f"LLM provider is '{llm_name}' (mock). "
+            "Use a real LLM provider for accurate benchmark results."
+        )
+    
+    # Print warnings if verbose
+    if verbose and warnings:
+        print("\n" + "=" * 70)
+        print("⚠️  BENCHMARK CONFIGURATION WARNING")
+        print("=" * 70)
+        for w in warnings:
+            print(f"  • {w}")
+        print("-" * 70)
+        print("  Mock models will result in significantly lower benchmark scores")
+        print("  that do NOT reflect actual system performance!")
+        print("=" * 70 + "\n")
+    
+    return is_ready, warnings
+
+
+def _print_mock_warning(
+    component: str,
+    component_name: str,
+    context: str = "benchmark evaluation",
+) -> None:
+    """Print a prominent warning about mock model usage.
+    
+    Args:
+        component: Type of component ("embedding" or "llm")
+        component_name: Name of the mock class
+        context: Context where the warning is shown
+    """
+    logger.warning(
+        f"⚠️ MOCK {component.upper()} DETECTED: Using '{component_name}' for {context}. "
+        f"This will result in significantly lower scores that do NOT reflect actual performance!"
+    )
+    
+    # Also print to console for visibility
+    print(f"\n{'='*70}")
+    print(f"⚠️  WARNING: Mock {component.title()} Model Detected")
+    print(f"{'='*70}")
+    print(f"  Component: {component_name}")
+    print(f"  Context: {context}")
+    print(f"")
+    print(f"  Mock models produce pseudo-random or pattern-based outputs")
+    print(f"  that will result in severely degraded benchmark scores.")
+    print(f"")
+    print(f"  For accurate results, please configure:")
+    if component == "embedding":
+        print(f"    - Bailian: Set BAILIAN_API_KEY and EMBEDDING_PROVIDER=bailian")
+        print(f"    - Ark: Set ARK_API_KEY and EMBEDDING_PROVIDER=ark")
+    else:
+        print(f"    - Ark: Set ARK_API_KEY and LLM_PROVIDER=ark")
+    print(f"{'='*70}\n")
+
+
 # -----------------------------------------------------------------------------
 # Capability Dimensions
 # -----------------------------------------------------------------------------

@@ -79,12 +79,22 @@ class PressureMixin:
             )
 
     def _select_plots_to_forget(self, candidates: list, excess: int) -> set:
-        """Select plots to forget based on keep scores."""
+        """Select plots to forget based on keep scores.
+        
+        Uses softmax over negative keep scores to probabilistically select
+        plots to forget. Lower keep scores = higher probability of forgetting.
+        """
+        if not candidates or excess <= 0:
+            return set()
+        
+        # Clamp excess to available candidates to avoid sampling error
+        actual_excess = min(excess, len(candidates))
+        
         keep_scores = np.array([getattr(plot, '_keep_score', plot.mass()) for plot in candidates], dtype=np.float32)
         logits = (-keep_scores).tolist()
         probs = np.array(softmax(logits), dtype=np.float64)
         
-        return set(self.rng.choice([plot.id for plot in candidates], size=excess, replace=False, p=probs))
+        return set(self.rng.choice([plot.id for plot in candidates], size=actual_excess, replace=False, p=probs))
 
     # -------------------------------------------------------------------------
     # Contribution Computations

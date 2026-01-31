@@ -19,6 +19,7 @@ import pytest
 
 from aurora.algorithms.aurora_core import AuroraMemory
 from aurora.algorithms.models.config import MemoryConfig
+from aurora.exceptions import MemoryNotFoundError, ValidationError
 
 
 class TestAuroraMemoryIngest:
@@ -327,3 +328,115 @@ class TestAuroraMemoryUtilityMethods:
         # Both edges should exist
         assert aurora_memory.graph.g.has_edge("test_node_1", "test_node_2")
         assert aurora_memory.graph.g.has_edge("test_node_2", "test_node_1")
+
+
+class TestAuroraMemoryExceptions:
+    """Tests for custom exception handling."""
+
+    def test_get_story_not_found(self, aurora_memory: AuroraMemory):
+        """Test that get_story raises MemoryNotFoundError for non-existent story."""
+        with pytest.raises(MemoryNotFoundError) as exc_info:
+            aurora_memory.get_story("non_existent_story_id")
+        
+        assert exc_info.value.kind == "story"
+        assert exc_info.value.element_id == "non_existent_story_id"
+        assert "story" in str(exc_info.value)
+        assert "non_existent_story_id" in str(exc_info.value)
+
+    def test_get_plot_not_found(self, aurora_memory: AuroraMemory):
+        """Test that get_plot raises MemoryNotFoundError for non-existent plot."""
+        with pytest.raises(MemoryNotFoundError) as exc_info:
+            aurora_memory.get_plot("non_existent_plot_id")
+        
+        assert exc_info.value.kind == "plot"
+        assert exc_info.value.element_id == "non_existent_plot_id"
+        assert "plot" in str(exc_info.value)
+        assert "non_existent_plot_id" in str(exc_info.value)
+
+    def test_get_theme_not_found(self, aurora_memory: AuroraMemory):
+        """Test that get_theme raises MemoryNotFoundError for non-existent theme."""
+        with pytest.raises(MemoryNotFoundError) as exc_info:
+            aurora_memory.get_theme("non_existent_theme_id")
+        
+        assert exc_info.value.kind == "theme"
+        assert exc_info.value.element_id == "non_existent_theme_id"
+        assert "theme" in str(exc_info.value)
+        assert "non_existent_theme_id" in str(exc_info.value)
+
+    def test_get_story_success(self, populated_memory: AuroraMemory):
+        """Test that get_story returns story when it exists."""
+        if not populated_memory.stories:
+            pytest.skip("No stories created")
+        
+        story_id = next(iter(populated_memory.stories.keys()))
+        story = populated_memory.get_story(story_id)
+        assert story is not None
+        assert story.id == story_id
+
+    def test_get_plot_success(self, populated_memory: AuroraMemory):
+        """Test that get_plot returns plot when it exists."""
+        if not populated_memory.plots:
+            pytest.skip("No plots stored")
+        
+        plot_id = next(iter(populated_memory.plots.keys()))
+        plot = populated_memory.get_plot(plot_id)
+        assert plot is not None
+        assert plot.id == plot_id
+
+
+class TestAuroraMemoryValidation:
+    """Tests for input validation."""
+
+    def test_ingest_empty_string_raises(self, aurora_memory: AuroraMemory):
+        """Test that ingest raises ValidationError for empty string."""
+        with pytest.raises(ValidationError) as exc_info:
+            aurora_memory.ingest("")
+        
+        assert "interaction_text cannot be empty" in str(exc_info.value)
+
+    def test_ingest_whitespace_only_raises(self, aurora_memory: AuroraMemory):
+        """Test that ingest raises ValidationError for whitespace-only string."""
+        with pytest.raises(ValidationError) as exc_info:
+            aurora_memory.ingest("   \n\t  ")
+        
+        assert "interaction_text cannot be empty" in str(exc_info.value)
+
+    def test_ingest_none_raises(self, aurora_memory: AuroraMemory):
+        """Test that ingest raises ValidationError for None input."""
+        with pytest.raises(ValidationError) as exc_info:
+            aurora_memory.ingest(None)
+        
+        assert "interaction_text cannot be empty" in str(exc_info.value)
+
+    def test_query_empty_string_raises(self, aurora_memory: AuroraMemory):
+        """Test that query raises ValidationError for empty string."""
+        with pytest.raises(ValidationError) as exc_info:
+            aurora_memory.query("")
+        
+        assert "query text cannot be empty" in str(exc_info.value)
+
+    def test_query_whitespace_only_raises(self, aurora_memory: AuroraMemory):
+        """Test that query raises ValidationError for whitespace-only string."""
+        with pytest.raises(ValidationError) as exc_info:
+            aurora_memory.query("   \n\t  ")
+        
+        assert "query text cannot be empty" in str(exc_info.value)
+
+    def test_query_none_raises(self, aurora_memory: AuroraMemory):
+        """Test that query raises ValidationError for None input."""
+        with pytest.raises(ValidationError) as exc_info:
+            aurora_memory.query(None)
+        
+        assert "query text cannot be empty" in str(exc_info.value)
+
+    def test_ingest_valid_input_succeeds(self, aurora_memory: AuroraMemory):
+        """Test that ingest succeeds with valid input."""
+        plot = aurora_memory.ingest("用户：有效输入。助理：收到。")
+        assert plot is not None
+        assert plot.text == "用户：有效输入。助理：收到。"
+
+    def test_query_valid_input_succeeds(self, populated_memory: AuroraMemory):
+        """Test that query succeeds with valid input."""
+        trace = populated_memory.query("有效查询")
+        assert trace is not None
+        assert trace.query == "有效查询"

@@ -3,12 +3,17 @@ AURORA Embedding Providers
 ==========================
 
 Available providers:
-- HashEmbedding: Local deterministic testing (no API calls)
+- LocalSemanticEmbedding: Local semantic embedding using word vectors (recommended for testing)
+- HashEmbedding: Local deterministic testing (no API calls, random vectors)
 - BailianEmbedding: 阿里云百炼 production provider
 - ArkEmbedding: 火山方舟 provider
 
 Usage:
-    # For testing
+    # For testing with semantic similarity
+    from aurora.embeddings import LocalSemanticEmbedding
+    embedder = LocalSemanticEmbedding(dim=384)
+    
+    # For legacy testing (random vectors, no semantic meaning)
     from aurora.embeddings import HashEmbedding
     embedder = HashEmbedding(dim=384)
     
@@ -19,10 +24,12 @@ Usage:
 
 from aurora.embeddings.base import EmbeddingProvider
 from aurora.embeddings.hash import HashEmbedding
+from aurora.embeddings.local_semantic import LocalSemanticEmbedding
 
 __all__ = [
     "EmbeddingProvider",
     "HashEmbedding",
+    "LocalSemanticEmbedding",
 ]
 
 

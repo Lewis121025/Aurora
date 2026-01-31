@@ -18,33 +18,47 @@ class AlgorithmConfig:
 
     These parameters control the behavior of learnable components
     and can be tuned for different use cases.
+    
+    Benchmark optimization notes:
+    - AR: Needs precise retrieval, less smoothing
+    - TTL: Needs fast learning, higher gate precision
+    - LRU: Needs good aggregation, moderate KDE bandwidth
+    - CR: Needs conflict detection, sensitive metric learning
     """
 
     # --- OnlineKDE parameters ---
-    kde_k_sigma: int = 25  # k-nearest neighbors for bandwidth estimation
+    # Lower k_sigma = narrower bandwidth = sharper surprise peaks
+    # Helps AR by making novel info more distinguishable
+    kde_k_sigma: int = 20  # Reduced from 25 for sharper surprise detection
 
     # --- LowRankMetric parameters ---
     metric_init_noise: float = 0.01  # Initialization noise scale
-    metric_window_size: int = 10000  # Adagrad sliding window size
-    metric_decay_factor: float = 0.5  # Decay factor on window reset
+    metric_window_size: int = 8000   # Reduced from 10000 for faster adaptation
+    metric_decay_factor: float = 0.6  # Increased from 0.5 for slower forgetting
 
     # --- ThompsonBernoulliGate parameters ---
-    gate_init_precision: float = 1e-2  # Initial precision for weights
-    gate_forgetting_factor: float = 0.99  # Forgetting factor for precision
-    gate_rms_decay: float = 0.99  # RMSprop decay for adaptive learning
+    # Higher initial precision = less exploration = faster convergence
+    # Helps TTL by learning rules faster
+    gate_init_precision: float = 5e-2  # Increased from 1e-2 for faster learning
+    gate_forgetting_factor: float = 0.98  # Reduced from 0.99 for more plasticity
+    gate_rms_decay: float = 0.95  # Reduced from 0.99 for faster adaptation
 
     # --- StoryModel parameters ---
-    story_dirichlet_beta: float = 1.0  # Dirichlet-multinomial smoothing
+    # Lower beta = less smoothing = sharper actor likelihood
+    # Helps AR by distinguishing conversations with different actors
+    story_dirichlet_beta: float = 0.8  # Reduced from 1.0
 
     # --- FieldRetriever parameters ---
-    retrieval_damping: float = 0.85  # PageRank damping factor
-    retrieval_mean_shift_steps: int = 8  # Mean-shift iteration count
-    retrieval_initial_seed_k: int = 50  # Initial seed vectors for search
-    retrieval_reseed_k: int = 60  # Reseed around attractor
-    retrieval_pagerank_max_iter: int = 50  # PageRank maximum iterations
+    # Optimized for benchmark: balance precision (AR) with coverage (LRU)
+    retrieval_damping: float = 0.80  # Reduced from 0.85 for better direct matches
+    retrieval_mean_shift_steps: int = 6  # Reduced from 8 for less smoothing
+    retrieval_initial_seed_k: int = 60  # Increased from 50 for better recall
+    retrieval_reseed_k: int = 50  # Reduced from 60 for precision
+    retrieval_pagerank_max_iter: int = 40  # Reduced from 50, converges faster
 
     # --- Sliding window ---
-    recent_plots_window: int = 200  # Recent plots window size
+    # Larger window helps LRU by considering more context
+    recent_plots_window: int = 250  # Increased from 200
 
     def to_state_dict(self) -> Dict[str, Any]:
         """Serialize to JSON-compatible dict."""
@@ -102,8 +116,11 @@ class MemoryConfig:
     kde_reservoir: int = 4096  # KDE reservoir sampling size
 
     # CRP concentration priors
-    story_alpha: float = 1.0  # Story CRP concentration
-    theme_alpha: float = 0.5  # Theme CRP concentration
+    # Benchmark optimization:
+    # - Lower story_alpha = fewer stories = better LRU aggregation
+    # - Higher theme_alpha = more themes = better identity dimension capture
+    story_alpha: float = 0.7  # Reduced from 1.0: prefer fewer, richer stories for LRU
+    theme_alpha: float = 0.8  # Increased from 0.5: capture more identity patterns
 
     # Encode gate feature dimension
     gate_feature_dim: int = 6  # Number of features for encoding gate

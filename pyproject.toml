@@ -51,6 +51,10 @@ faiss-gpu = [
 mcp = [
   # MCP SDK when available
 ]
+benchmark = [
+  "datasets>=2.14",
+  "rouge-score>=0.1.2",
+]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=4.1",

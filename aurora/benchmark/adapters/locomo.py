@@ -837,8 +837,8 @@ Respond with your evaluation."""
                         retrieved_texts.append(payload.text)
                     elif hasattr(payload, "to_narrative_summary"):
                         retrieved_texts.append(payload.to_narrative_summary())
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to retrieve payload for node {nid}: {e}")
             
             reasoning_trace.append(f"Gathered {len(retrieved_texts)} text snippets")
             
@@ -1115,11 +1115,14 @@ Answer:"""
             if not plots:
                 return "No events to summarize."
             
-            # Create narrator engine
+            # Create narrator engine with safe attribute access
+            vindex = getattr(memory, "vindex", None)
+            graph = getattr(memory, "graph", None)
+            
             narrator = NarratorEngine(
                 metric=memory.metric,
-                vindex=memory.vindex,
-                graph=memory.graph,
+                vindex=vindex,
+                graph=graph,
                 seed=self._seed,
             )
             
@@ -1264,8 +1267,8 @@ Answer:"""
                     payload = memory.graph.payload(nid)
                     if hasattr(payload, "text"):
                         context_texts.append(payload.text)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to retrieve payload for node {nid}: {e}")
             
             prediction = context_texts[0] if context_texts else "I don't have enough context to respond."
             

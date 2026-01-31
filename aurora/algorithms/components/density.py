@@ -12,6 +12,8 @@ from typing import Any, Dict, List
 
 import numpy as np
 
+from aurora.algorithms.constants import DEFAULT_COLD_START_SURPRISE, DENSITY_MIN_SAMPLES
+
 
 class OnlineKDE:
     """Kernel density estimator in embedding space.
@@ -27,14 +29,19 @@ class OnlineKDE:
         k_sigma: Number of nearest neighbors for bandwidth estimation
     """
 
-    def __init__(self, dim: int, reservoir: int = 4096, k_sigma: int = 25, seed: int = 0):
+    def __init__(self, dim: int, reservoir: int = 4096, k_sigma: int = 20, seed: int = 0):
         """Initialize the online KDE.
 
         Args:
             dim: Embedding dimension
             reservoir: Maximum reservoir size for sampling
-            k_sigma: k-nearest neighbors for adaptive bandwidth
+            k_sigma: k-nearest neighbors for adaptive bandwidth (default: 20)
             seed: Random seed for reservoir sampling
+        
+        Benchmark optimization:
+        - Lower k_sigma (20 vs 25) produces sharper surprise peaks
+        - This helps AR by making novel/important information more distinguishable
+        - Also helps CR by making contradictory information stand out more
         """
         self.dim = dim
         self.reservoir = reservoir
@@ -101,12 +108,20 @@ class OnlineKDE:
     def surprise(self, x: np.ndarray) -> float:
         """Compute surprise (negative log density) at a point.
 
+        Cold start protection:
+        - When samples < DENSITY_MIN_SAMPLES, KDE estimates are unreliable
+        - Returns DEFAULT_COLD_START_SURPRISE to encourage early storage
+        - This prevents losing critical early information (names, preferences, etc.)
+
         Args:
             x: Query vector
 
         Returns:
             Surprise value (higher = more surprising)
         """
+        # Cold start protection: use default surprise when insufficient samples
+        if len(self._vecs) < DENSITY_MIN_SAMPLES:
+            return DEFAULT_COLD_START_SURPRISE
         return -self.log_density(x)
 
     def to_state_dict(self) -> Dict[str, Any]:

@@ -75,6 +75,68 @@ class ArkLLM(LLMProvider):
             }
         }
     
+    def complete(
+        self,
+        prompt: str,
+        *,
+        system: Optional[str] = None,
+        temperature: float = 0.2,
+        max_tokens: int = 512,
+        timeout_s: float = 30.0,
+        stop: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Generate text completion for the given prompt.
+        
+        Args:
+            prompt: The user prompt to complete
+            system: Optional system message
+            temperature: Sampling temperature (0.0-1.0)
+            max_tokens: Maximum tokens to generate
+            timeout_s: Request timeout in seconds
+            stop: Optional stop sequences
+            metadata: Optional request metadata
+            
+        Returns:
+            Generated text string
+        """
+        client = self._get_client()
+        
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
+        
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                kwargs = {
+                    "model": self.model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "timeout": timeout_s,
+                }
+                if stop:
+                    kwargs["stop"] = stop
+                
+                response = client.chat.completions.create(**kwargs)
+                
+                # Track token usage
+                if hasattr(response, 'usage') and response.usage:
+                    self._total_tokens_used += response.usage.total_tokens
+                
+                return response.choices[0].message.content
+                
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Attempt {attempt + 1}/{self.max_retries} failed: {e}")
+                if attempt < self.max_retries - 1:
+                    sleep_time = (2 ** attempt) * 0.5
+                    time.sleep(sleep_time)
+        
+        raise RuntimeError(f"All {self.max_retries} attempts failed. Last error: {last_error}")
+
     def complete_json(
         self,
         *,
@@ -277,6 +339,42 @@ class ArkLLMWithFallback(LLMProvider):
         from .mock import MockLLM
         self._fallback = MockLLM()
     
+    def complete(
+        self,
+        prompt: str,
+        *,
+        system: Optional[str] = None,
+        temperature: float = 0.2,
+        max_tokens: int = 512,
+        timeout_s: float = 30.0,
+        stop: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Generate text completion with fallback support."""
+        if self._primary:
+            try:
+                return self._primary.complete(
+                    prompt,
+                    system=system,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    timeout_s=timeout_s,
+                    stop=stop,
+                    metadata=metadata,
+                )
+            except Exception as e:
+                logger.warning(f"Primary LLM complete() failed, using fallback: {e}")
+        
+        return self._fallback.complete(
+            prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout_s=timeout_s,
+            stop=stop,
+            metadata=metadata,
+        )
+
     def complete_json(
         self,
         *,

@@ -22,6 +22,7 @@ import uuid
 from collections import Counter, deque
 from typing import Any, Deque, Dict, List, Optional, Sequence, Tuple
 
+import networkx as nx
 import numpy as np
 
 from aurora.algorithms.components.assignment import CRPAssigner, StoryModel, ThemeModel
@@ -29,10 +30,13 @@ from aurora.algorithms.components.bandit import ThompsonBernoulliGate
 from aurora.algorithms.components.density import OnlineKDE
 from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.constants import (
+    COLD_START_FORCE_STORE_COUNT,
     EPSILON_PRIOR,
     EVENT_SUMMARY_MAX_LENGTH,
     IDENTITY_RELEVANCE_WEIGHT,
     MAX_RECENT_PLOTS_FOR_RETRIEVAL,
+    MIN_STORE_PROB,
+    MULTI_HOP_K_MULTIPLIER,
     RECENT_ENCODED_PLOTS_WINDOW,
     RECENT_PLOTS_FOR_FEEDBACK,
     RELATIONSHIP_BONUS_SCORE,
@@ -52,9 +56,10 @@ from aurora.algorithms.models.theme import Theme
 from aurora.algorithms.models.trace import RetrievalTrace
 from aurora.algorithms.pressure import PressureMixin
 from aurora.algorithms.relationship import RelationshipMixin
-from aurora.algorithms.retrieval.field_retriever import FieldRetriever
+from aurora.algorithms.retrieval.field_retriever import FieldRetriever, QueryType
 from aurora.algorithms.serialization import SerializationMixin
 from aurora.embeddings.hash import HashEmbedding
+from aurora.exceptions import MemoryNotFoundError, ValidationError
 from aurora.utils.id_utils import det_id
 from aurora.utils.math_utils import cosine_sim, l2_normalize, sigmoid
 from aurora.utils.time_utils import now_ts
@@ -86,12 +91,46 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     """
 
     def __init__(self, cfg: MemoryConfig = MemoryConfig(), seed: int = 0):
+        """Initialize the AURORA Memory system.
+
+        Creates a new memory instance with learnable components, memory stores,
+        and nonparametric assignment models. All random operations are seeded
+        for reproducibility.
+
+        Args:
+            cfg: Memory configuration controlling embedding dimension, capacity
+                limits, CRP concentration priors, and retrieval preferences.
+                Defaults to MemoryConfig() with standard settings.
+            seed: Random seed for reproducibility. All stochastic decisions
+                (Thompson sampling, CRP assignment, pressure management) use
+                this seed. Defaults to 0.
+
+        Example:
+            >>> from aurora.algorithms.aurora_core import AuroraMemory
+            >>> from aurora.algorithms.models.config import MemoryConfig
+            >>> # Default configuration
+            >>> mem = AuroraMemory(seed=42)
+            >>> # Custom configuration
+            >>> cfg = MemoryConfig(dim=128, max_plots=1000, metric_rank=32)
+            >>> mem = AuroraMemory(cfg=cfg, seed=42)
+
+        Note:
+            The memory system uses several learnable components:
+            - HashEmbedding: Deterministic embedding for reproducibility
+            - OnlineKDE: Density estimation for surprise computation
+            - LowRankMetric: Learned similarity metric
+            - ThompsonBernoulliGate: Encoding decision via Thompson sampling
+            - CRPAssigner: Chinese Restaurant Process for story/theme clustering
+        """
         self.cfg = cfg
         self._seed = seed
         self.rng = np.random.default_rng(seed)
 
         # Learnable primitives
         self.embedder = HashEmbedding(dim=cfg.dim, seed=seed)
+        
+        # CRITICAL WARNING: HashEmbedding detection
+        self._warn_if_hash_embedding()
         self.kde = OnlineKDE(dim=cfg.dim, reservoir=cfg.kde_reservoir, seed=seed)
         self.metric = LowRankMetric(dim=cfg.dim, rank=cfg.metric_rank, seed=seed)
         self.gate = ThompsonBernoulliGate(feature_dim=cfg.gate_feature_dim, seed=seed)
@@ -118,6 +157,49 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         # Relationship-centric additions
         self._relationship_story_index: Dict[str, str] = {}  # relationship_entity -> story_id
         self._identity_dimensions: Dict[str, float] = {}  # dimension_name -> strength
+
+    # -------------------------------------------------------------------------
+    # HashEmbedding Warning
+    # -------------------------------------------------------------------------
+
+    def _warn_if_hash_embedding(self) -> None:
+        """Warn if using HashEmbedding - retrieval will be essentially random.
+        
+        HashEmbedding produces pseudo-random vectors based on text hash,
+        which means semantically similar texts will NOT have similar embeddings.
+        This makes retrieval quality random and defeats the purpose of the memory system.
+        """
+        if isinstance(self.embedder, HashEmbedding):
+            warning_msg = """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         ⚠️  CRITICAL WARNING ⚠️                              ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  You are using HashEmbedding, which produces RANDOM vectors!                 ║
+║  Memory retrieval will be essentially RANDOM and INEFFECTIVE.                ║
+║                                                                              ║
+║  HashEmbedding is for TESTING ONLY. In production, configure a real         ║
+║  embedding provider:                                                         ║
+║                                                                              ║
+║  Option 1: 阿里云百炼 (Bailian)                                              ║
+║    export AURORA_BAILIAN_API_KEY="your-api-key"                              ║
+║    export AURORA_EMBEDDING_PROVIDER="bailian"                                ║
+║                                                                              ║
+║  Option 2: 火山方舟 (Volcengine Ark)                                         ║
+║    export AURORA_ARK_API_KEY="your-api-key"                                  ║
+║    export AURORA_EMBEDDING_PROVIDER="ark"                                    ║
+║                                                                              ║
+║  For benchmarks, this will result in near-random accuracy scores.            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+            logger.warning(warning_msg)
+    
+    def is_using_hash_embedding(self) -> bool:
+        """Check if the memory system is using HashEmbedding.
+        
+        Returns:
+            True if using HashEmbedding (random embeddings), False otherwise.
+        """
+        return isinstance(self.embedder, HashEmbedding)
 
     # -------------------------------------------------------------------------
     # Vector index creation
@@ -205,12 +287,56 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         """Ingest an interaction/event with relationship-centric processing.
 
         This method follows the identity-first paradigm:
-        1) Identify the relationship entity
+        1) Identify the relationship entity from actors
         2) Assess identity relevance (not just information value)
         3) Extract relational context ("who I am in this relationship")
         4) Extract identity impact ("how this affects who I am")
-        5) Store organized by relationship
+        5) Store organized by relationship (probabilistic decision)
+
+        The storage decision combines identity relevance (60%) with traditional
+        value-of-information signals (40%) including surprise, prediction error,
+        redundancy, and goal relevance.
+
+        Args:
+            interaction_text: The raw interaction text to process. Must be
+                non-empty after stripping whitespace.
+            actors: Sequence of actor identifiers involved in the interaction.
+                Defaults to ("user", "agent") if not provided.
+            context_text: Optional context string for computing goal relevance.
+                When provided, the system computes cosine similarity between
+                the interaction and context embeddings.
+            event_id: Optional deterministic event ID for reproducible plot ID
+                generation. If None, a UUID is generated. Useful for testing
+                and replay scenarios.
+
+        Returns:
+            The created Plot object. Note that the plot may or may not be
+            stored based on the probabilistic VOI decision. Check
+            `plot.id in mem.plots` to verify storage.
+
+        Raises:
+            ValidationError: If interaction_text is empty or whitespace-only.
+
+        Example:
+            >>> mem = AuroraMemory(seed=42)
+            >>> # Basic ingestion
+            >>> plot = mem.ingest("用户：帮我写排序算法")
+            >>> print(plot.id)
+            >>> # With custom actors and context
+            >>> plot = mem.ingest(
+            ...     "Alice：你好！Bob：很高兴认识你。",
+            ...     actors=["Alice", "Bob"],
+            ...     context_text="社交对话"
+            ... )
+            >>> # Deterministic ID for testing
+            >>> plot = mem.ingest(
+            ...     "测试交互",
+            ...     event_id="test-event-001"
+            ... )
+            >>> assert plot.id == "plot-test-event-001"  # deterministic ID
         """
+        if not interaction_text or not interaction_text.strip():
+            raise ValidationError("interaction_text cannot be empty")
         actors = tuple(actors) if actors else ("user", "agent")
         emb = self.embedder.embed(interaction_text)
 
@@ -287,7 +413,23 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         plot.tension = plot.surprise * (1.0 + plot.pred_error)
 
     def _compute_storage_decision(self, plot: Plot) -> bool:
-        """Compute whether to store this plot."""
+        """Compute whether to store this plot.
+        
+        Cold start protection:
+        - First COLD_START_FORCE_STORE_COUNT plots are always stored
+        - This ensures critical early information (names, preferences, etc.) is preserved
+        
+        For subsequent plots, combines:
+        - Identity relevance (IDENTITY_RELEVANCE_WEIGHT)
+        - VOI decision from Thompson sampling (VOI_DECISION_WEIGHT)
+        - MIN_STORE_PROB floor ensures baseline storage rate
+        """
+        # Cold start protection: force store first N plots
+        if len(self.plots) < COLD_START_FORCE_STORE_COUNT:
+            plot._storage_prob = 1.0
+            logger.debug(f"Cold start: force storing plot {len(self.plots) + 1}/{COLD_START_FORCE_STORE_COUNT}")
+            return True
+        
         # Combine traditional VOI with identity relevance
         x = self._compute_voi_features(plot)
         voi_decision = self.gate.prob(x)
@@ -299,7 +441,9 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             plot.embedding
         )
         
+        # Combine and apply minimum storage probability floor
         combined_prob = IDENTITY_RELEVANCE_WEIGHT * identity_relevance + VOI_DECISION_WEIGHT * voi_decision
+        combined_prob = max(combined_prob, MIN_STORE_PROB)  # Ensure baseline storage rate
         plot._storage_prob = combined_prob  # Store for logging
         
         return self.rng.random() < combined_prob
@@ -418,8 +562,91 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     # Query / retrieval
     # -------------------------------------------------------------------------
 
-    def query(self, text: str, k: int = 5, asker_id: Optional[str] = None) -> RetrievalTrace:
-        """Query with relationship-first retrieval."""
+    def query(
+        self, 
+        text: str, 
+        k: int = 5, 
+        asker_id: Optional[str] = None,
+        query_type: Optional[QueryType] = None,
+    ) -> RetrievalTrace:
+        """Query the memory system with relationship-first and type-aware retrieval.
+
+        Retrieves relevant memories using a multi-stage process:
+        1) Detect query type (FACTUAL, TEMPORAL, MULTI_HOP, CAUSAL) if not provided
+        2) Adjust k based on query type (multi-hop queries need more results)
+        3) If asker_id is provided, activate the relationship context and
+           identity for that specific relationship
+        4) Retrieve memories with relationship priority (if applicable)
+        5) Fall back to semantic retrieval via FieldRetriever with type-aware processing
+        6) Merge and rank results, updating access counts
+
+        Query type affects retrieval behavior:
+        - FACTUAL: Standard semantic retrieval
+        - TEMPORAL: Post-sort by timestamps for time-based queries
+        - MULTI_HOP: Increased k and deeper graph exploration
+        - CAUSAL: Causal edge expansion for why/how questions
+
+        When asker_id matches a known relationship, the system:
+        - Boosts scores for plots in that relationship's story
+        - Activates the identity held in that relationship
+        - Includes relationship narrative context in the trace
+
+        Args:
+            text: The query text to search for. Must be non-empty after
+                stripping whitespace.
+            k: Maximum number of results to return. Defaults to 5. The actual
+                number returned may be less if fewer relevant memories exist.
+            asker_id: Optional identifier of the entity asking the query. When
+                provided, enables relationship-aware retrieval that prioritizes
+                memories from the shared history with this entity.
+            query_type: Optional query type override. If None, auto-detected
+                using keyword matching. Use QueryType enum values:
+                QueryType.FACTUAL, QueryType.TEMPORAL, QueryType.MULTI_HOP,
+                QueryType.CAUSAL.
+
+        Returns:
+            RetrievalTrace containing:
+            - query: The original query text
+            - query_emb: The query embedding vector
+            - ranked: List of (id, score, kind) tuples sorted by relevance
+            - attractor_path: Mean-shift attractor trajectory (if applicable)
+            - asker_id: The provided asker ID (if any)
+            - activated_identity: The agent's identity in this relationship
+            - relationship_context: Narrative summary of the relationship
+            - query_type: Detected or provided query type
+
+        Raises:
+            ValidationError: If query text is empty or whitespace-only.
+
+        Example:
+            >>> mem = AuroraMemory(seed=42)
+            >>> mem.ingest("用户：我想学习Python", actors=["user", "agent"])
+            >>> mem.ingest("用户：帮我写一个排序算法", actors=["user", "agent"])
+            >>> # Basic query
+            >>> trace = mem.query("Python编程", k=3)
+            >>> for node_id, score, kind in trace.ranked:
+            ...     print(f"{kind}: {node_id[:8]}... score={score:.3f}")
+            >>> # Relationship-aware query
+            >>> trace = mem.query("我们之前讨论过什么？", asker_id="user")
+            >>> if trace.activated_identity:
+            ...     print(f"Activated identity: {trace.activated_identity}")
+            >>> # Explicit temporal query
+            >>> from aurora.algorithms.retrieval import QueryType
+            >>> trace = mem.query("最近我们聊了什么？", query_type=QueryType.TEMPORAL)
+            >>> print(f"Detected type: {trace.query_type}")
+        """
+        if not text or not text.strip():
+            raise ValidationError("query text cannot be empty")
+        
+        # Detect query type if not provided
+        detected_type = query_type if query_type is not None else self.retriever._classify_query(text)
+        
+        # Adjust k for multi-hop queries (they need more results for relationship exploration)
+        effective_k = k
+        if detected_type == QueryType.MULTI_HOP:
+            effective_k = int(k * MULTI_HOP_K_MULTIPLIER)
+            logger.debug(f"Multi-hop query detected, adjusting k from {k} to {effective_k}")
+        
         # Relationship identification and identity activation
         activated_identity = None
         relationship_context = None
@@ -433,19 +660,29 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                     activated_identity = relationship_story.my_identity_in_this_relationship
                     relationship_context = relationship_story.to_relationship_narrative()
         
-        # Retrieve results
+        # Retrieve results with query type
         if relationship_story and activated_identity:
-            trace = self._retrieve_with_relationship_priority(text, relationship_story, k=k)
+            trace = self._retrieve_with_relationship_priority(
+                text, relationship_story, k=effective_k, query_type=detected_type
+            )
         else:
             trace = self.retriever.retrieve(
-                query_text=text, embed=self.embedder, 
-                kinds=self.cfg.retrieval_kinds, k=k
+                query_text=text, 
+                embed=self.embedder, 
+                kinds=self.cfg.retrieval_kinds, 
+                k=effective_k,
+                query_type=detected_type,
             )
         
-        # Enrich trace with relationship context
+        # Trim results back to original k (effective_k may be larger)
+        if len(trace.ranked) > k:
+            trace.ranked = trace.ranked[:k]
+        
+        # Enrich trace with relationship context and query type
         trace.asker_id = asker_id
         trace.activated_identity = activated_identity
         trace.relationship_context = relationship_context
+        trace.query_type = detected_type
 
         # Update access/mass
         self._update_access_counts(trace)
@@ -453,29 +690,45 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         return trace
 
     def _retrieve_with_relationship_priority(
-        self, text: str, relationship_story: StoryArc, k: int
+        self, 
+        text: str, 
+        relationship_story: StoryArc, 
+        k: int,
+        query_type: Optional[QueryType] = None,
     ) -> RetrievalTrace:
-        """Retrieve with priority given to the relationship's history."""
+        """Retrieve with priority given to the relationship's history.
+        
+        Args:
+            text: Query text
+            relationship_story: The story arc for the relationship
+            k: Number of results to return
+            query_type: Optional query type for type-aware processing
+        """
         query_emb = self.embedder.embed(text)
         
         # Get relationship-specific results
         relationship_results = self._get_relationship_results(query_emb, relationship_story)
         
-        # Get semantic results from other memories
+        # Get semantic results from other memories with query type
         semantic_trace = self.retriever.retrieve(
-            query_text=text, embed=self.embedder,
-            kinds=self.cfg.retrieval_kinds, k=k
+            query_text=text, 
+            embed=self.embedder,
+            kinds=self.cfg.retrieval_kinds, 
+            k=k,
+            query_type=query_type,
         )
         
         # Merge results
         ranked = self._merge_retrieval_results(relationship_results, semantic_trace.ranked, k)
         
-        return RetrievalTrace(
+        trace = RetrievalTrace(
             query=text,
             query_emb=query_emb,
             attractor_path=semantic_trace.attractor_path,
             ranked=ranked,
         )
+        trace.query_type = query_type
+        return trace
 
     def _get_relationship_results(
         self, query_emb: np.ndarray, relationship_story: StoryArc
@@ -505,8 +758,25 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         relationship_results: List[Tuple[str, float, str]],
         semantic_results: List[Tuple[str, float, str]],
         k: int,
+        diversity_lambda: float = 0.3,
     ) -> List[Tuple[str, float, str]]:
-        """Merge relationship and semantic retrieval results."""
+        """Merge relationship and semantic retrieval results with MMR diversity.
+        
+        Uses Maximal Marginal Relevance (MMR) to balance relevance with diversity,
+        avoiding highly similar results in the final output.
+        
+        MMR formula: λ * relevance - (1 - λ) * max_similarity_to_selected
+        
+        Args:
+            relationship_results: Results from relationship-priority retrieval
+            semantic_results: Results from semantic retrieval
+            k: Number of results to return
+            diversity_lambda: Balance between relevance (1.0) and diversity (0.0).
+                Default 0.3 favors diversity to avoid redundant results.
+        
+        Returns:
+            List of (id, score, kind) tuples with diverse selection
+        """
         all_results: Dict[str, Tuple[float, str]] = {}
         
         # Add relationship results (higher priority)
@@ -522,12 +792,60 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 if score > existing_score:
                     all_results[nid] = (score, kind)
         
-        # Sort and take top k
-        return sorted(
-            [(nid, score, kind) for nid, (score, kind) in all_results.items()],
-            key=lambda x: x[1],
-            reverse=True
-        )[:k]
+        if not all_results:
+            return []
+        
+        # Collect embeddings for diversity calculation
+        candidates: List[Tuple[str, float, str, Optional[np.ndarray]]] = []
+        for nid, (score, kind) in all_results.items():
+            emb = self._get_embedding_for_node(nid)
+            candidates.append((nid, score, kind, emb))
+        
+        # MMR selection
+        selected: List[Tuple[str, float, str]] = []
+        selected_embeddings: List[np.ndarray] = []
+        remaining = list(candidates)
+        
+        while len(selected) < k and remaining:
+            best_idx = -1
+            best_mmr = float('-inf')
+            
+            for idx, (nid, score, kind, emb) in enumerate(remaining):
+                # Compute relevance term (normalized score)
+                relevance = score
+                
+                # Compute diversity term (max similarity to already selected)
+                max_sim_to_selected = 0.0
+                if selected_embeddings and emb is not None:
+                    for sel_emb in selected_embeddings:
+                        if sel_emb is not None:
+                            sim = cosine_sim(emb, sel_emb)
+                            max_sim_to_selected = max(max_sim_to_selected, sim)
+                
+                # MMR: λ * relevance - (1 - λ) * max_similarity
+                mmr_score = diversity_lambda * relevance - (1.0 - diversity_lambda) * max_sim_to_selected
+                
+                if mmr_score > best_mmr:
+                    best_mmr = mmr_score
+                    best_idx = idx
+            
+            if best_idx >= 0:
+                nid, score, kind, emb = remaining.pop(best_idx)
+                selected.append((nid, score, kind))
+                if emb is not None:
+                    selected_embeddings.append(emb)
+        
+        return selected
+    
+    def _get_embedding_for_node(self, nid: str) -> Optional[np.ndarray]:
+        """Get embedding vector for a node (plot, story, or theme)."""
+        if nid in self.plots:
+            return self.plots[nid].embedding
+        elif nid in self.stories:
+            return self.stories[nid].centroid
+        elif nid in self.themes:
+            return self.themes[nid].prototype
+        return None
 
     def _update_access_counts(self, trace: RetrievalTrace) -> None:
         """Update access counts for retrieved items."""
@@ -545,7 +863,52 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     # -------------------------------------------------------------------------
 
     def feedback_retrieval(self, query_text: str, chosen_id: str, success: bool) -> None:
-        """Delayed reward signal for learning."""
+        """Provide feedback for retrieval results to enable online learning.
+
+        This method implements delayed credit assignment for the memory system.
+        When a retrieval result is used (successfully or not), this feedback
+        propagates learning signals to multiple components:
+
+        1) Edge beliefs: Updates Beta distributions on graph edges along
+           shortest paths from query seeds to the chosen node
+        2) Metric learning: Performs triplet update (anchor=query, positive=chosen,
+           negative=random high-similarity non-chosen) to improve similarity
+        3) Encode gate: Updates Thompson sampling weights for recently encoded
+           plots based on the reward signal
+        4) Theme evidence: Updates evidence counts if chosen_id is a theme
+
+        Args:
+            query_text: The original query text that produced the retrieval
+                results. Used to compute the query embedding and find seed
+                nodes for credit assignment.
+            chosen_id: The ID of the memory node (plot, story, or theme) that
+                was selected from the retrieval results. This is the target
+                for positive/negative credit assignment.
+            success: Whether the retrieval was successful. True indicates the
+                chosen result was helpful; False indicates it was not useful.
+                This determines the direction of belief updates.
+
+        Example:
+            >>> mem = AuroraMemory(seed=42)
+            >>> mem.ingest("用户：Python是什么？")
+            >>> mem.ingest("用户：如何写快速排序？")
+            >>> trace = mem.query("编程语言", k=3)
+            >>> if trace.ranked:
+            ...     # User found the first result helpful
+            ...     chosen = trace.ranked[0][0]
+            ...     mem.feedback_retrieval("编程语言", chosen, success=True)
+            >>> # Later, if a result was not helpful
+            >>> trace2 = mem.query("数据库", k=3)
+            >>> if trace2.ranked:
+            ...     bad_result = trace2.ranked[0][0]
+            ...     mem.feedback_retrieval("数据库", bad_result, success=False)
+
+        Note:
+            - The feedback affects the most recent RECENT_PLOTS_FOR_FEEDBACK
+              (default: 20) encoded plots for gate updates
+            - Edge belief updates use Beta-Bernoulli conjugate updates
+            - Metric updates use triplet loss with margin
+        """
         import networkx as nx
         
         query_emb = self.embedder.embed(query_text)
@@ -565,7 +928,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             self.themes[chosen_id].update_evidence(success)
 
     def _update_edge_beliefs(
-        self, query_emb: np.ndarray, chosen_id: str, success: bool, graph
+        self, query_emb: np.ndarray, chosen_id: str, success: bool, graph: nx.DiGraph
     ) -> None:
         """Update edge beliefs on shortest paths."""
         import networkx as nx
@@ -583,7 +946,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                     self.graph.edge_belief(u, v).update(success)
 
     def _update_metric_triplet(
-        self, query_emb: np.ndarray, chosen_id: str, success: bool, graph
+        self, query_emb: np.ndarray, chosen_id: str, success: bool, graph: nx.DiGraph
     ) -> None:
         """Update metric using triplet loss."""
         if chosen_id not in graph:
@@ -623,7 +986,60 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     # -------------------------------------------------------------------------
 
     def evolve(self) -> None:
-        """Offline-ish evolution step: "持续成为" (continuous becoming)."""
+        """Execute offline evolution step for memory consolidation.
+
+        This method implements "持续成为" (continuous becoming) - the core
+        principle that memory is an active process of identity construction,
+        not passive storage. It should be called periodically (e.g., after
+        a session, daily, or when the system is idle).
+
+        The evolution process performs several consolidation operations:
+
+        1) **Relationship Reflection**: Reviews recent interactions in each
+           relationship to identify patterns, role consistency, and emotional
+           trajectories
+
+        2) **Meaning Reframe Check**: Identifies plots that may benefit from
+           reinterpretation based on new evidence or changed understanding
+
+        3) **Story Boundary Detection**: Detects climax points, resolution
+           moments, and abandoned storylines using tension curve analysis
+
+        4) **Story Status Updates**: Probabilistically transitions stories
+           between "developing", "resolved", and "abandoned" states based
+           on activity and tension patterns
+
+        5) **Theme Emergence**: Promotes resolved stories to themes using
+           Chinese Restaurant Process clustering, creating identity dimensions
+
+        6) **Identity Tension Analysis**: Examines relationships between
+           identity dimensions to detect tensions and harmonies
+
+        7) **Graph Cleanup**: Removes weak edges, considers merging similar
+           nodes, and archives stale content
+
+        8) **Pressure Management**: Growth-oriented memory pressure that
+           preserves identity-relevant memories while managing capacity
+
+        Example:
+            >>> mem = AuroraMemory(seed=42)
+            >>> # Ingest multiple interactions over time
+            >>> for text in interactions:
+            ...     mem.ingest(text)
+            >>> # Periodically run evolution
+            >>> mem.evolve()
+            >>> # Check results
+            >>> print(f"Stories: {len(mem.stories)}")
+            >>> print(f"Themes: {len(mem.themes)}")
+            >>> print(f"Identity dimensions: {mem._identity_dimensions}")
+
+        Note:
+            - Evolution is idempotent but not deterministic - running it
+              multiple times may produce different results due to
+              probabilistic decisions (controlled by seed)
+            - This is computationally more expensive than ingest/query
+            - For production use, consider running in a background worker
+        """
         logger.info(
             f"Starting evolution: plots={len(self.plots)}, "
             f"stories={len(self.stories)}, themes={len(self.themes)}"
@@ -729,15 +1145,51 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     # -------------------------------------------------------------------------
 
     def get_story(self, story_id: str) -> StoryArc:
-        """Get a story by ID."""
+        """Get a story by ID.
+
+        Args:
+            story_id: The ID of the story to retrieve
+
+        Returns:
+            The StoryArc with the given ID
+
+        Raises:
+            MemoryNotFoundError: If no story with the given ID exists
+        """
+        if story_id not in self.stories:
+            raise MemoryNotFoundError("story", story_id)
         return self.stories[story_id]
 
     def get_plot(self, plot_id: str) -> Plot:
-        """Get a plot by ID."""
+        """Get a plot by ID.
+
+        Args:
+            plot_id: The ID of the plot to retrieve
+
+        Returns:
+            The Plot with the given ID
+
+        Raises:
+            MemoryNotFoundError: If no plot with the given ID exists
+        """
+        if plot_id not in self.plots:
+            raise MemoryNotFoundError("plot", plot_id)
         return self.plots[plot_id]
 
     def get_theme(self, theme_id: str) -> Theme:
-        """Get a theme by ID."""
+        """Get a theme by ID.
+
+        Args:
+            theme_id: The ID of the theme to retrieve
+
+        Returns:
+            The Theme with the given ID
+
+        Raises:
+            MemoryNotFoundError: If no theme with the given ID exists
+        """
+        if theme_id not in self.themes:
+            raise MemoryNotFoundError("theme", theme_id)
         return self.themes[theme_id]
     
     def get_relationship_story(self, entity_id: str) -> Optional[StoryArc]:

@@ -49,20 +49,3 @@ def stable_hash(text: str) -> int:
     """
     h = hashlib.sha256(text.encode("utf-8")).hexdigest()
     return int(h[:16], 16)
-
-
-def content_hash(content: str, prefix: str = "") -> str:
-    """
-    Generate a content-based hash ID.
-
-    Useful for deduplication and content-addressable storage.
-
-    Args:
-        content: Content to hash
-        prefix: Optional prefix for the ID
-
-    Returns:
-        Hash-based ID string
-    """
-    h = hashlib.sha256(content.encode("utf-8")).hexdigest()[:12]
-    return f"{prefix}{h}" if prefix else h

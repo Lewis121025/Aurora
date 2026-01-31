@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, Optional, Type, TypeVar
+from typing import Any, Dict, List, Optional, Type, TypeVar
 
 from pydantic import BaseModel
 
@@ -16,6 +16,59 @@ class MockLLM(LLMProvider):
     It produces simplistic outputs that satisfy schemas, without any model calls.
     Replace with a real provider in production.
     """
+
+    def complete(
+        self,
+        prompt: str,
+        *,
+        system: Optional[str] = None,
+        temperature: float = 0.2,
+        max_tokens: int = 512,
+        timeout_s: float = 30.0,
+        stop: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Generate simple mock text completion.
+        
+        For benchmarks, this provides basic pattern-based extraction
+        rather than random text.
+        """
+        # Basic answer extraction patterns for benchmark evaluation
+        prompt_lower = prompt.lower()
+        
+        # Look for question patterns and try to extract relevant answer
+        if "what city" in prompt_lower or "where" in prompt_lower:
+            # Extract location mentions
+            locations = re.findall(
+                r"(?:in|at|to|from|visit(?:ed)?)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
+                prompt
+            )
+            if locations:
+                return locations[-1]  # Return most recent location
+        
+        if "who" in prompt_lower:
+            # Extract person names (simple capitalized words)
+            names = re.findall(r"\b([A-Z][a-z]+)\b(?:\s+[a-z]+\s+|\s+said|\s+told)", prompt)
+            if names:
+                return names[-1]
+        
+        if "when" in prompt_lower:
+            # Extract time references
+            times = re.findall(
+                r"(?:on|at|in)\s+(\w+\s+\d+|\d+[:\d]*\s*(?:am|pm)?|\w+day)",
+                prompt, re.IGNORECASE
+            )
+            if times:
+                return times[-1]
+        
+        # For summaries or general questions, return first meaningful sentence
+        sentences = re.split(r'[.!?]', prompt)
+        for sent in sentences:
+            sent = sent.strip()
+            if len(sent) > 20 and not sent.startswith(("Question", "Answer", "Context")):
+                return sent[:200]
+        
+        return "Unable to determine answer from context."
 
     def complete_json(
         self,

@@ -268,13 +268,15 @@ class TestEdgeCases:
     """Test edge cases and error handling."""
     
     def test_empty_query(self):
-        """Test query with empty text."""
+        """Test query with empty text raises ValidationError."""
+        from aurora.exceptions import ValidationError
+        
         config = MemoryConfig(dim=64, max_plots=50)
         memory = AuroraMemory(cfg=config, seed=42)
         
-        # Should handle empty query
-        trace = memory.query("", k=3)
-        assert trace is not None
+        # Empty query should raise ValidationError
+        with pytest.raises(ValidationError):
+            memory.query("", k=3)
     
     def test_single_character_ingest(self):
         """Test ingest with minimal text."""

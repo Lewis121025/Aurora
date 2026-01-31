@@ -92,11 +92,15 @@ class BailianEmbedding(EmbeddingProvider):
         key = self._cache_key(text)
         self._cache[key] = embedding
     
-    def embed(self, text: str) -> List[float]:
-        """Generate embedding for a single text."""
+    def embed(self, text: str) -> np.ndarray:
+        """Generate embedding for a single text.
+        
+        Returns:
+            np.ndarray of shape (dimension,) with float32 dtype, L2-normalized
+        """
         cached = self._get_from_cache(text)
         if cached is not None:
-            return cached
+            return np.array(cached, dtype=np.float32)
         
         self._total_requests += 1
         client = self._get_client()
@@ -111,13 +115,15 @@ class BailianEmbedding(EmbeddingProvider):
                 )
                 embedding = response.data[0].embedding
                 
-                # Normalize
-                norm = sum(x*x for x in embedding) ** 0.5
+                # Convert to numpy and normalize
+                emb_array = np.array(embedding, dtype=np.float32)
+                norm = np.linalg.norm(emb_array)
                 if norm > 0:
-                    embedding = [x / norm for x in embedding]
+                    emb_array = emb_array / norm
                 
-                self._add_to_cache(text, embedding)
-                return embedding
+                # Cache as list for storage efficiency
+                self._add_to_cache(text, emb_array.tolist())
+                return emb_array
                 
             except Exception as e:
                 last_error = e
@@ -128,19 +134,23 @@ class BailianEmbedding(EmbeddingProvider):
         
         raise RuntimeError(f"All {self.max_retries} embedding attempts failed. Last error: {last_error}")
     
-    def embed_batch(self, texts: Sequence[str]) -> List[List[float]]:
-        """Generate embeddings for multiple texts."""
+    def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
+        """Generate embeddings for multiple texts.
+        
+        Returns:
+            List of np.ndarray embeddings, each of shape (dimension,) with float32 dtype
+        """
         if not texts:
             return []
         
-        results = [None] * len(texts)
+        results: List[Optional[np.ndarray]] = [None] * len(texts)
         texts_to_embed = []
         indices_to_embed = []
         
         for i, text in enumerate(texts):
             cached = self._get_from_cache(text)
             if cached is not None:
-                results[i] = cached
+                results[i] = np.array(cached, dtype=np.float32)
             else:
                 texts_to_embed.append(text)
                 indices_to_embed.append(i)
@@ -166,12 +176,12 @@ class BailianEmbedding(EmbeddingProvider):
                         
                         for j, data in enumerate(response.data):
                             idx = batch_indices[j]
-                            embedding = data.embedding
-                            norm = sum(x*x for x in embedding) ** 0.5
+                            emb_array = np.array(data.embedding, dtype=np.float32)
+                            norm = np.linalg.norm(emb_array)
                             if norm > 0:
-                                embedding = [x / norm for x in embedding]
-                            results[idx] = embedding
-                            self._add_to_cache(texts[idx], embedding)
+                                emb_array = emb_array / norm
+                            results[idx] = emb_array
+                            self._add_to_cache(texts[idx], emb_array.tolist())
                         break
                         
                     except Exception as e:
@@ -184,18 +194,20 @@ class BailianEmbedding(EmbeddingProvider):
                         idx = batch_indices[j]
                         try:
                             results[idx] = self.embed(text)
-                        except Exception:
-                            results[idx] = [0.0] * self.dimension
+                        except Exception as e:
+                            logger.debug(f"Embedding failed for text at index {idx}, using zero vector: {e}")
+                            results[idx] = np.zeros(self.dimension, dtype=np.float32)
         
         return results
     
-    def embed_numpy(self, text: str) -> np.ndarray:
-        """Generate embedding as numpy array."""
-        return np.array(self.embed(text), dtype=np.float32)
-    
     def embed_batch_numpy(self, texts: Sequence[str]) -> np.ndarray:
-        """Generate batch embeddings as numpy array."""
-        return np.array(self.embed_batch(texts), dtype=np.float32)
+        """Generate batch embeddings as stacked numpy array.
+        
+        Returns:
+            np.ndarray of shape (len(texts), dimension) with float32 dtype
+        """
+        embeddings = self.embed_batch(texts)
+        return np.stack(embeddings) if embeddings else np.array([], dtype=np.float32)
     
     @property
     def stats(self) -> dict:
@@ -234,18 +246,28 @@ class BailianEmbeddingWithFallback(EmbeddingProvider):
         from .hash import HashEmbedding
         self._fallback = HashEmbedding(dim=fallback_dim)
     
-    def embed(self, text: str) -> List[float]:
+    def embed(self, text: str) -> np.ndarray:
+        """Generate embedding with fallback to hash embedding.
+        
+        Returns:
+            np.ndarray of shape (dimension,) with float32 dtype
+        """
         if self._primary:
             try:
                 return self._primary.embed(text)
             except Exception as e:
                 logger.warning(f"Primary embedding failed, using fallback: {e}")
-        return list(self._fallback.embed(text))
+        return self._fallback.embed(text)
     
-    def embed_batch(self, texts: Sequence[str]) -> List[List[float]]:
+    def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
+        """Generate batch embeddings with fallback.
+        
+        Returns:
+            List of np.ndarray embeddings
+        """
         if self._primary:
             try:
                 return self._primary.embed_batch(texts)
             except Exception as e:
                 logger.warning(f"Primary batch embedding failed, using fallback: {e}")
-        return [list(self._fallback.embed(t)) for t in texts]
+        return [self._fallback.embed(t) for t in texts]

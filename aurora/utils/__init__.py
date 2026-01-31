@@ -16,13 +16,15 @@ from aurora.utils.id_utils import (
     AURORA_NAMESPACE,
     det_id,
     stable_hash,
-    content_hash,
 )
 from aurora.utils.time_utils import (
     now_ts,
     set_mock_time,
     age_hours,
     age_days,
+)
+from aurora.utils.embedding_utils import (
+    get_embedding_from_object,
 )
 
 __all__ = [
@@ -36,10 +38,11 @@ __all__ = [
     "AURORA_NAMESPACE",
     "det_id",
     "stable_hash",
-    "content_hash",
     # time_utils
     "now_ts",
     "set_mock_time",
     "age_hours",
     "age_days",
+    # embedding_utils
+    "get_embedding_from_object",
 ]

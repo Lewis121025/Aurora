@@ -15,21 +15,32 @@ Key components:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, Set
 from enum import Enum
+from typing import Any, Dict, List, Optional, Set, Tuple
 import math
 import numpy as np
 import networkx as nx
 
+from aurora.algorithms.graph.memory_graph import MemoryGraph
 from aurora.algorithms.models.plot import Plot
 from aurora.algorithms.models.story import StoryArc
 from aurora.algorithms.models.theme import Theme
-from aurora.algorithms.graph.memory_graph import MemoryGraph
+from aurora.algorithms.types import MemoryElement
 from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.causal import CausalEdgeBelief, CausalMemoryGraph
 from aurora.algorithms.tension import TensionManager, Tension, TensionType, TensionResolution
+from aurora.algorithms.constants import (
+    OPPOSITION_SCORE_THRESHOLD,
+    HIGH_SIMILARITY_THRESHOLD,
+    ANTI_CORRELATION_THRESHOLD,
+    UNFINISHED_STORY_HOURS,
+    MAX_COHERENCE_PAIRS,
+    BELIEF_PROPAGATION_ITERATIONS,
+    COHERENCE_WEIGHTS,
+)
 from aurora.utils.math_utils import l2_normalize, cosine_sim, sigmoid, softmax
 from aurora.utils.time_utils import now_ts
+from aurora.utils.embedding_utils import get_embedding_from_object
 
 
 # -----------------------------------------------------------------------------
@@ -139,7 +150,7 @@ class BeliefNetwork:
             strength=strength,
         )
     
-    def propagate_beliefs(self, iterations: int = 10) -> Dict[str, float]:
+    def propagate_beliefs(self, iterations: int = BELIEF_PROPAGATION_ITERATIONS) -> Dict[str, float]:
         """
         Propagate beliefs through network.
         Returns final belief probabilities.
@@ -218,8 +229,8 @@ class ContradictionDetector:
     
     def detect_contradiction(
         self,
-        a: Any,  # Plot, StoryArc, or Theme
-        b: Any,
+        a: MemoryElement,
+        b: MemoryElement,
         context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[float, str]:
         """
@@ -240,7 +251,7 @@ class ContradictionDetector:
         
         # 1. Semantic opposition detection
         opposition_score = self._semantic_opposition_score(emb_a, emb_b)
-        if opposition_score > 0.3:
+        if opposition_score > OPPOSITION_SCORE_THRESHOLD:
             log_odds_contradiction += opposition_score * 2
             explanations.append(f"Semantic opposition ({opposition_score:.2f})")
         
@@ -268,18 +279,9 @@ class ContradictionDetector:
         
         return p_contradiction, explanation
     
-    def _get_embedding(self, obj: Any) -> Optional[np.ndarray]:
-        """Extract embedding from various object types"""
-        if hasattr(obj, 'embedding') and obj.embedding is not None:
-            emb = obj.embedding
-            if isinstance(emb, list):
-                return np.array(emb, dtype=np.float32)
-            return emb
-        if hasattr(obj, 'centroid') and obj.centroid is not None:
-            return obj.centroid
-        if hasattr(obj, 'prototype') and obj.prototype is not None:
-            return obj.prototype
-        return None
+    def _get_embedding(self, obj: MemoryElement) -> Optional[np.ndarray]:
+        """Extract embedding from various object types."""
+        return get_embedding_from_object(obj)
     
     def _semantic_opposition_score(
         self,
@@ -296,11 +298,11 @@ class ContradictionDetector:
         sim = cosine_sim(emb_a, emb_b)
         
         # If highly similar, not contradicting
-        if sim > 0.7:
+        if sim > HIGH_SIMILARITY_THRESHOLD:
             return 0.0
         
         # If anti-correlated (pointing opposite), stronger contradiction signal
-        if sim < -0.3:
+        if sim < ANTI_CORRELATION_THRESHOLD:
             return abs(sim)
         
         # Check learned opposition patterns
@@ -317,7 +319,7 @@ class ContradictionDetector:
         
         return 0.0
     
-    def _check_polarity_conflict(self, a: Any, b: Any) -> float:
+    def _check_polarity_conflict(self, a: MemoryElement, b: MemoryElement) -> float:
         """Check for polarity conflicts in claims/themes"""
         # Extract polarity if available
         polarity_a = getattr(a, 'polarity', None) or getattr(a, 'emotion_valence', 0)
@@ -343,7 +345,7 @@ class ContradictionDetector:
         
         return 0.0
     
-    def _check_temporal_conflict(self, a: Any, b: Any) -> float:
+    def _check_temporal_conflict(self, a: MemoryElement, b: MemoryElement) -> float:
         """Check for temporal impossibilities"""
         ts_a = getattr(a, 'ts', None) or getattr(a, 'timestamp', None)
         ts_b = getattr(b, 'ts', None) or getattr(b, 'timestamp', None)
@@ -356,7 +358,7 @@ class ContradictionDetector:
         # For now, return 0
         return 0.0
     
-    def _check_actor_conflict(self, a: Any, b: Any) -> float:
+    def _check_actor_conflict(self, a: MemoryElement, b: MemoryElement) -> float:
         """Check if same actor has incompatible states"""
         actors_a = set(getattr(a, 'actors', []) or [])
         actors_b = set(getattr(b, 'actors', []) or [])
@@ -453,7 +455,7 @@ class CoherenceScorer:
         unfinished = [
             s.id for s in stories.values()
             if s.status == 'developing' and
-            (now_ts() - s.updated_ts) > 72 * 3600  # 72 hours soft threshold
+            (now_ts() - s.updated_ts) > UNFINISHED_STORY_HOURS * 3600
         ]
         
         # 6. Find orphan plots
@@ -463,7 +465,12 @@ class CoherenceScorer:
         ]
         
         # Compute overall score (weighted geometric mean)
-        weights = [0.3, 0.2, 0.25, 0.25]  # factual, temporal, causal, thematic
+        weights = [
+            COHERENCE_WEIGHTS["factual"],
+            COHERENCE_WEIGHTS["temporal"],
+            COHERENCE_WEIGHTS["causal"],
+            COHERENCE_WEIGHTS["thematic"],
+        ]
         scores = [factual_score, temporal_score, causal_score, thematic_score]
         
         log_score = sum(w * math.log(s + 1e-9) for w, s in zip(weights, scores))
@@ -496,7 +503,7 @@ class CoherenceScorer:
         plot_list = list(plots.values())
         
         # Sample pairs for efficiency
-        max_pairs = min(500, len(plot_list) * (len(plot_list) - 1) // 2)
+        max_pairs = min(MAX_COHERENCE_PAIRS, len(plot_list) * (len(plot_list) - 1) // 2)
         
         for i, p1 in enumerate(plot_list):
             for p2 in plot_list[i+1:]:
@@ -927,7 +934,7 @@ class CoherenceGuardian:
         plots: Dict[str, Plot],
         stories: Dict[str, StoryArc],
         themes: Dict[str, Theme],
-    ) -> Optional[Any]:
+    ) -> Optional[MemoryElement]:
         """Get element by ID from any collection."""
         if node_id in plots:
             return plots[node_id]
@@ -937,15 +944,9 @@ class CoherenceGuardian:
             return themes[node_id]
         return None
     
-    def _get_embedding(self, element: Any) -> Optional[np.ndarray]:
+    def _get_embedding(self, element: MemoryElement) -> Optional[np.ndarray]:
         """Get embedding from element."""
-        if hasattr(element, 'embedding') and element.embedding is not None:
-            return element.embedding
-        if hasattr(element, 'centroid') and element.centroid is not None:
-            return element.centroid
-        if hasattr(element, 'prototype') and element.prototype is not None:
-            return element.prototype
-        return None
+        return get_embedding_from_object(element)
     
     def auto_resolve(
         self,

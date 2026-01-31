@@ -188,7 +188,8 @@ class IngestWorker:
                     )
                     outcome = extraction.outcome
                     actors = extraction.actors
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"LLM plot extraction failed, using defaults: {e}")
                     outcome = ""
                     actors = request.actors or ["user", "agent"]
             else:

@@ -16,15 +16,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
-from datetime import datetime
-import math
+
 import numpy as np
 
 from aurora.algorithms.models.plot import Plot
-from aurora.algorithms.models.story import StoryArc
 from aurora.algorithms.models.theme import Theme
 from aurora.algorithms.components.metric import LowRankMetric
-from aurora.utils.math_utils import l2_normalize, cosine_sim, sigmoid
 from aurora.utils.time_utils import now_ts
 
 

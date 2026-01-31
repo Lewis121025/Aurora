@@ -50,6 +50,61 @@ from aurora.algorithms.self_narrative import SelfNarrativeEngine, SelfNarrative
 logger = logging.getLogger(__name__)
 
 
+def check_embedding_api_keys() -> None:
+    """Check if embedding API keys are configured and print guidance if not.
+    
+    Checks for:
+    - AURORA_BAILIAN_API_KEY: 阿里云百炼 embedding API
+    - AURORA_ARK_API_KEY: 火山方舟 embedding API
+    
+    If neither is set, prints a clear configuration guide.
+    """
+    bailian_key = os.environ.get("AURORA_BAILIAN_API_KEY")
+    ark_key = os.environ.get("AURORA_ARK_API_KEY")
+    
+    if bailian_key or ark_key:
+        # At least one API key is configured
+        if bailian_key:
+            logger.info("✓ AURORA_BAILIAN_API_KEY is configured")
+        if ark_key:
+            logger.info("✓ AURORA_ARK_API_KEY is configured")
+        return
+    
+    # Neither API key is configured - print informational message
+    info_msg = """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    ℹ️  USING LOCAL SEMANTIC EMBEDDING ℹ️                     ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  No embedding API key found. Using LocalSemanticEmbedding for basic testing. ║
+║  LocalSemanticEmbedding captures word-level semantics (better than random).  ║
+║                                                                              ║
+║  For production, configure one of the following embedding providers:         ║
+║                                                                              ║
+║  ┌─────────────────────────────────────────────────────────────────────────┐ ║
+║  │ Option 1: 阿里云百炼 (Alibaba Bailian) - Recommended                    │ ║
+║  │                                                                         │ ║
+║  │   export AURORA_BAILIAN_API_KEY="your-bailian-api-key"                  │ ║
+║  │   export AURORA_EMBEDDING_PROVIDER="bailian"                            │ ║
+║  │                                                                         │ ║
+║  │   Get API key: https://bailian.console.aliyun.com/                      │ ║
+║  └─────────────────────────────────────────────────────────────────────────┘ ║
+║                                                                              ║
+║  ┌─────────────────────────────────────────────────────────────────────────┐ ║
+║  │ Option 2: 火山方舟 (Volcengine Ark)                                     │ ║
+║  │                                                                         │ ║
+║  │   export AURORA_ARK_API_KEY="your-ark-api-key"                          │ ║
+║  │   export AURORA_EMBEDDING_PROVIDER="ark"                                │ ║
+║  │                                                                         │ ║
+║  │   Get API key: https://console.volcengine.com/ark                       │ ║
+║  └─────────────────────────────────────────────────────────────────────────┘ ║
+║                                                                              ║
+║  You can also set these in a .env file at the project root.                  ║
+║  See .env.example for a template.                                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+    logger.info(info_msg)
+
+
 def create_llm_provider(settings: AuroraSettings) -> LLMProvider:
     """Create LLM provider based on settings.
     
@@ -83,7 +138,11 @@ def create_embedding_provider(settings: AuroraSettings):
     Supports:
     - "bailian": 阿里云百炼 (Alibaba Bailian) - requires bailian_api_key
     - "ark": 火山方舟 (Volcengine Ark) - requires ark_api_key + endpoint
-    - "mock": Local hash embedding for testing
+    - "local": Local semantic embedding (word vectors, captures basic semantics)
+    - "hash": Local hash embedding for legacy testing (random vectors, no semantics)
+    
+    When no API keys are configured, defaults to "local" (LocalSemanticEmbedding)
+    which provides basic semantic similarity unlike HashEmbedding.
     """
     # 阿里云百炼
     if settings.embedding_provider == "bailian" and settings.bailian_api_key:
@@ -99,7 +158,7 @@ def create_embedding_provider(settings: AuroraSettings):
                 cache_size=settings.embedding_cache_size,
             )
         except Exception as e:
-            logger.warning(f"Failed to create Bailian embedding provider: {e}, falling back to hash")
+            logger.warning(f"Failed to create Bailian embedding provider: {e}, falling back to local semantic")
     
     # 火山方舟 (需要 endpoint ID)
     elif settings.embedding_provider == "ark" and settings.ark_api_key:
@@ -113,12 +172,19 @@ def create_embedding_provider(settings: AuroraSettings):
                 cache_size=settings.embedding_cache_size,
             )
         except Exception as e:
-            logger.warning(f"Failed to create Ark embedding provider: {e}, falling back to hash")
+            logger.warning(f"Failed to create Ark embedding provider: {e}, falling back to local semantic")
     
-    # 本地 Hash 嵌入
-    from aurora.embeddings.hash import HashEmbedding
-    logger.info("Using local Hash embedding provider")
-    return HashEmbedding(dim=settings.dim)
+    # 显式指定 hash embedding（向后兼容）
+    elif settings.embedding_provider == "hash":
+        from aurora.embeddings.hash import HashEmbedding
+        logger.info("Using local Hash embedding provider (random vectors, no semantic meaning)")
+        return HashEmbedding(dim=settings.dim)
+    
+    # 本地语义嵌入（默认，或显式指定 "local"）
+    # 比 HashEmbedding 更好：语义相似的文本会有相似的向量
+    from aurora.embeddings.local_semantic import LocalSemanticEmbedding
+    logger.info("Using local Semantic embedding provider (word vectors, captures basic semantics)")
+    return LocalSemanticEmbedding(dim=settings.dim)
 
 
 @dataclass
@@ -167,6 +233,9 @@ class AuroraTenant:
         self.user_id = user_id
         self.settings = settings
         self.llm: LLMProvider = llm or create_llm_provider(settings)
+        
+        # Check for embedding API configuration at startup
+        check_embedding_api_keys()
 
         self._lock = threading.RLock()
 
@@ -567,8 +636,8 @@ class AuroraTenant:
                 temperature=0.2,
                 timeout_s=20.0,
             )
-        except Exception:
-            # fallback: minimal
+        except Exception as e:
+            logger.debug(f"LLM plot extraction failed, using minimal fallback: {e}")
             return PlotExtraction(action=user_message[:120], actors=["user", "agent"])
 
     def _snapshot(self, *, logger: Optional[Any] = None) -> None:
