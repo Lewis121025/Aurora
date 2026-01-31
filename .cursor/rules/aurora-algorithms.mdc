@@ -1,0 +1,170 @@
+---
+description: AURORA 算法模块开发规范
+globs: aurora/algorithms/**/*.py
+alwaysApply: false
+---
+
+# AURORA 算法模块规范
+
+## 模块结构
+
+```
+aurora/algorithms/
+├── aurora_core.py      # 主入口 AuroraMemory
+├── tension.py          # 矛盾管理 TensionManager
+├── coherence.py        # 一致性检查
+├── self_narrative.py   # 自我叙事
+├── causal.py           # 因果推理
+├── evolution.py        # 演化 Mixin
+├── pressure.py         # 压力管理 Mixin
+├── relationship.py     # 关系处理 Mixin
+├── serialization.py    # 序列化 Mixin
+├── constants.py        # 常量定义
+├── components/         # 可学习组件
+├── graph/              # 图结构
+├── models/             # 数据模型
+└── retrieval/          # 检索算法
+```
+
+## 核心类设计
+
+### AuroraMemory 使用 Mixin 架构
+
+```python
+class AuroraMemory(
+    RelationshipMixin,   # 关系识别
+    PressureMixin,       # 压力管理
+    EvolutionMixin,      # 演化反思
+    SerializationMixin   # 状态序列化
+):
+    """主入口类，通过 Mixin 分离关注点"""
+```
+
+### 数据模型层次
+
+```python
+# models/plot.py - 原子记忆
+@dataclass
+class Plot:
+    # Layer 1: Factual (immutable)
+    id: str
+    text: str
+    embedding: np.ndarray
+    
+    # Layer 2: Relational
+    relational: Optional[RelationalContext]
+    
+    # Layer 3: Identity (evolvable)
+    identity_impact: Optional[IdentityImpact]
+```
+
+## 算法实现原则
+
+### 1. 贝叶斯决策
+
+使用概率模型而非硬阈值：
+
+```python
+# components/bandit.py
+class ThompsonBernoulliGate:
+    """Thompson Sampling for encoding decisions"""
+    
+    def prob(self, x: np.ndarray) -> float:
+        # 返回概率，让调用方决定是否执行
+        return sigmoid(self.weights @ x + self.bias)
+```
+
+### 2. 在线学习
+
+支持增量更新，避免全量重计算：
+
+```python
+# components/density.py
+class OnlineKDE:
+    """Online kernel density estimation"""
+    
+    def add(self, x: np.ndarray) -> None:
+        # 增量添加样本
+        self.reservoir.add(x)
+        self.n += 1
+```
+
+### 3. CRP 聚类
+
+使用 Chinese Restaurant Process 进行非参数聚类：
+
+```python
+# components/assignment.py
+class CRPAssigner:
+    """Chinese Restaurant Process for story/theme assignment"""
+    
+    def sample(self, logps: Dict[str, float]) -> Tuple[Optional[str], float]:
+        # 返回分配的 cluster ID 或 None（新建）
+```
+
+## 信号计算
+
+Plot 的信号不使用固定权重混合：
+
+```python
+# 计算各信号
+plot.surprise = self.kde.surprise(emb)        # 新颖度
+plot.pred_error = self._compute_pred_error(emb)  # 预测误差
+plot.redundancy = self._compute_redundancy(emb)  # 冗余度
+plot.goal_relevance = self._compute_goal_relevance(emb, context_emb)
+
+# 组合为张力
+plot.tension = plot.surprise * (1.0 + plot.pred_error)
+```
+
+## 图结构操作
+
+```python
+# graph/memory_graph.py
+class MemoryGraph:
+    """NetworkX-based memory graph"""
+    
+    def ensure_edge(self, u: str, v: str, etype: str) -> None:
+        """Ensure edge exists, don't duplicate"""
+    
+    def edge_belief(self, u: str, v: str) -> EdgeBelief:
+        """Get or create edge belief for learning"""
+```
+
+## 检索算法
+
+```python
+# retrieval/field_retriever.py
+class FieldRetriever:
+    """Multi-field retrieval with learned metric"""
+    
+    def retrieve(
+        self,
+        query_text: str,
+        embed: Callable,
+        kinds: Sequence[str],
+        k: int
+    ) -> RetrievalTrace:
+```
+
+## 演化周期
+
+`evolve()` 方法执行离线整合：
+
+1. 关系反思 `_reflect_on_relationships()`
+2. 意义重构检查 `_check_reframe_opportunities()`
+3. 故事状态更新 `_update_story_statuses()`
+4. 主题涌现 `_process_theme_emergence()`
+5. 身份张力分析 `_analyze_identity_tensions()`
+6. 压力管理 `_pressure_manage()`
+
+## 常量管理
+
+所有魔法数字定义在 `constants.py`：
+
+```python
+# constants.py
+EPSILON_PRIOR = 1e-6
+SEMANTIC_NEIGHBORS_K = 5
+RELATIONSHIP_BONUS_SCORE = 0.1
+```

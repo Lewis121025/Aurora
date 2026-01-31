@@ -76,3 +76,17 @@ class SQLiteEventLog:
                 type=str(typ),
                 payload=loads(payload),
             )
+
+    def close(self) -> None:
+        """Explicitly close the database connection."""
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+
+    def __enter__(self) -> "SQLiteEventLog":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - ensures connection is closed."""
+        self.close()

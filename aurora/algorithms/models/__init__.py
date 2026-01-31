@@ -14,7 +14,7 @@ from aurora.algorithms.models.plot import Plot, RelationalContext, IdentityImpac
 from aurora.algorithms.models.story import StoryArc, RelationshipMoment
 from aurora.algorithms.models.theme import Theme
 from aurora.algorithms.models.config import AlgorithmConfig, MemoryConfig
-from aurora.algorithms.models.trace import RetrievalTrace, EvolutionSnapshot, EvolutionPatch
+from aurora.algorithms.models.trace import RetrievalTrace, EvolutionSnapshot, EvolutionPatch, QueryHit
 
 __all__ = [
     # Plot and its layers
@@ -29,8 +29,9 @@ __all__ = [
     # Config
     "AlgorithmConfig",
     "MemoryConfig",
-    # Traces
+    # Traces and Query Results
     "RetrievalTrace",
     "EvolutionSnapshot",
     "EvolutionPatch",
+    "QueryHit",
 ]

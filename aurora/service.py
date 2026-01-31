@@ -1,3 +1,23 @@
+"""
+AURORA Legacy Service Layer
+===========================
+
+NOTE: This is the original monolithic service module.
+For new projects, consider using the CQRS architecture in aurora.services/:
+
+    from aurora.services import IngestionService, QueryService, IngestWorker
+
+This module is maintained for backward compatibility and is still used by:
+- aurora.hub (multi-tenant routing)
+- aurora.mcp.server (MCP protocol)
+- Various tests
+
+The new services/ architecture provides:
+- Better horizontal scaling (separate read/write paths)
+- Non-blocking writes (queue-based ingestion)
+- Lower latency reads (optimized query path)
+"""
+
 from __future__ import annotations
 
 import logging
@@ -21,6 +41,7 @@ from aurora.llm.schemas import PlotExtraction
 
 from aurora.algorithms.aurora_core import AuroraMemory
 from aurora.algorithms.models.config import MemoryConfig
+from aurora.algorithms.models.trace import QueryHit
 from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.causal import CausalMemoryGraph, CausalEdgeBelief
 from aurora.algorithms.coherence import CoherenceGuardian, CoherenceReport
@@ -95,7 +116,7 @@ def create_embedding_provider(settings: AuroraSettings):
             logger.warning(f"Failed to create Ark embedding provider: {e}, falling back to hash")
     
     # 本地 Hash 嵌入
-    from aurora.algorithms.components.embedding import HashEmbedding
+    from aurora.embeddings.hash import HashEmbedding
     logger.info("Using local Hash embedding provider")
     return HashEmbedding(dim=settings.dim)
 
@@ -111,14 +132,6 @@ class IngestResult:
     surprise: float
     pred_error: float
     redundancy: float
-
-
-@dataclass
-class QueryHit:
-    id: str
-    kind: str
-    score: float
-    snippet: str
 
 
 @dataclass

@@ -3,15 +3,27 @@ AURORA Embedding Providers
 ==========================
 
 Available providers:
-- HashEmbedding: Local testing without API calls
+- HashEmbedding: Local deterministic testing (no API calls)
 - BailianEmbedding: 阿里云百炼 production provider
 - ArkEmbedding: 火山方舟 provider
+
+Usage:
+    # For testing
+    from aurora.embeddings import HashEmbedding
+    embedder = HashEmbedding(dim=384)
+    
+    # For production (lazy import to avoid dependency issues)
+    BailianEmbedding, _ = get_bailian_embedding()
+    embedder = BailianEmbedding(api_key="...")
 """
 
 from aurora.embeddings.base import EmbeddingProvider
-from aurora.algorithms.components.embedding import HashEmbedding
+from aurora.embeddings.hash import HashEmbedding
 
-__all__ = ["EmbeddingProvider", "HashEmbedding"]
+__all__ = [
+    "EmbeddingProvider",
+    "HashEmbedding",
+]
 
 
 def get_bailian_embedding():

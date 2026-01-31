@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
+from aurora.algorithms.models.trace import QueryHit
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,16 +40,6 @@ class QueryRequest(BaseModel):
                 "kinds": ["plot", "story"],
             }
         }
-
-
-@dataclass
-class QueryHit:
-    """A single query result."""
-    id: str
-    kind: str  # "plot", "story", "theme"
-    score: float
-    snippet: str
-    metadata: Optional[Dict[str, Any]] = None
 
 
 @dataclass

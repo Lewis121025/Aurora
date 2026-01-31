@@ -89,6 +89,28 @@ class EvolutionSnapshot:
 
 
 @dataclass
+class QueryHit:
+    """
+    A single retrieval hit.
+    
+    Represents one result from a memory query, containing
+    the memory unit ID, type, relevance score, and a text snippet.
+    
+    Attributes:
+        id: Unique identifier of the memory unit
+        kind: Type of memory ("plot", "story", "theme")
+        score: Relevance score (higher is better)
+        snippet: Text snippet or summary of the content
+        metadata: Optional additional metadata about the hit
+    """
+    id: str
+    kind: str  # "plot", "story", "theme"
+    score: float
+    snippet: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
 class EvolutionPatch:
     """
     Computed changes from evolution, to be applied atomically.

@@ -38,7 +38,8 @@ class RelationalContext:
     relationship_quality_delta: float   # Impact on relationship quality [-1, 1]
     what_this_says_about_us: str        # Natural language description of relational meaning
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
         return {
             "with_whom": self.with_whom,
             "my_role_in_relation": self.my_role_in_relation,
@@ -46,14 +47,21 @@ class RelationalContext:
             "what_this_says_about_us": self.what_this_says_about_us,
         }
     
+    # Backward compatibility alias
+    to_dict = to_state_dict
+    
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "RelationalContext":
+    def from_state_dict(cls, d: Dict[str, Any]) -> "RelationalContext":
+        """Reconstruct from state dict."""
         return cls(
             with_whom=d["with_whom"],
             my_role_in_relation=d.get("my_role_in_relation", "assistant"),
             relationship_quality_delta=d.get("relationship_quality_delta", 0.0),
             what_this_says_about_us=d.get("what_this_says_about_us", ""),
         )
+    
+    # Backward compatibility alias
+    from_dict = from_state_dict
 
 
 @dataclass
@@ -76,7 +84,8 @@ class IdentityImpact:
             self.evolution_history.append((now_ts(), self.current_meaning))
             self.current_meaning = new_meaning
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
         return {
             "when_formed": self.when_formed,
             "initial_meaning": self.initial_meaning,
@@ -85,8 +94,12 @@ class IdentityImpact:
             "evolution_history": self.evolution_history,
         }
     
+    # Backward compatibility alias
+    to_dict = to_state_dict
+    
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "IdentityImpact":
+    def from_state_dict(cls, d: Dict[str, Any]) -> "IdentityImpact":
+        """Reconstruct from state dict."""
         return cls(
             when_formed=d["when_formed"],
             initial_meaning=d["initial_meaning"],
@@ -94,6 +107,9 @@ class IdentityImpact:
             identity_dimensions_affected=d.get("identity_dimensions_affected", []),
             evolution_history=d.get("evolution_history", []),
         )
+    
+    # Backward compatibility alias
+    from_dict = from_state_dict
 
 
 # -----------------------------------------------------------------------------
@@ -223,11 +239,11 @@ class Plot:
         
         # Add relational context if present
         if self.relational is not None:
-            result["relational"] = self.relational.to_dict()
+            result["relational"] = self.relational.to_state_dict()
         
         # Add identity impact if present
         if self.identity_impact is not None:
-            result["identity_impact"] = self.identity_impact.to_dict()
+            result["identity_impact"] = self.identity_impact.to_state_dict()
         
         return result
 
@@ -237,12 +253,12 @@ class Plot:
         # Parse relational context if present
         relational = None
         if "relational" in d and d["relational"] is not None:
-            relational = RelationalContext.from_dict(d["relational"])
+            relational = RelationalContext.from_state_dict(d["relational"])
         
         # Parse identity impact if present
         identity_impact = None
         if "identity_impact" in d and d["identity_impact"] is not None:
-            identity_impact = IdentityImpact.from_dict(d["identity_impact"])
+            identity_impact = IdentityImpact.from_state_dict(d["identity_impact"])
         
         return cls(
             id=d["id"],

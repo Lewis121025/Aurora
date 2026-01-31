@@ -15,7 +15,7 @@ import numpy as np
 from aurora.utils.math_utils import l2_normalize, softmax
 from aurora.algorithms.models.trace import RetrievalTrace
 from aurora.algorithms.components.metric import LowRankMetric
-from aurora.algorithms.components.embedding import HashEmbedding
+from aurora.embeddings.hash import HashEmbedding
 from aurora.algorithms.graph.edge_belief import EdgeBelief
 from aurora.algorithms.graph.memory_graph import MemoryGraph
 from aurora.algorithms.graph.vector_index import VectorIndex

@@ -1,32 +1,27 @@
-"""AURORA HashEmbedding - deterministic embedding for testing."""
+"""
+DEPRECATED: HashEmbedding has moved to aurora.embeddings.hash
 
-from __future__ import annotations
+This module is kept for backward compatibility only.
+Please update your imports:
 
-from typing import List
-
-import numpy as np
-
-from aurora.embeddings.base import EmbeddingProvider
-from aurora.utils.math_utils import l2_normalize
-from aurora.utils.id_utils import stable_hash
-
-
-class HashEmbedding(EmbeddingProvider):
-    """Deterministic pseudo-random embedding for testing.
+    # Old (deprecated)
+    from aurora.algorithms.components.embedding import HashEmbedding
     
-    Produces consistent embeddings based on text hash.
-    Replace with real embedding model in production.
-    """
+    # New (preferred)
+    from aurora.embeddings import HashEmbedding
+"""
 
-    def __init__(self, dim: int = 384, seed: int = 7):
-        self.dim = dim
-        self.seed = seed
+import warnings
 
-    def embed(self, text: str) -> np.ndarray:
-        """Generate deterministic embedding from text."""
-        rng = np.random.default_rng(stable_hash(text) ^ self.seed)
-        v = rng.normal(size=self.dim).astype(np.float32)
-        return l2_normalize(v)
+warnings.warn(
+    "aurora.algorithms.components.embedding is deprecated. "
+    "Import from aurora.embeddings instead: "
+    "from aurora.embeddings import HashEmbedding",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-    def embed_batch(self, texts: List[str]) -> List[np.ndarray]:
-        return [self.embed(t) for t in texts]
+# Re-export for backward compatibility
+from aurora.embeddings.hash import HashEmbedding
+
+__all__ = ["HashEmbedding"]

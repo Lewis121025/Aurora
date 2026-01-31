@@ -45,7 +45,6 @@ class Theme:
         identity_dimension: The identity dimension name (e.g., "作为解释者的我")
         supporting_relationships: Relationships that provide evidence for this dimension
         strength: How much evidence supports this dimension [0, 1]
-        stability: How consistent this dimension is across contexts [0, 1]
 
     Functional Contradiction Management:
         tensions_with: Other identity dimensions in tension with this one
@@ -71,7 +70,6 @@ class Theme:
     identity_dimension: str = ""                                    # e.g., "作为解释者的我"
     supporting_relationships: List[str] = field(default_factory=list)  # Relationship entity IDs
     strength: float = 0.5                                           # How strong is the evidence [0, 1]
-    stability: float = 0.5                                          # How consistent across contexts [0, 1]
 
     # === Functional Contradiction Management ===
     tensions_with: List[str] = field(default_factory=list)          # Theme IDs in tension
@@ -213,7 +211,6 @@ class Theme:
             "identity_dimension": self.identity_dimension,
             "supporting_relationships": self.supporting_relationships,
             "strength": self.strength,
-            "stability": self.stability,
             "tensions_with": self.tensions_with,
             "harmonizes_with": self.harmonizes_with,
             # Original fields
@@ -238,7 +235,6 @@ class Theme:
             identity_dimension=d.get("identity_dimension", ""),
             supporting_relationships=d.get("supporting_relationships", []),
             strength=d.get("strength", 0.5),
-            stability=d.get("stability", 0.5),
             tensions_with=d.get("tensions_with", []),
             harmonizes_with=d.get("harmonizes_with", []),
             # Original fields

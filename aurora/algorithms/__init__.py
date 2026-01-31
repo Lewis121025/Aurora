@@ -7,6 +7,7 @@ Core algorithmic components for the AURORA memory system.
 Public API:
     AuroraMemory - Main memory system
     TensionManager - Functional contradiction management
+    NarratorEngine - Story reconstruction and narrative generation
 
 Submodules:
     models - Data structures (Plot, StoryArc, Theme, etc.)
@@ -17,11 +18,19 @@ Submodules:
     coherence - Coherence maintenance
     tension - Tension/contradiction management
     self_narrative - Self-narrative management
+    narrator - Narrative reconstruction engine
 """
 
 # Main system
 from aurora.algorithms.aurora_core import AuroraMemory
 from aurora.algorithms.tension import TensionManager, Tension, TensionType, TensionResolution
+from aurora.algorithms.narrator import (
+    NarratorEngine,
+    NarrativePerspective,
+    NarrativeTrace,
+    NarrativeElement,
+    NarrativeRole,
+)
 
 __all__ = [
     "AuroraMemory",
@@ -29,4 +38,9 @@ __all__ = [
     "Tension",
     "TensionType",
     "TensionResolution",
+    "NarratorEngine",
+    "NarrativePerspective",
+    "NarrativeTrace",
+    "NarrativeElement",
+    "NarrativeRole",
 ]

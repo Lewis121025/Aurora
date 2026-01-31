@@ -63,3 +63,17 @@ class SQLiteDocStore:
         )
         for _id, k, uid, ts, body in cur.fetchall():
             yield Document(id=str(_id), kind=str(k), user_id=str(uid), ts=float(ts), body=loads(body))
+
+    def close(self) -> None:
+        """Explicitly close the database connection."""
+        if self._conn:
+            self._conn.close()
+            self._conn = None
+
+    def __enter__(self) -> "SQLiteDocStore":
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - ensures connection is closed."""
+        self.close()

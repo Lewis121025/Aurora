@@ -13,6 +13,7 @@ The primary organizational dimension is now `relationship_with`, not semantic si
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
@@ -38,7 +39,8 @@ class RelationshipMoment:
     my_role: str                # My role in this moment
     quality_delta: float = 0.0  # Change in relationship quality
     
-    def to_dict(self) -> Dict[str, Any]:
+    def to_state_dict(self) -> Dict[str, Any]:
+        """Serialize to JSON-compatible dict."""
         return {
             "ts": self.ts,
             "event_summary": self.event_summary,
@@ -47,8 +49,12 @@ class RelationshipMoment:
             "quality_delta": self.quality_delta,
         }
     
+    # Backward compatibility alias
+    to_dict = to_state_dict
+    
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "RelationshipMoment":
+    def from_state_dict(cls, d: Dict[str, Any]) -> "RelationshipMoment":
+        """Reconstruct from state dict."""
         return cls(
             ts=d["ts"],
             event_summary=d["event_summary"],
@@ -56,6 +62,9 @@ class RelationshipMoment:
             my_role=d.get("my_role", "assistant"),
             quality_delta=d.get("quality_delta", 0.0),
         )
+    
+    # Backward compatibility alias
+    from_dict = from_state_dict
 
 
 # -----------------------------------------------------------------------------
@@ -88,6 +97,16 @@ class StoryArc:
         lessons_from_relationship: What this relationship has taught me
         relationship_health: Current health/quality of the relationship [0, 1]
 
+    Narrative Structure (叙事阶段):
+        setup: 开端 - 故事的起始情境
+        rising_action: 发展 - 情节推进事件列表
+        climax: 高潮 - 张力最高点
+        falling_action: 收尾 - 高潮后的情节
+        resolution: 结局 - 最终解决
+        central_conflict: 核心冲突
+        turning_points: 转折点列表 (timestamp, description)
+        moral: 寓意 - 从故事中提取的意义
+
     Generative parameters:
         centroid: Mean embedding of plots in this story
         dist_mean, dist_m2, dist_n: Welford stats for semantic dispersion
@@ -112,6 +131,18 @@ class StoryArc:
     my_identity_in_this_relationship: str = ""      # "Who I am in this relationship"
     lessons_from_relationship: List[str] = field(default_factory=list)
     relationship_health: float = 0.5                # Current relationship quality [0, 1]
+
+    # === Narrative Structure (叙事阶段) ===
+    setup: Optional[str] = None                     # 开端 - 故事的起始情境
+    rising_action: List[str] = field(default_factory=list)  # 发展 - 情节推进
+    climax: Optional[str] = None                    # 高潮 - 张力最高点
+    falling_action: List[str] = field(default_factory=list)  # 收尾
+    resolution: Optional[str] = None                # 结局 - 最终解决
+    
+    # === Narrative Elements (叙事元素) ===
+    central_conflict: Optional[str] = None          # 核心冲突
+    turning_points: List[Tuple[float, str]] = field(default_factory=list)  # 转折点 (timestamp, description)
+    moral: Optional[str] = None                     # 寓意 - 从故事中提取的意义
 
     # Online generative parameters (kept for compatibility)
     centroid: Optional[np.ndarray] = None
@@ -260,13 +291,13 @@ class StoryArc:
         recent = self.relationship_arc[-window:]
         roles = [m.my_role for m in recent]
         
-        # Count most common role
-        role_counts: Dict[str, int] = {}
-        for role in roles:
-            role_counts[role] = role_counts.get(role, 0) + 1
+        if not roles:
+            return 1.0
         
-        max_count = max(role_counts.values()) if role_counts else 0
-        return max_count / len(roles) if roles else 1.0
+        # Count most common role using Counter
+        role_counts = Counter(roles)
+        max_count = role_counts.most_common(1)[0][1] if role_counts else 0
+        return max_count / len(roles)
     
     def update_identity_in_relationship(self, new_identity: str) -> None:
         """Update my identity in this relationship."""
@@ -309,6 +340,192 @@ class StoryArc:
             parts.append(f"这段关系教会我：{lessons}。")
         
         return "".join(parts)
+    
+    # -------------------------------------------------------------------------
+    # Narrative Structure Methods (叙事结构方法)
+    # -------------------------------------------------------------------------
+    
+    def detect_climax(self, threshold_percentile: float = 0.9) -> Optional[int]:
+        """
+        Detect the climax point based on tension_curve.
+        
+        The climax is identified as the point with maximum tension that exceeds
+        a threshold percentile of all tension values.
+        
+        Args:
+            threshold_percentile: Percentile threshold for considering a point
+                                  as climax (default 0.9 = 90th percentile)
+        
+        Returns:
+            Index of the climax point in tension_curve, or None if no clear climax.
+        """
+        if not self.tension_curve or len(self.tension_curve) < 3:
+            return None
+        
+        tensions = np.array(self.tension_curve)
+        max_idx = int(np.argmax(tensions))
+        max_tension = tensions[max_idx]
+        
+        # Check if the max tension exceeds the threshold percentile
+        threshold = np.percentile(tensions, threshold_percentile * 100)
+        if max_tension >= threshold:
+            return max_idx
+        
+        return None
+    
+    def extract_moral(self) -> Optional[str]:
+        """
+        Extract the moral/meaning from this story.
+        
+        This is a placeholder implementation that generates a moral based on
+        the story's structure and lessons learned. In production, this would
+        be augmented by LLM-based meaning extraction.
+        
+        Returns:
+            A string describing the moral/meaning, or None if insufficient data.
+        """
+        # If already set, return it
+        if self.moral:
+            return self.moral
+        
+        # Synthesize from available information
+        parts = []
+        
+        # From relationship lessons
+        if self.lessons_from_relationship:
+            parts.append(f"从关系中学到：{self.lessons_from_relationship[0]}")
+        
+        # From central conflict
+        if self.central_conflict and self.resolution:
+            parts.append(f"面对「{self.central_conflict}」，最终{self.resolution}")
+        
+        # From tension pattern
+        if self.tension_curve and len(self.tension_curve) >= 3:
+            trend = self.tension_curve[-1] - self.tension_curve[0]
+            if trend > 0.2:
+                parts.append("张力逐渐升高，故事仍在发展中")
+            elif trend < -0.2:
+                parts.append("经历起伏后趋于平静")
+            else:
+                parts.append("故事维持相对稳定的节奏")
+        
+        if parts:
+            self.moral = "；".join(parts)
+            return self.moral
+        
+        return None
+    
+    def add_turning_point(self, ts: float, description: str) -> None:
+        """
+        Add a turning point to the narrative.
+        
+        Turning points are significant moments where the story direction changes.
+        They are stored with timestamps for chronological ordering.
+        
+        Args:
+            ts: Timestamp of the turning point
+            description: Description of what changed
+        """
+        self.turning_points.append((ts, description))
+        # Keep sorted by timestamp
+        self.turning_points.sort(key=lambda x: x[0])
+    
+    def get_narrative_phase(self) -> Literal["setup", "rising", "climax", "falling", "resolution", "unknown"]:
+        """
+        Determine the current narrative phase based on story structure.
+        
+        Returns:
+            The current phase of the narrative arc.
+        """
+        if self.resolution:
+            return "resolution"
+        if self.falling_action:
+            return "falling"
+        if self.climax:
+            return "climax"
+        if self.rising_action:
+            return "rising"
+        if self.setup:
+            return "setup"
+        return "unknown"
+    
+    def get_narrative_completeness(self) -> float:
+        """
+        Calculate how complete the narrative structure is.
+        
+        Returns:
+            A score from 0.0 to 1.0 indicating narrative completeness.
+        """
+        score = 0.0
+        weights = {
+            "setup": 0.15,
+            "rising_action": 0.20,
+            "climax": 0.25,
+            "falling_action": 0.15,
+            "resolution": 0.15,
+            "central_conflict": 0.05,
+            "moral": 0.05,
+        }
+        
+        if self.setup:
+            score += weights["setup"]
+        if self.rising_action:
+            score += weights["rising_action"]
+        if self.climax:
+            score += weights["climax"]
+        if self.falling_action:
+            score += weights["falling_action"]
+        if self.resolution:
+            score += weights["resolution"]
+        if self.central_conflict:
+            score += weights["central_conflict"]
+        if self.moral:
+            score += weights["moral"]
+        
+        return min(1.0, score)
+    
+    def to_narrative_summary(self) -> str:
+        """
+        Generate a structured narrative summary of this story.
+        
+        Returns:
+            A formatted string summarizing the narrative arc.
+        """
+        parts = []
+        
+        if self.central_conflict:
+            parts.append(f"【核心冲突】{self.central_conflict}")
+        
+        if self.setup:
+            parts.append(f"【开端】{self.setup}")
+        
+        if self.rising_action:
+            rising = "→".join(self.rising_action[:3])
+            if len(self.rising_action) > 3:
+                rising += f"...（共{len(self.rising_action)}个发展）"
+            parts.append(f"【发展】{rising}")
+        
+        if self.climax:
+            parts.append(f"【高潮】{self.climax}")
+        
+        if self.falling_action:
+            falling = "→".join(self.falling_action[:2])
+            parts.append(f"【收尾】{falling}")
+        
+        if self.resolution:
+            parts.append(f"【结局】{self.resolution}")
+        
+        if self.turning_points:
+            tp_str = "; ".join([f"{desc}" for _, desc in self.turning_points[:3]])
+            parts.append(f"【转折点】{tp_str}")
+        
+        if self.moral:
+            parts.append(f"【寓意】{self.moral}")
+        
+        if not parts:
+            return f"Story {self.id}（叙事结构待完善）"
+        
+        return "\n".join(parts)
 
     def to_state_dict(self) -> Dict[str, Any]:
         """Serialize to JSON-compatible dict."""
@@ -320,10 +537,20 @@ class StoryArc:
             # Relationship-centric fields
             "relationship_with": self.relationship_with,
             "relationship_type": self.relationship_type,
-            "relationship_arc": [m.to_dict() for m in self.relationship_arc],
+            "relationship_arc": [m.to_state_dict() for m in self.relationship_arc],
             "my_identity_in_this_relationship": self.my_identity_in_this_relationship,
             "lessons_from_relationship": self.lessons_from_relationship,
             "relationship_health": self.relationship_health,
+            # Narrative structure (叙事阶段)
+            "setup": self.setup,
+            "rising_action": self.rising_action,
+            "climax": self.climax,
+            "falling_action": self.falling_action,
+            "resolution": self.resolution,
+            # Narrative elements (叙事元素)
+            "central_conflict": self.central_conflict,
+            "turning_points": self.turning_points,  # List[Tuple[float, str]] is JSON-serializable
+            "moral": self.moral,
             # Generative parameters
             "centroid": self.centroid.tolist() if self.centroid is not None else None,
             "dist_mean": self.dist_mean,
@@ -340,15 +567,24 @@ class StoryArc:
 
     @classmethod
     def from_state_dict(cls, d: Dict[str, Any]) -> "StoryArc":
-        """Reconstruct from state dict."""
+        """Reconstruct from state dict.
+        
+        Backward compatible: handles old data without narrative structure fields.
+        """
         centroid = d.get("centroid")
         
         # Parse relationship arc
         relationship_arc = []
         if "relationship_arc" in d:
             relationship_arc = [
-                RelationshipMoment.from_dict(m) for m in d["relationship_arc"]
+                RelationshipMoment.from_state_dict(m) for m in d["relationship_arc"]
             ]
+        
+        # Parse turning points - convert lists back to tuples for type consistency
+        raw_turning_points = d.get("turning_points", [])
+        turning_points: List[Tuple[float, str]] = [
+            (float(tp[0]), str(tp[1])) for tp in raw_turning_points
+        ] if raw_turning_points else []
         
         return cls(
             id=d["id"],
@@ -362,6 +598,16 @@ class StoryArc:
             my_identity_in_this_relationship=d.get("my_identity_in_this_relationship", ""),
             lessons_from_relationship=d.get("lessons_from_relationship", []),
             relationship_health=d.get("relationship_health", 0.5),
+            # Narrative structure (backward compatible defaults)
+            setup=d.get("setup"),
+            rising_action=d.get("rising_action", []),
+            climax=d.get("climax"),
+            falling_action=d.get("falling_action", []),
+            resolution=d.get("resolution"),
+            # Narrative elements (backward compatible defaults)
+            central_conflict=d.get("central_conflict"),
+            turning_points=turning_points,
+            moral=d.get("moral"),
             # Generative parameters
             centroid=np.array(centroid, dtype=np.float32) if centroid is not None else None,
             dist_mean=d.get("dist_mean", 0.0),

@@ -154,6 +154,19 @@ class FAISSVectorIndex:
     
     def __len__(self) -> int:
         return len(self.ids)
+
+    def reset(self) -> None:
+        """Reset the index, releasing all memory.
+        
+        This clears all stored vectors and rebuilds an empty index.
+        Use when you need to free memory or start fresh.
+        """
+        self.ids.clear()
+        self.vecs.clear()
+        self.kinds.clear()
+        self._id_to_idx.clear()
+        self._dirty_count = 0
+        self._build_index()
     
     def to_state_dict(self) -> Dict[str, Any]:
         return {

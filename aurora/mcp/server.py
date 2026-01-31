@@ -19,7 +19,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
@@ -207,7 +206,7 @@ class AuroraMCPServer:
         if self.tenant is not None:
             return self.tenant
         elif self.hub is not None:
-            return self.hub.get(user_id)
+            return self.hub.tenant(user_id)
         else:
             raise RuntimeError("No hub or tenant configured")
     
