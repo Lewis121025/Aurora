@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 @dataclass
 class RetrievalTrace:
     """
-    Trace of a retrieval operation with relationship-centric extensions.
+    Trace of a retrieval operation with relationship-centric and timeline extensions.
 
     Captures the query, intermediate states, and ranked results
     for analysis and learning.
@@ -38,6 +38,10 @@ class RetrievalTrace:
         
     Query type awareness:
         query_type: Detected or specified query type for adaptive retrieval
+        
+    Timeline extensions (First Principles):
+        timeline_group: Organized timelines showing knowledge evolution
+        include_historical: Whether historical (superseded) results are included
     """
 
     query: str
@@ -52,6 +56,10 @@ class RetrievalTrace:
     
     # Query type awareness (use Any to avoid circular import at runtime)
     query_type: Optional[Any] = None  # QueryType enum
+    
+    # Timeline extensions - First Principles: preserve temporal evolution
+    timeline_group: Optional[TimelineGroup] = None
+    include_historical: bool = True  # By default, include full history
 
 
 @dataclass
@@ -118,6 +126,108 @@ class QueryHit:
     score: float
     snippet: str
     metadata: Optional[Dict[str, Any]] = None
+
+
+@dataclass
+class KnowledgeTimeline:
+    """
+    A timeline of knowledge evolution for a single topic/entity.
+    
+    First Principles:
+    - In narrative psychology, past facts are not "deleted" but repositioned with past tense
+    - "I lived in Beijing" → "I **used to** live in Beijing" (still true, just temporal)
+    - superseded ≠ invalid; superseded = past truth
+    
+    This structure captures the complete evolution of knowledge, allowing the
+    semantic understanding layer (LLM) to make decisions based on full context
+    rather than having the retrieval layer arbitrarily filter results.
+    
+    Attributes:
+        chain: List of plot IDs from oldest to newest (chronological order)
+        current_id: ID of the currently active plot (None if all superseded)
+        topic_signature: Semantic signature for grouping similar updates
+        match_score: Best semantic match score from the query
+        
+    Example Timeline:
+        chain: ["plot-001", "plot-002", "plot-003"]
+        current_id: "plot-003"
+        
+        Represents:
+        - plot-001: "I live in Beijing" (2024-01) → HISTORICAL
+        - plot-002: "I moved to Shanghai" (2024-06) → HISTORICAL  
+        - plot-003: "I moved to Shenzhen" (2024-12) → CURRENT
+    """
+    chain: List[str]                    # [oldest_plot_id, ..., newest_plot_id]
+    current_id: Optional[str]           # ID of active plot (newest non-superseded)
+    topic_signature: str                # Semantic signature for the topic
+    match_score: float = 0.0            # Best match score from query
+    
+    def __len__(self) -> int:
+        """Return the number of plots in the timeline."""
+        return len(self.chain)
+    
+    def is_single_version(self) -> bool:
+        """Check if this timeline has only one version (no updates)."""
+        return len(self.chain) == 1
+    
+    def has_evolution(self) -> bool:
+        """Check if this timeline shows knowledge evolution."""
+        return len(self.chain) > 1
+    
+    def get_historical_ids(self) -> List[str]:
+        """Get IDs of historical (superseded) plots."""
+        if self.current_id is None:
+            return self.chain  # All are historical
+        return [pid for pid in self.chain if pid != self.current_id]
+
+
+@dataclass
+class TimelineGroup:
+    """
+    A group of related knowledge timelines from a retrieval operation.
+    
+    First Principles:
+    - Retrieval should return structured temporal information
+    - Let the LLM see full context with temporal markers
+    - Don't filter at retrieval layer; let semantic understanding layer decide
+    
+    This structure organizes retrieval results into meaningful timelines,
+    enabling temporal-reasoning queries ("Where did I used to live?") and
+    knowledge-update queries ("Where do I live now?") to both work correctly.
+    
+    Attributes:
+        timelines: List of KnowledgeTimeline objects
+        standalone_results: Results that aren't part of any update chain
+        total_results: Total number of unique plots across all timelines
+    """
+    timelines: List[KnowledgeTimeline] = field(default_factory=list)
+    standalone_results: List[Tuple[str, float, str]] = field(default_factory=list)
+    
+    @property
+    def total_results(self) -> int:
+        """Total number of unique results."""
+        timeline_count = sum(len(t.chain) for t in self.timelines)
+        return timeline_count + len(self.standalone_results)
+    
+    def get_all_plot_ids(self) -> List[str]:
+        """Get all plot IDs from timelines and standalone results."""
+        ids: List[str] = []
+        for timeline in self.timelines:
+            ids.extend(timeline.chain)
+        for nid, _, kind in self.standalone_results:
+            if kind == "plot":
+                ids.append(nid)
+        return ids
+    
+    def get_current_state_ids(self) -> List[str]:
+        """Get IDs representing current state (for knowledge-update queries)."""
+        ids: List[str] = []
+        for timeline in self.timelines:
+            if timeline.current_id:
+                ids.append(timeline.current_id)
+        for nid, _, kind in self.standalone_results:
+            ids.append(nid)
+        return ids
 
 
 @dataclass

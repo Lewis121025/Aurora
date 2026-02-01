@@ -184,10 +184,30 @@ class Plot:
     # Assignment
     story_id: Optional[str] = None
 
+    # === Knowledge Update Tracking ===
+    # For re-narration: old info is not deleted, but repositioned as "past self"
+    supersedes_id: Optional[str] = None       # ID of the plot this one supersedes/updates
+    superseded_by_id: Optional[str] = None    # ID of the plot that superseded this
+    update_type: Optional[Literal["state_change", "correction", "refinement"]] = None
+    redundancy_type: Optional[Literal["novel", "update", "reinforcement", "pure_redundant"]] = None
+    
+    # === Knowledge Type Classification ===
+    # Used for intelligent conflict resolution (not all contradictions need elimination)
+    knowledge_type: Optional[Literal[
+        "factual_state",    # Mutable facts (address, job) - UPDATE strategy
+        "factual_static",   # Immutable facts (birthday) - CORRECT strategy
+        "identity_trait",   # Personality traits - PRESERVE_BOTH strategy
+        "identity_value",   # Core values - PRESERVE_BOTH strategy
+        "preference",       # Likes/dislikes - EVOLVE strategy
+        "behavior",         # Behavioral patterns - EVOLVE strategy
+        "unknown"           # Cannot classify
+    ]] = None
+    knowledge_confidence: float = 0.0  # Confidence in classification [0, 1]
+
     # Usage stats -> "mass" emerges
     access_count: int = 0
     last_access_ts: float = field(default_factory=now_ts)
-    status: Literal["active", "absorbed", "archived"] = "active"
+    status: Literal["active", "absorbed", "archived", "superseded", "corrected"] = "active"
 
     def mass(self) -> float:
         """
@@ -232,6 +252,12 @@ class Plot:
             "goal_relevance": self.goal_relevance,
             "tension": self.tension,
             "story_id": self.story_id,
+            "supersedes_id": self.supersedes_id,
+            "superseded_by_id": self.superseded_by_id,
+            "update_type": self.update_type,
+            "redundancy_type": self.redundancy_type,
+            "knowledge_type": self.knowledge_type,
+            "knowledge_confidence": self.knowledge_confidence,
             "access_count": self.access_count,
             "last_access_ts": self.last_access_ts,
             "status": self.status,
@@ -274,6 +300,12 @@ class Plot:
             relational=relational,
             identity_impact=identity_impact,
             story_id=d.get("story_id"),
+            supersedes_id=d.get("supersedes_id"),
+            superseded_by_id=d.get("superseded_by_id"),
+            update_type=d.get("update_type"),
+            redundancy_type=d.get("redundancy_type"),
+            knowledge_type=d.get("knowledge_type"),
+            knowledge_confidence=d.get("knowledge_confidence", 0.0),
             access_count=d.get("access_count", 0),
             last_access_ts=d.get("last_access_ts", now_ts()),
             status=d.get("status", "active"),

@@ -14,7 +14,14 @@ from aurora.algorithms.models.plot import Plot, RelationalContext, IdentityImpac
 from aurora.algorithms.models.story import StoryArc, RelationshipMoment
 from aurora.algorithms.models.theme import Theme
 from aurora.algorithms.models.config import AlgorithmConfig, MemoryConfig
-from aurora.algorithms.models.trace import RetrievalTrace, EvolutionSnapshot, EvolutionPatch, QueryHit
+from aurora.algorithms.models.trace import (
+    RetrievalTrace,
+    EvolutionSnapshot,
+    EvolutionPatch,
+    QueryHit,
+    KnowledgeTimeline,
+    TimelineGroup,
+)
 
 __all__ = [
     # Plot and its layers
@@ -34,4 +41,7 @@ __all__ = [
     "EvolutionSnapshot",
     "EvolutionPatch",
     "QueryHit",
+    # Timeline-based retrieval (First Principles: superseded ≠ deleted)
+    "KnowledgeTimeline",
+    "TimelineGroup",
 ]

@@ -298,6 +298,193 @@ class StoryArc:
         role_counts = Counter(roles)
         max_count = role_counts.most_common(1)[0][1] if role_counts else 0
         return max_count / len(roles)
+
+    # -------------------------------------------------------------------------
+    # Temporal Methods (时间作为一等公民)
+    # -------------------------------------------------------------------------
+    
+    def get_temporal_span(self, plots_dict: Optional[Dict[str, Any]] = None) -> Tuple[float, float]:
+        """Get the temporal span of this story.
+        
+        Time as First-Class Citizen: A story's time span is essential for
+        understanding its narrative arc and temporal context.
+        
+        Args:
+            plots_dict: Optional dict of plot_id -> Plot for precise timestamps.
+                        If not provided, uses created_ts and updated_ts.
+        
+        Returns:
+            Tuple of (earliest_timestamp, latest_timestamp).
+            If no plots, returns (created_ts, updated_ts).
+        """
+        if not self.plot_ids:
+            return (self.created_ts, self.updated_ts)
+        
+        if plots_dict is None:
+            # Fallback to story timestamps
+            return (self.created_ts, self.updated_ts)
+        
+        # Get timestamps from actual plots
+        timestamps = []
+        for pid in self.plot_ids:
+            plot = plots_dict.get(pid)
+            if plot is not None:
+                ts = getattr(plot, 'ts', None)
+                if ts is not None:
+                    timestamps.append(ts)
+        
+        if not timestamps:
+            return (self.created_ts, self.updated_ts)
+        
+        return (min(timestamps), max(timestamps))
+    
+    def get_temporal_narrative(
+        self, 
+        plots_dict: Optional[Dict[str, Any]] = None,
+        locale: str = "zh"
+    ) -> str:
+        """Generate a temporal narrative summary of this story.
+        
+        Time as First-Class Citizen: Generates a human-readable description
+        of the story's temporal dimension, helping users understand the
+        timeline of events.
+        
+        Example outputs:
+        - Chinese: "从2024年1月开始，用户和我讨论了Python学习，历经3个月，共12次交互..."
+        - English: "Starting from January 2024, discussed Python learning over 3 months, 12 interactions..."
+        
+        Args:
+            plots_dict: Optional dict of plot_id -> Plot for event details.
+            locale: Language for the narrative ("zh" for Chinese, "en" for English).
+        
+        Returns:
+            A natural language description of the story's temporal arc.
+        """
+        import datetime
+        
+        # Get temporal span
+        start_ts, end_ts = self.get_temporal_span(plots_dict)
+        
+        # Convert to datetime
+        start_dt = datetime.datetime.fromtimestamp(start_ts)
+        end_dt = datetime.datetime.fromtimestamp(end_ts)
+        
+        # Calculate duration
+        duration_days = (end_ts - start_ts) / (24 * 3600)
+        interaction_count = len(self.plot_ids)
+        
+        # Format dates
+        if locale == "zh":
+            start_str = start_dt.strftime("%Y年%m月%d日")
+            end_str = end_dt.strftime("%Y年%m月%d日")
+            
+            # Build narrative
+            parts = []
+            
+            if self.relationship_with:
+                parts.append(f"与{self.relationship_with}的关系故事")
+            else:
+                parts.append(f"故事{self.id[:8]}")
+            
+            parts.append(f"从{start_str}开始")
+            
+            if duration_days < 1:
+                parts.append(f"在同一天内")
+            elif duration_days < 7:
+                parts.append(f"历经{int(duration_days)}天")
+            elif duration_days < 30:
+                weeks = int(duration_days / 7)
+                parts.append(f"历经约{weeks}周")
+            elif duration_days < 365:
+                months = int(duration_days / 30)
+                parts.append(f"历经约{months}个月")
+            else:
+                years = duration_days / 365
+                parts.append(f"历经约{years:.1f}年")
+            
+            parts.append(f"共{interaction_count}次交互")
+            
+            # Add relationship context if available
+            if self.my_identity_in_this_relationship:
+                parts.append(f"我作为{self.my_identity_in_this_relationship}")
+            
+            # Add narrative phase
+            phase = self.get_narrative_phase()
+            phase_names = {
+                "setup": "处于开端阶段",
+                "rising": "正在发展中",
+                "climax": "达到高潮",
+                "falling": "进入收尾",
+                "resolution": "已经完结",
+                "unknown": "阶段未明",
+            }
+            parts.append(phase_names.get(phase, ""))
+            
+            return "，".join(parts) + "。"
+        
+        else:  # English
+            start_str = start_dt.strftime("%B %d, %Y")
+            end_str = end_dt.strftime("%B %d, %Y")
+            
+            parts = []
+            
+            if self.relationship_with:
+                parts.append(f"Story with {self.relationship_with}")
+            else:
+                parts.append(f"Story {self.id[:8]}")
+            
+            parts.append(f"starting from {start_str}")
+            
+            if duration_days < 1:
+                parts.append("on the same day")
+            elif duration_days < 7:
+                parts.append(f"spanning {int(duration_days)} days")
+            elif duration_days < 30:
+                weeks = int(duration_days / 7)
+                parts.append(f"over about {weeks} weeks")
+            elif duration_days < 365:
+                months = int(duration_days / 30)
+                parts.append(f"over about {months} months")
+            else:
+                years = duration_days / 365
+                parts.append(f"over about {years:.1f} years")
+            
+            parts.append(f"with {interaction_count} interactions")
+            
+            if self.my_identity_in_this_relationship:
+                parts.append(f"acting as {self.my_identity_in_this_relationship}")
+            
+            phase = self.get_narrative_phase()
+            phase_names = {
+                "setup": "in setup phase",
+                "rising": "currently developing",
+                "climax": "at climax",
+                "falling": "in falling action",
+                "resolution": "resolved",
+                "unknown": "phase unknown",
+            }
+            parts.append(phase_names.get(phase, ""))
+            
+            return ", ".join(parts) + "."
+    
+    def get_temporal_density(self, plots_dict: Optional[Dict[str, Any]] = None) -> float:
+        """Calculate the temporal density of interactions.
+        
+        Higher density means more frequent interactions in the time span.
+        
+        Args:
+            plots_dict: Optional dict of plot_id -> Plot.
+        
+        Returns:
+            Interactions per day, or 0 if no temporal span.
+        """
+        start_ts, end_ts = self.get_temporal_span(plots_dict)
+        duration_days = (end_ts - start_ts) / (24 * 3600)
+        
+        if duration_days < 0.001:  # Less than a minute
+            return float(len(self.plot_ids))  # All interactions in single moment
+        
+        return len(self.plot_ids) / duration_days
     
     def update_identity_in_relationship(self, new_identity: str) -> None:
         """Update my identity in this relationship."""

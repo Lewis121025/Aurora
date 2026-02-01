@@ -19,9 +19,16 @@ from aurora.algorithms.models.trace import RetrievalTrace
 from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.constants import (
     CAUSAL_KEYWORDS,
+    EARLIEST_ANCHOR_KEYWORDS,
+    FACTUAL_ATTRACTOR_WEIGHT,
     FACTUAL_PLOT_PRIORITY_BOOST,
+    FACTUAL_SEMANTIC_WEIGHT,
     MULTI_HOP_EXTRA_PAGERANK_ITER,
     MULTI_HOP_KEYWORDS,
+    RECENT_ANCHOR_KEYWORDS,
+    SPAN_ANCHOR_KEYWORDS,
+    TEMPORAL_DIVERSITY_BUCKETS,
+    TEMPORAL_DIVERSITY_MMR_LAMBDA,
     TEMPORAL_KEYWORDS,
     TEMPORAL_SORT_WEIGHT,
 )
@@ -44,6 +51,29 @@ class QueryType(Enum):
     TEMPORAL = auto()   # 时序查询：需要时间戳排序
     MULTI_HOP = auto()  # 多跳查询：需要图扩展
     CAUSAL = auto()     # 因果查询：需要因果链追踪
+
+
+class TimeAnchor(Enum):
+    """Time anchor classification for temporal queries.
+    
+    Time as First-Class Citizen: In narrative psychology, time is not optional
+    metadata but an essential dimension of narrative structure.
+    
+    Different time anchors require different retrieval strategies:
+    - RECENT: Return most recent memories first (e.g., "最近", "上次")
+    - EARLIEST: Return earliest memories first (e.g., "最早", "第一次")
+    - SPAN: Return temporally diverse memories (e.g., "历史", "一直")
+    - NONE: No specific temporal anchor detected, use default ranking
+    
+    Key insight from narrative psychology:
+    - Plot = Event (时间点) - a specific moment
+    - Story = Episode (时间线) - a sequence of related events
+    - Theme = Lesson (时间不变量) - timeless patterns
+    """
+    RECENT = auto()     # 最近/上次：优先返回最新的记忆
+    EARLIEST = auto()   # 最早/第一次：优先返回最早的记忆
+    SPAN = auto()       # 历史/一直：返回时间跨度多样的记忆
+    NONE = auto()       # 无特定时间锚点
 
 
 class FieldRetriever:
@@ -118,14 +148,245 @@ class FieldRetriever:
         # Default to factual query
         return QueryType.FACTUAL
 
+    def _detect_time_anchor(self, query_text: str) -> TimeAnchor:
+        """Detect the temporal anchor of a query.
+        
+        Time as First-Class Citizen: This method identifies what temporal
+        perspective the user wants for their query.
+        
+        In narrative psychology:
+        - "最近学了什么" → RECENT (recency bias)
+        - "最早学的是什么" → EARLIEST (origin seeking)
+        - "学习的历程" → SPAN (temporal narrative)
+        
+        Args:
+            query_text: The query text to analyze
+            
+        Returns:
+            TimeAnchor indicating the detected temporal anchor:
+            - RECENT: User wants most recent memories
+            - EARLIEST: User wants earliest/first memories  
+            - SPAN: User wants temporally diverse memories
+            - NONE: No specific temporal anchor detected
+        """
+        query_lower = query_text.lower()
+        
+        # Check for recent anchor keywords (highest priority for temporal)
+        for keyword in RECENT_ANCHOR_KEYWORDS:
+            if keyword in query_lower:
+                return TimeAnchor.RECENT
+        
+        # Check for earliest anchor keywords
+        for keyword in EARLIEST_ANCHOR_KEYWORDS:
+            if keyword in query_lower:
+                return TimeAnchor.EARLIEST
+        
+        # Check for span anchor keywords
+        for keyword in SPAN_ANCHOR_KEYWORDS:
+            if keyword in query_lower:
+                return TimeAnchor.SPAN
+        
+        # No specific temporal anchor
+        return TimeAnchor.NONE
+
     # -------------------------------------------------------------------------
     # Query Type-Specific Post-Processing
     # -------------------------------------------------------------------------
+
+    def _get_timestamp(self, nid: str) -> float:
+        """Get timestamp for a node (plot, story, or theme).
+        
+        Args:
+            nid: Node ID
+            
+        Returns:
+            Timestamp (ts for plots, created_ts for stories/themes)
+        """
+        try:
+            payload = self.graph.payload(nid)
+            return getattr(payload, 'ts', getattr(payload, 'created_ts', 0.0))
+        except Exception:
+            return 0.0
+
+    def _temporal_aware_rerank(
+        self, 
+        ranked: List[Tuple[str, float, str]], 
+        query_text: str,
+        k: int
+    ) -> List[Tuple[str, float, str]]:
+        """Temporally-aware re-ranking based on detected time anchor.
+        
+        Time as First-Class Citizen: This method implements temporal-first
+        retrieval by detecting the query's temporal anchor and adjusting
+        the ranking strategy accordingly.
+        
+        Strategies by TimeAnchor:
+        - RECENT: Sort by timestamp descending (most recent first)
+        - EARLIEST: Sort by timestamp ascending (earliest first)
+        - SPAN: Use MMR to select temporally diverse results
+        - NONE: Use weighted combination of semantic and recency
+        
+        Args:
+            ranked: List of (id, score, kind) tuples from initial retrieval
+            query_text: Original query text for anchor detection
+            k: Number of results to return
+            
+        Returns:
+            Re-ranked list based on temporal anchor
+        """
+        if not ranked:
+            return ranked
+        
+        time_anchor = self._detect_time_anchor(query_text)
+        
+        # Get timestamps for all items
+        items_with_ts: List[Tuple[str, float, str, float]] = []
+        for nid, score, kind in ranked:
+            ts = self._get_timestamp(nid)
+            items_with_ts.append((nid, score, kind, ts))
+        
+        if time_anchor == TimeAnchor.RECENT:
+            # Sort by timestamp descending (most recent first)
+            # Preserve semantic score as tiebreaker
+            items_with_ts.sort(key=lambda x: (x[3], x[1]), reverse=True)
+            return [(nid, score, kind) for nid, score, kind, _ in items_with_ts[:k]]
+        
+        elif time_anchor == TimeAnchor.EARLIEST:
+            # Sort by timestamp ascending (earliest first)
+            # Preserve semantic score as tiebreaker
+            items_with_ts.sort(key=lambda x: (-x[3], x[1]), reverse=True)
+            return [(nid, score, kind) for nid, score, kind, _ in items_with_ts[:k]]
+        
+        elif time_anchor == TimeAnchor.SPAN:
+            # Use temporal diversity selection
+            return self._select_temporal_diversity(items_with_ts, k)
+        
+        else:
+            # NONE: Blend semantic score with recency (default temporal behavior)
+            return self._blend_semantic_temporal(items_with_ts, k)
+
+    def _blend_semantic_temporal(
+        self,
+        items_with_ts: List[Tuple[str, float, str, float]],
+        k: int
+    ) -> List[Tuple[str, float, str]]:
+        """Blend semantic scores with temporal recency.
+        
+        Args:
+            items_with_ts: List of (id, score, kind, timestamp) tuples
+            k: Number of results to return
+            
+        Returns:
+            Re-ranked list with blended scores
+        """
+        if not items_with_ts:
+            return []
+        
+        # Compute timestamp range for normalization
+        timestamps = [ts for _, _, _, ts in items_with_ts]
+        max_ts = max(timestamps)
+        min_ts = min(timestamps)
+        ts_range = max_ts - min_ts if max_ts > min_ts else 1.0
+        
+        # Compute combined scores
+        reranked: List[Tuple[str, float, str]] = []
+        for nid, score, kind, ts in items_with_ts:
+            # Normalize timestamp to [0, 1] (more recent = higher)
+            normalized_ts = (ts - min_ts) / ts_range if ts_range > 0 else 0.5
+            # Blend semantic score with temporal recency
+            combined = (1.0 - TEMPORAL_SORT_WEIGHT) * score + TEMPORAL_SORT_WEIGHT * normalized_ts
+            reranked.append((nid, combined, kind))
+        
+        # Sort by combined score descending
+        reranked.sort(key=lambda x: x[1], reverse=True)
+        return reranked[:k]
+
+    def _select_temporal_diversity(
+        self,
+        items_with_ts: List[Tuple[str, float, str, float]],
+        k: int
+    ) -> List[Tuple[str, float, str]]:
+        """Select temporally diverse results using time-bucket MMR.
+        
+        For SPAN queries (e.g., "历史", "演变"), we want results that
+        cover the full temporal range of the user's history, not just
+        the most relevant or most recent.
+        
+        Algorithm:
+        1. Bucket results by time period
+        2. Use MMR to balance relevance with temporal bucket diversity
+        3. Ensure coverage across time buckets
+        
+        Args:
+            items_with_ts: List of (id, score, kind, timestamp) tuples
+            k: Number of results to return
+            
+        Returns:
+            Temporally diverse selection of results
+        """
+        if not items_with_ts:
+            return []
+        
+        if len(items_with_ts) <= k:
+            return [(nid, score, kind) for nid, score, kind, _ in items_with_ts]
+        
+        # Compute time buckets
+        timestamps = [ts for _, _, _, ts in items_with_ts]
+        max_ts = max(timestamps)
+        min_ts = min(timestamps)
+        ts_range = max_ts - min_ts if max_ts > min_ts else 1.0
+        
+        def get_bucket(ts: float) -> int:
+            """Assign a timestamp to a time bucket."""
+            if ts_range == 0:
+                return 0
+            normalized = (ts - min_ts) / ts_range
+            return min(int(normalized * TEMPORAL_DIVERSITY_BUCKETS), TEMPORAL_DIVERSITY_BUCKETS - 1)
+        
+        # Assign buckets
+        items_with_bucket = [
+            (nid, score, kind, ts, get_bucket(ts))
+            for nid, score, kind, ts in items_with_ts
+        ]
+        
+        # MMR selection with temporal diversity
+        selected: List[Tuple[str, float, str]] = []
+        selected_buckets: List[int] = []
+        remaining = list(items_with_bucket)
+        
+        while len(selected) < k and remaining:
+            best_idx = -1
+            best_mmr = float('-inf')
+            
+            for idx, (nid, score, kind, ts, bucket) in enumerate(remaining):
+                # Relevance term (normalized)
+                relevance = score
+                
+                # Temporal diversity term: penalty for buckets already covered
+                bucket_count = selected_buckets.count(bucket)
+                temporal_penalty = bucket_count / max(len(selected), 1) if selected else 0.0
+                
+                # MMR score: balance relevance with temporal diversity
+                mmr = TEMPORAL_DIVERSITY_MMR_LAMBDA * relevance - (1.0 - TEMPORAL_DIVERSITY_MMR_LAMBDA) * temporal_penalty
+                
+                if mmr > best_mmr:
+                    best_mmr = mmr
+                    best_idx = idx
+            
+            if best_idx >= 0:
+                nid, score, kind, ts, bucket = remaining.pop(best_idx)
+                selected.append((nid, score, kind))
+                selected_buckets.append(bucket)
+        
+        return selected
 
     def _postprocess_temporal(
         self, ranked: List[Tuple[str, float, str]], k: int
     ) -> List[Tuple[str, float, str]]:
         """Post-process results for temporal queries by incorporating timestamps.
+        
+        DEPRECATED: Use _temporal_aware_rerank for anchor-aware temporal ranking.
+        This method is kept for backward compatibility.
 
         Re-ranks results to prioritize temporal relevance while maintaining
         semantic relevance. Uses a weighted combination of semantic score
@@ -305,6 +566,7 @@ class FieldRetriever:
         damping: float = 0.80,
         max_iter: int = 40,
         semantic_weight: float = 0.7,
+        query_type: Optional[QueryType] = None,
     ) -> List[Tuple[str, float, str]]:
         """Direct semantic search without mean-shift attractor transformation.
         
@@ -315,6 +577,10 @@ class FieldRetriever:
         the original semantic similarity with PageRank scores. This prevents
         PageRank normalization from destroying strong semantic signals.
         
+        For FACTUAL queries, semantic_weight is automatically elevated to
+        FACTUAL_SEMANTIC_WEIGHT (0.90) to prevent PageRank from distorting
+        the precise semantic rankings.
+        
         Args:
             query_emb: Query embedding vector (not transformed)
             kinds: Tuple of kinds to retrieve ("plot", "story", "theme")
@@ -324,10 +590,16 @@ class FieldRetriever:
             semantic_weight: Weight for original semantic similarity (0.0-1.0).
                 Higher values preserve semantic signal. Default 0.7 prioritizes
                 semantic matching while still allowing graph context.
+                For FACTUAL queries, this is overridden by FACTUAL_SEMANTIC_WEIGHT.
+            query_type: Optional query type. For FACTUAL queries, uses higher
+                semantic weight to preserve precise rankings.
             
         Returns:
             List of (id, score, kind) tuples sorted by relevance
         """
+        # Override semantic weight for FACTUAL queries to preserve precise rankings
+        if query_type == QueryType.FACTUAL:
+            semantic_weight = FACTUAL_SEMANTIC_WEIGHT
         # Direct vector search without mean-shift - PRESERVE original similarities
         personalization: Dict[str, float] = {}
         original_similarities: Dict[str, float] = {}  # Keep original scores
@@ -446,7 +718,14 @@ class FieldRetriever:
             effective_reseed_k = int(reseed_k * 1.2)
         
         q = embed.embed(query_text)
-        direct_weight = 1.0 - attractor_weight
+        
+        # Adjust attractor weight based on query type
+        # FACTUAL queries need precise semantic matching - reduce attractor influence
+        effective_attractor_weight = attractor_weight
+        if detected_type == QueryType.FACTUAL:
+            effective_attractor_weight = FACTUAL_ATTRACTOR_WEIGHT
+        
+        direct_weight = 1.0 - effective_attractor_weight
         
         # =====================================================================
         # Branch A: Direct semantic search (no mean-shift transformation)
@@ -457,6 +736,7 @@ class FieldRetriever:
             k=effective_k,
             damping=damping,
             max_iter=effective_max_iter,
+            query_type=detected_type,  # Pass query type for semantic weight adjustment
         )
         
         # =====================================================================
@@ -508,13 +788,13 @@ class FieldRetriever:
         for nid, score, kind in direct_ranked:
             merged_scores[nid] = (direct_weight * score, kind)
         
-        # Add attractor results with attractor_weight
+        # Add attractor results with effective_attractor_weight
         for nid, score, kind in attractor_ranked:
             if nid in merged_scores:
                 existing_score, existing_kind = merged_scores[nid]
-                merged_scores[nid] = (existing_score + attractor_weight * score, existing_kind)
+                merged_scores[nid] = (existing_score + effective_attractor_weight * score, existing_kind)
             else:
-                merged_scores[nid] = (attractor_weight * score, kind)
+                merged_scores[nid] = (effective_attractor_weight * score, kind)
         
         # Apply plot priority boost for FACTUAL queries
         # Plots contain specific facts and should rank above aggregate structures
@@ -530,7 +810,8 @@ class FieldRetriever:
         
         # Apply query type-specific post-processing
         if detected_type == QueryType.TEMPORAL:
-            ranked = self._postprocess_temporal(ranked, effective_k)
+            # Use temporal-aware reranking with anchor detection
+            ranked = self._temporal_aware_rerank(ranked, query_text, effective_k)
         elif detected_type == QueryType.CAUSAL:
             ranked = self._postprocess_causal(ranked, q, effective_k)
         else:

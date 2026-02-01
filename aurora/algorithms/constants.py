@@ -154,14 +154,17 @@ EPSILON_PRIOR = 1e-6
 # =============================================================================
 
 # Temporal query keywords (时序查询关键词)
+# NOTE: Removed ambiguous words like "previous" that often appear in
+# "previous conversation" context (factual query) rather than temporal queries.
 TEMPORAL_KEYWORDS = {
     # Chinese
     "什么时候", "之前", "之后", "上次", "最近", "以前", "后来", "第一次", "最后", 
     "多久", "当时", "那时", "几点", "几月", "几号", "哪天", "哪年", "历史",
     # English
-    "when", "before", "after", "last", "first", "recently", "earlier", "later",
-    "previous", "next", "yesterday", "today", "ago", "since", "until", "during",
+    "when", "before", "after", "first", "recently", "earlier", "later",
+    "next", "yesterday", "today", "ago", "since", "until", "during",
     "history", "timeline", "chronological",
+    # Removed: "previous", "last" - too often used in "previous chat" / "last time we talked" contexts
 }
 
 # Causal query keywords (因果查询关键词)
@@ -175,26 +178,108 @@ CAUSAL_KEYWORDS = {
 }
 
 # Multi-hop query keywords (多跳查询关键词)
+# Extended with aggregation keywords for multi-session queries
 MULTI_HOP_KEYWORDS = {
     # Chinese
     "相关", "关联", "联系", "连接", "对比", "比较", "类似", "相似", "区别",
     "所有", "全部", "总结", "概括", "归纳", "涉及", "包含", "关系",
+    # Aggregation (聚合统计)
+    "多少", "几个", "几次", "几件", "总共", "一共", "加起来", "总计",
+    "列出", "列举", "每个", "每次", "分别", "各自", "统计",
     # English
     "related", "connection", "link", "compare", "contrast", "similar", "difference",
     "all", "every", "summarize", "overview", "involve", "contain", "relationship",
     "between", "across", "through",
+    # Aggregation (counting/listing)
+    "how many", "how much", "total", "count", "number of", "list", "each",
+    "altogether", "combined", "in total", "overall", "sum", "enumerate",
 }
 
 # Query type retrieval parameters
 MULTI_HOP_K_MULTIPLIER = 1.5  # Increase k for multi-hop queries
-TEMPORAL_SORT_WEIGHT = 0.3    # Weight for timestamp in temporal ranking
+TEMPORAL_SORT_WEIGHT = 0.35   # Weight for timestamp in temporal ranking
+                               # Reduced from 0.6 to preserve semantic relevance
+                               # 0.35 means 65% semantic, 35% temporal
 MULTI_HOP_EXTRA_PAGERANK_ITER = 20  # Additional PageRank iterations for multi-hop
+
+# =============================================================================
+# Temporal Anchor Detection (时间锚点检测)
+# =============================================================================
+
+# Time as First-Class Citizen: Different time anchors require different retrieval strategies
+# - RECENT: Return most recent memories first (descending by timestamp)
+# - EARLIEST: Return earliest memories first (ascending by timestamp)  
+# - SPAN: Return temporally diverse memories across the time range
+
+# Recent time anchor keywords (最近/上次)
+# NOTE: "previous" is NOT included because "previous conversation" is context reference,
+# not a temporal query. "previous event" would need actual temporal handling.
+RECENT_ANCHOR_KEYWORDS = {
+    # Chinese
+    "最近", "上次", "刚才", "刚刚", "近期", "这段时间", "最新", "最后",
+    # English
+    "recently", "last time", "just now", "lately", "latest", "most recent",
+    "newest", "current",  # Removed "just", "last", "now" - too ambiguous
+}
+
+# Earliest time anchor keywords (最早/第一次)
+EARLIEST_ANCHOR_KEYWORDS = {
+    # Chinese
+    "最早", "一开始", "起初", "最初", "开始时", "第一次", "首次", "当初", "最先",
+    # English
+    "first", "originally", "initially", "earliest", "beginning", "started",
+    "first time", "at first", "in the beginning", "original",
+}
+
+# Span time anchor keywords (时间跨度/历史)
+SPAN_ANCHOR_KEYWORDS = {
+    # Chinese
+    "一直", "从...到", "之前...之后", "历史", "全部", "所有时候", "整个过程",
+    "历程", "演变", "发展过程", "时间线", "变化",
+    # English
+    "throughout", "over time", "history", "timeline", "evolution",
+    "all along", "from start", "progression", "across time", "journey",
+    "before and after", "development", "changes over",
+}
+
+# Temporal diversity parameters for span queries
+TEMPORAL_DIVERSITY_BUCKETS = 5  # Number of time buckets for diversity selection
+TEMPORAL_DIVERSITY_MMR_LAMBDA = 0.5  # Balance between relevance and temporal diversity
 
 # Factual query plot priority boost
 # For FACTUAL queries, plots contain specific facts and should be ranked higher than
 # aggregate structures (stories/themes) that may have similar semantic embeddings
 # but lack the precise answer text
 FACTUAL_PLOT_PRIORITY_BOOST = 0.15  # Additive boost for plots in factual queries
+
+# Semantic weight for factual queries
+# FACTUAL queries require precise semantic matching - PageRank should not distort rankings
+# Higher value = more weight on direct semantic similarity vs graph structure
+FACTUAL_SEMANTIC_WEIGHT = 0.90  # High semantic weight for factual precision
+
+# Attractor weight for factual queries  
+# Lower value = less mean-shift drift, preserving original query intent
+FACTUAL_ATTRACTOR_WEIGHT = 0.25  # Reduced attractor influence for factual queries
+
+# =============================================================================
+# Knowledge Classification Constants
+# =============================================================================
+
+# Confidence thresholds for knowledge classification
+KNOWLEDGE_CLASSIFICATION_MIN_CONFIDENCE = 0.5  # Below this, treat as UNKNOWN
+
+# Semantic similarity thresholds for trait complementarity detection
+COMPLEMENTARY_TRAIT_SIM_MIN = 0.2  # Traits with sim in [0.2, 0.7] may be complementary
+COMPLEMENTARY_TRAIT_SIM_MAX = 0.7
+CONTRADICTORY_TRAIT_SIM_THRESHOLD = -0.3  # Similarity below this suggests contradiction
+
+# Weight for knowledge type in ingest decision
+KNOWLEDGE_TYPE_WEIGHT_STATE = 0.7  # States are moderately important to store
+KNOWLEDGE_TYPE_WEIGHT_STATIC = 0.9  # Static facts are very important
+KNOWLEDGE_TYPE_WEIGHT_TRAIT = 0.8  # Traits are important for identity
+KNOWLEDGE_TYPE_WEIGHT_VALUE = 0.95  # Values are most important
+KNOWLEDGE_TYPE_WEIGHT_PREFERENCE = 0.6  # Preferences less critical
+KNOWLEDGE_TYPE_WEIGHT_BEHAVIOR = 0.5  # Behaviors least critical
 
 # =============================================================================
 # Retrieval Parameters
@@ -300,6 +385,58 @@ CAUSAL_COHERENCE_WEIGHT = 0.3
 NARRATIVE_SEGMENT_MAX_LENGTH = 500
 
 # =============================================================================
+# Knowledge Update Detection
+# =============================================================================
+
+# Time gap threshold for potential update detection (in seconds)
+# If time_gap > this threshold AND high semantic similarity, likely an update
+UPDATE_TIME_GAP_THRESHOLD = 3600.0  # 1 hour
+
+# Reinforcement time window (in seconds)
+# Short time repetition = reinforcement, not update
+REINFORCEMENT_TIME_WINDOW = 300.0  # 5 minutes
+
+# Similarity thresholds for redundancy classification
+# CRITICAL FIX: Knowledge updates typically have similarity 0.6-0.7 (not 0.75+)
+# because "I live in Beijing" and "I moved to Shanghai" are semantically different
+# but represent the SAME entity's state change. Lowering from 0.75 to 0.55
+# allows proper update detection.
+UPDATE_HIGH_SIMILARITY_THRESHOLD = 0.55  # Above this, check for update vs redundancy
+UPDATE_MODERATE_SIMILARITY_THRESHOLD = 0.35  # Above this, may be reinforcement
+
+# Update signal keywords (时态更新指示词)
+UPDATE_KEYWORDS_ZH = {
+    # State change indicators
+    "现在", "已经", "换了", "搬到", "不再", "改成", "变成", "转为",
+    "升级", "降级", "更新", "修改", "改为", "目前", "最新", "新的",
+    # Temporal contrast
+    "之前是", "以前是", "原来是", "曾经是", "过去是",
+    # Correction indicators
+    "其实", "实际上", "事实上", "纠正", "更正", "应该是",
+}
+
+UPDATE_KEYWORDS_EN = {
+    # State change indicators
+    "now", "already", "changed", "moved", "no longer", "switched", "updated",
+    "upgraded", "downgraded", "modified", "currently", "latest", "new",
+    "quit", "joined", "left", "started", "stopped", "became", "turned",
+    "relocated", "transferred", "promoted", "demoted", "resigned",
+    # Temporal contrast
+    "used to", "was previously", "before was", "formerly", "previously",
+    "but now", "these days", "nowadays", "at present", "as of now",
+    # Correction indicators
+    "actually", "in fact", "correction", "should be", "is now",
+    "not anymore", "no more", "instead", "rather", "different now",
+}
+
+# Combined update keywords
+UPDATE_KEYWORDS = UPDATE_KEYWORDS_ZH | UPDATE_KEYWORDS_EN
+
+# Numeric value change detection pattern components
+# Used to detect patterns like "5 -> 10" or "from 5 to 10"
+NUMERIC_CHANGE_INDICATORS = {"->", "→", "=>", "变为", "改为", "from", "to"}
+
+# =============================================================================
 # Coherence Module Constants
 # =============================================================================
 
@@ -330,3 +467,37 @@ COHERENCE_WEIGHTS = {
     "causal": 0.30,    # Increased from 0.25 for better LRU
     "thematic": 0.20,  # Reduced from 0.25
 }
+
+# =============================================================================
+# Conflict Detection & Resolution (CoherenceGuardian Integration)
+# =============================================================================
+
+# Similarity threshold for triggering conflict check
+# Only plots with similarity >= this are candidates for conflict detection
+CONFLICT_CHECK_SIMILARITY_THRESHOLD = 0.65
+
+# Number of similar plots to check for conflicts
+CONFLICT_CHECK_K = 10
+
+# Minimum contradiction probability to register as conflict
+CONFLICT_PROBABILITY_THRESHOLD = 0.5
+
+# Maximum number of conflicts to handle per ingest (for performance)
+MAX_CONFLICTS_PER_INGEST = 5
+
+# Weight for semantic vs knowledge-type in conflict resolution
+SEMANTIC_CONFLICT_WEIGHT = 0.4
+KNOWLEDGE_TYPE_CONFLICT_WEIGHT = 0.6
+
+# Time threshold for considering plots as "concurrent" vs "sequential" (seconds)
+CONCURRENT_TIME_THRESHOLD = 60.0  # 1 minute
+
+# =============================================================================
+# Benchmark Mode Constants
+# =============================================================================
+
+# In benchmark mode, we use larger k values to ensure comprehensive retrieval
+# LongMemEval multi-session questions need aggregation across many turns
+BENCHMARK_DEFAULT_K = 15          # Default k for benchmark queries
+BENCHMARK_MULTI_SESSION_K = 20    # K for multi-session/multi-hop queries
+BENCHMARK_AGGREGATION_K = 25      # K when aggregation is detected

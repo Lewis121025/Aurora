@@ -136,6 +136,10 @@ class MemoryConfig:
     faiss_ef_construction: int = 64  # Construction-time search depth
     faiss_ef_search: int = 32  # Query-time search depth (increase for better recall)
 
+    # Benchmark mode: forces storage of ALL plots, bypassing VOI gating
+    # Essential for evaluation benchmarks like LongMemEval where every turn matters
+    benchmark_mode: bool = False
+
     # Algorithm config (nested, optional for backward compatibility)
     algo: Optional[AlgorithmConfig] = field(default=None)
 

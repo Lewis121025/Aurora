@@ -19,7 +19,7 @@ Design principles:
 from __future__ import annotations
 
 from collections import deque
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from aurora.algorithms.components.assignment import CRPAssigner, StoryModel, ThemeModel
 from aurora.algorithms.components.bandit import ThompsonBernoulliGate
@@ -60,6 +60,7 @@ class SerializationMixin:
             "version": 2,  # State format version for forward compatibility
             "cfg": self.cfg.to_state_dict(),
             "seed": self._seed,
+            "benchmark_mode": getattr(self, 'benchmark_mode', False),
             
             # Learnable components
             "kde": self.kde.to_state_dict(),
@@ -87,6 +88,12 @@ class SerializationMixin:
             # Relationship-centric additions
             "relationship_story_index": self._relationship_story_index,
             "identity_dimensions": self._identity_dimensions,
+            
+            # Temporal index (Time as First-Class Citizen)
+            # Convert int keys to strings for JSON compatibility
+            "temporal_index": {str(k): v for k, v in self._temporal_index.items()},
+            "temporal_index_min_bucket": self._temporal_index_min_bucket,
+            "temporal_index_max_bucket": self._temporal_index_max_bucket,
         }
 
     # -------------------------------------------------------------------------
@@ -97,7 +104,8 @@ class SerializationMixin:
     def from_state_dict(cls, d: Dict[str, Any]) -> "SerializationMixin":
         """Reconstruct AuroraMemory from state dict."""
         cfg = MemoryConfig.from_state_dict(d["cfg"])
-        obj = cls(cfg=cfg, seed=d.get("seed", 0))
+        benchmark_mode = d.get("benchmark_mode", False)
+        obj = cls(cfg=cfg, seed=d.get("seed", 0), benchmark_mode=benchmark_mode)
         
         obj._restore_learnable_components(d)
         obj._restore_memory_data(d)
@@ -149,3 +157,23 @@ class SerializationMixin:
             for sid, story in self.stories.items():
                 if story.relationship_with:
                     self._relationship_story_index[story.relationship_with] = sid
+        
+        # Restore temporal index (Time as First-Class Citizen)
+        # Convert string keys back to int
+        temporal_index_raw = d.get("temporal_index", {})
+        self._temporal_index: Dict[int, List[str]] = {int(k): v for k, v in temporal_index_raw.items()}
+        self._temporal_index_min_bucket = d.get("temporal_index_min_bucket", 0)
+        self._temporal_index_max_bucket = d.get("temporal_index_max_bucket", 0)
+        
+        # Rebuild temporal index from plots if not present or empty
+        if not self._temporal_index and self.plots:
+            for pid, plot in self.plots.items():
+                day_bucket = int(plot.ts // 86400)  # 86400 seconds per day
+                if day_bucket not in self._temporal_index:
+                    self._temporal_index[day_bucket] = []
+                self._temporal_index[day_bucket].append(pid)
+                # Update min/max buckets
+                if not self._temporal_index_min_bucket or day_bucket < self._temporal_index_min_bucket:
+                    self._temporal_index_min_bucket = day_bucket
+                if not self._temporal_index_max_bucket or day_bucket > self._temporal_index_max_bucket:
+                    self._temporal_index_max_bucket = day_bucket

@@ -22,6 +22,12 @@ import numpy as np
 import networkx as nx
 
 from aurora.algorithms.graph.memory_graph import MemoryGraph
+from aurora.algorithms.knowledge_classifier import (
+    KnowledgeClassifier,
+    KnowledgeType,
+    ConflictResolution as KnowledgeConflictResolution,
+    ConflictAnalysis,
+)
 from aurora.algorithms.models.plot import Plot
 from aurora.algorithms.models.story import StoryArc
 from aurora.algorithms.models.theme import Theme
@@ -793,6 +799,10 @@ class CoherenceGuardian:
         
         # TensionManager for functional contradiction management
         self.tension_manager = TensionManager(seed=seed)
+        
+        # KnowledgeClassifier for intelligent conflict resolution
+        # Not all contradictions need elimination - some should be preserved
+        self.knowledge_classifier = KnowledgeClassifier(seed=seed)
     
     def full_check(
         self,
@@ -1122,3 +1132,145 @@ class CoherenceGuardian:
     def get_tension_summary(self) -> Dict[str, Any]:
         """Get summary of all tracked tensions."""
         return self.tension_manager.get_tension_summary()
+    
+    def analyze_knowledge_conflict(
+        self,
+        plot_a: Plot,
+        plot_b: Plot,
+    ) -> ConflictAnalysis:
+        """
+        Analyze a conflict between two plots using knowledge type classification.
+        
+        Key insight from first principles:
+        - Not all contradictions need elimination
+        - States update (newer replaces older)
+        - Static facts need correction (one is wrong)
+        - Traits can coexist (complementary facets)
+        - Values should be preserved (core to identity)
+        - Preferences evolve (track timeline)
+        - Behaviors change (patterns are malleable)
+        
+        Args:
+            plot_a: First plot in the conflict
+            plot_b: Second plot in the conflict
+            
+        Returns:
+            ConflictAnalysis with resolution strategy and rationale
+        """
+        # Get or classify knowledge types
+        type_a = self._get_plot_knowledge_type(plot_a)
+        type_b = self._get_plot_knowledge_type(plot_b)
+        
+        # Determine time relation
+        if abs(plot_a.ts - plot_b.ts) < 3600:  # Within an hour
+            time_relation = "concurrent"
+        elif plot_a.ts < plot_b.ts:
+            time_relation = "sequential"
+        else:
+            time_relation = "sequential"  # b before a
+        
+        # Use knowledge classifier to resolve conflict
+        return self.knowledge_classifier.resolve_conflict(
+            type_a=type_a,
+            type_b=type_b,
+            time_relation=time_relation,
+            text_a=plot_a.text,
+            text_b=plot_b.text,
+            embedding_a=plot_a.embedding,
+            embedding_b=plot_b.embedding,
+        )
+    
+    def _get_plot_knowledge_type(self, plot: Plot) -> KnowledgeType:
+        """Get or classify the knowledge type of a plot."""
+        if plot.knowledge_type is not None:
+            # Use existing classification
+            type_map = {
+                "factual_state": KnowledgeType.FACTUAL_STATE,
+                "factual_static": KnowledgeType.FACTUAL_STATIC,
+                "identity_trait": KnowledgeType.IDENTITY_TRAIT,
+                "identity_value": KnowledgeType.IDENTITY_VALUE,
+                "preference": KnowledgeType.PREFERENCE,
+                "behavior": KnowledgeType.BEHAVIOR_PATTERN,
+                "unknown": KnowledgeType.UNKNOWN,
+            }
+            return type_map.get(plot.knowledge_type, KnowledgeType.UNKNOWN)
+        
+        # Classify if not already done
+        result = self.knowledge_classifier.classify(plot.text, embedding=plot.embedding)
+        return result.knowledge_type
+    
+    def check_complementary_traits(
+        self,
+        plot_a: Plot,
+        plot_b: Plot,
+    ) -> bool:
+        """
+        Check if two plots contain complementary (not contradictory) traits.
+        
+        Example:
+        - "I am patient" and "I am efficient" → complementary (different contexts)
+        - "I am honest" and "I lie" → contradictory (cannot coexist)
+        
+        This implements the narrative psychology principle that healthy identity
+        contains functional tensions that activate in different situations.
+        
+        Args:
+            plot_a: First plot
+            plot_b: Second plot
+            
+        Returns:
+            True if the traits are complementary, False if contradictory
+        """
+        return self.knowledge_classifier.are_complementary_traits(
+            text_a=plot_a.text,
+            text_b=plot_b.text,
+            embedding_a=plot_a.embedding,
+            embedding_b=plot_b.embedding,
+        )
+    
+    def get_conflict_resolution_recommendation(
+        self,
+        conflict: Conflict,
+        plots: Dict[str, Plot],
+    ) -> Dict[str, Any]:
+        """
+        Get an intelligent resolution recommendation for a conflict.
+        
+        Uses knowledge type classification to determine the best strategy:
+        - UPDATE: For state changes (newer info replaces older)
+        - CORRECT: For static fact corrections (verify which is correct)
+        - PRESERVE_BOTH: For complementary traits/values (keep both)
+        - EVOLVE: For preference/behavior changes (track timeline)
+        
+        Args:
+            conflict: The detected conflict
+            plots: Dictionary of all plots
+            
+        Returns:
+            Dict with recommendation including strategy, rationale, and actions
+        """
+        # Get the plots involved
+        plot_a = plots.get(conflict.node_a)
+        plot_b = plots.get(conflict.node_b)
+        
+        if plot_a is None or plot_b is None:
+            return {
+                "strategy": "unknown",
+                "rationale": "Could not find one or both plots",
+                "actions": ["Manual review required"],
+                "confidence": 0.0,
+            }
+        
+        # Analyze using knowledge classifier
+        analysis = self.analyze_knowledge_conflict(plot_a, plot_b)
+        
+        return {
+            "strategy": analysis.resolution.value,
+            "rationale": analysis.rationale,
+            "actions": analysis.recommended_actions,
+            "confidence": analysis.confidence,
+            "is_complementary": analysis.is_complementary,
+            "requires_human_review": analysis.requires_human_review,
+            "knowledge_type_a": analysis.knowledge_type_a.value,
+            "knowledge_type_b": analysis.knowledge_type_b.value,
+        }

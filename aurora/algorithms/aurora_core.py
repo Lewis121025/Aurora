@@ -25,26 +25,57 @@ from typing import Any, Deque, Dict, List, Optional, Sequence, Tuple
 import networkx as nx
 import numpy as np
 
+from aurora.algorithms.coherence import (
+    CoherenceGuardian,
+    Conflict,
+    ConflictType,
+)
 from aurora.algorithms.components.assignment import CRPAssigner, StoryModel, ThemeModel
 from aurora.algorithms.components.bandit import ThompsonBernoulliGate
 from aurora.algorithms.components.density import OnlineKDE
 from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.constants import (
+    BENCHMARK_AGGREGATION_K,
+    BENCHMARK_DEFAULT_K,
+    BENCHMARK_MULTI_SESSION_K,
     COLD_START_FORCE_STORE_COUNT,
+    CONCURRENT_TIME_THRESHOLD,
+    CONFLICT_CHECK_K,
+    CONFLICT_CHECK_SIMILARITY_THRESHOLD,
+    CONFLICT_PROBABILITY_THRESHOLD,
     EPSILON_PRIOR,
     EVENT_SUMMARY_MAX_LENGTH,
     IDENTITY_RELEVANCE_WEIGHT,
+    KNOWLEDGE_TYPE_WEIGHT_BEHAVIOR,
+    KNOWLEDGE_TYPE_WEIGHT_PREFERENCE,
+    KNOWLEDGE_TYPE_WEIGHT_STATE,
+    KNOWLEDGE_TYPE_WEIGHT_STATIC,
+    KNOWLEDGE_TYPE_WEIGHT_TRAIT,
+    KNOWLEDGE_TYPE_WEIGHT_VALUE,
+    MAX_CONFLICTS_PER_INGEST,
     MAX_RECENT_PLOTS_FOR_RETRIEVAL,
     MIN_STORE_PROB,
     MULTI_HOP_K_MULTIPLIER,
+    NUMERIC_CHANGE_INDICATORS,
     RECENT_ENCODED_PLOTS_WINDOW,
     RECENT_PLOTS_FOR_FEEDBACK,
+    REINFORCEMENT_TIME_WINDOW,
     RELATIONSHIP_BONUS_SCORE,
     SEMANTIC_NEIGHBORS_K,
     STORY_SIMILARITY_BONUS,
     TEXT_LENGTH_NORMALIZATION,
     TRUST_BASE,
+    UPDATE_HIGH_SIMILARITY_THRESHOLD,
+    UPDATE_KEYWORDS,
+    UPDATE_MODERATE_SIMILARITY_THRESHOLD,
+    UPDATE_TIME_GAP_THRESHOLD,
     VOI_DECISION_WEIGHT,
+)
+from aurora.algorithms.knowledge_classifier import (
+    KnowledgeClassifier,
+    KnowledgeType,
+    ConflictResolution,
+    ClassificationResult,
 )
 from aurora.algorithms.evolution import EvolutionMixin
 from aurora.algorithms.graph.memory_graph import MemoryGraph
@@ -53,7 +84,11 @@ from aurora.algorithms.models.config import MemoryConfig
 from aurora.algorithms.models.plot import Plot
 from aurora.algorithms.models.story import StoryArc
 from aurora.algorithms.models.theme import Theme
-from aurora.algorithms.models.trace import RetrievalTrace
+from aurora.algorithms.models.trace import (
+    RetrievalTrace,
+    KnowledgeTimeline,
+    TimelineGroup,
+)
 from aurora.algorithms.pressure import PressureMixin
 from aurora.algorithms.relationship import RelationshipMixin
 from aurora.algorithms.retrieval.field_retriever import FieldRetriever, QueryType
@@ -90,7 +125,13 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         - SerializationMixin: State serialization/deserialization
     """
 
-    def __init__(self, cfg: MemoryConfig = MemoryConfig(), seed: int = 0):
+    def __init__(
+        self, 
+        cfg: MemoryConfig = MemoryConfig(), 
+        seed: int = 0, 
+        embedder=None,
+        benchmark_mode: bool = False,
+    ):
         """Initialize the AURORA Memory system.
 
         Creates a new memory instance with learnable components, memory stores,
@@ -104,19 +145,29 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             seed: Random seed for reproducibility. All stochastic decisions
                 (Thompson sampling, CRP assignment, pressure management) use
                 this seed. Defaults to 0.
+            embedder: Optional embedding provider. If None, uses HashEmbedding
+                (for testing only). For production, provide a real embedder
+                like BailianEmbedding or ArkEmbedding.
+            benchmark_mode: If True, forces storage of ALL plots bypassing VOI
+                gating. This is essential for benchmarks like LongMemEval where
+                every turn may contain critical information. Default: False.
 
         Example:
             >>> from aurora.algorithms.aurora_core import AuroraMemory
             >>> from aurora.algorithms.models.config import MemoryConfig
             >>> # Default configuration
             >>> mem = AuroraMemory(seed=42)
-            >>> # Custom configuration
-            >>> cfg = MemoryConfig(dim=128, max_plots=1000, metric_rank=32)
-            >>> mem = AuroraMemory(cfg=cfg, seed=42)
+            >>> # Custom configuration with real embedder
+            >>> from aurora.embeddings.bailian import BailianEmbedding
+            >>> embedder = BailianEmbedding(api_key="...", dimension=1024)
+            >>> cfg = MemoryConfig(dim=1024, max_plots=1000, metric_rank=32)
+            >>> mem = AuroraMemory(cfg=cfg, seed=42, embedder=embedder)
+            >>> # Benchmark mode for evaluation
+            >>> mem = AuroraMemory(cfg=cfg, seed=42, embedder=embedder, benchmark_mode=True)
 
         Note:
             The memory system uses several learnable components:
-            - HashEmbedding: Deterministic embedding for reproducibility
+            - HashEmbedding: Deterministic embedding for reproducibility (default)
             - OnlineKDE: Density estimation for surprise computation
             - LowRankMetric: Learned similarity metric
             - ThompsonBernoulliGate: Encoding decision via Thompson sampling
@@ -124,10 +175,14 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         """
         self.cfg = cfg
         self._seed = seed
+        self.benchmark_mode = benchmark_mode
         self.rng = np.random.default_rng(seed)
 
         # Learnable primitives
-        self.embedder = HashEmbedding(dim=cfg.dim, seed=seed)
+        if embedder is not None:
+            self.embedder = embedder
+        else:
+            self.embedder = HashEmbedding(dim=cfg.dim, seed=seed)
         
         # CRITICAL WARNING: HashEmbedding detection
         self._warn_if_hash_embedding()
@@ -157,6 +212,21 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         # Relationship-centric additions
         self._relationship_story_index: Dict[str, str] = {}  # relationship_entity -> story_id
         self._identity_dimensions: Dict[str, float] = {}  # dimension_name -> strength
+        
+        # Temporal index for time-first retrieval (Time as First-Class Citizen)
+        # Maps day_bucket (int) -> list of plot_ids created on that day
+        # Day bucket = timestamp // 86400 (seconds per day)
+        self._temporal_index: Dict[int, List[str]] = {}
+        self._temporal_index_min_bucket: int = 0  # Track earliest bucket for span queries
+        self._temporal_index_max_bucket: int = 0  # Track latest bucket for span queries
+        
+        # Knowledge type classifier for intelligent conflict resolution
+        # Distinguishes: FACTUAL_STATE, FACTUAL_STATIC, IDENTITY_TRAIT, IDENTITY_VALUE, PREFERENCE, BEHAVIOR_PATTERN
+        self.knowledge_classifier = KnowledgeClassifier(seed=seed)
+        
+        # Coherence guardian for conflict detection and resolution during ingest
+        # Integrates with TensionManager for functional contradiction management
+        self.coherence_guardian = CoherenceGuardian(metric=self.metric, seed=seed)
 
     # -------------------------------------------------------------------------
     # HashEmbedding Warning
@@ -220,6 +290,219 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         return VectorIndex(dim=cfg.dim)
 
     # -------------------------------------------------------------------------
+    # Temporal Index Management (Time as First-Class Citizen)
+    # -------------------------------------------------------------------------
+
+    def _get_day_bucket(self, ts: float) -> int:
+        """Convert timestamp to day bucket for temporal indexing.
+        
+        Args:
+            ts: Unix timestamp
+            
+        Returns:
+            Day bucket (days since epoch)
+        """
+        return int(ts // 86400)  # 86400 seconds per day
+
+    def _add_to_temporal_index(self, plot: Plot) -> None:
+        """Add a plot to the temporal index.
+        
+        Time as First-Class Citizen: Temporal indexing enables fast
+        time-based queries without full scans.
+        
+        Args:
+            plot: The plot to add to the temporal index
+        """
+        day_bucket = self._get_day_bucket(plot.ts)
+        
+        if day_bucket not in self._temporal_index:
+            self._temporal_index[day_bucket] = []
+        
+        self._temporal_index[day_bucket].append(plot.id)
+        
+        # Update min/max buckets for span queries
+        if not self._temporal_index_min_bucket or day_bucket < self._temporal_index_min_bucket:
+            self._temporal_index_min_bucket = day_bucket
+        if not self._temporal_index_max_bucket or day_bucket > self._temporal_index_max_bucket:
+            self._temporal_index_max_bucket = day_bucket
+
+    def _remove_from_temporal_index(self, plot: Plot) -> None:
+        """Remove a plot from the temporal index.
+        
+        Args:
+            plot: The plot to remove
+        """
+        day_bucket = self._get_day_bucket(plot.ts)
+        if day_bucket in self._temporal_index:
+            try:
+                self._temporal_index[day_bucket].remove(plot.id)
+                if not self._temporal_index[day_bucket]:
+                    del self._temporal_index[day_bucket]
+            except ValueError:
+                pass  # Plot not in index
+
+    def get_plots_in_time_range(
+        self, 
+        start_ts: Optional[float] = None, 
+        end_ts: Optional[float] = None,
+        limit: int = 100
+    ) -> List[str]:
+        """Get plot IDs within a time range.
+        
+        Time as First-Class Citizen: Efficient time-range queries for
+        temporal retrieval.
+        
+        Args:
+            start_ts: Start timestamp (inclusive). None means earliest.
+            end_ts: End timestamp (inclusive). None means latest.
+            limit: Maximum number of plot IDs to return.
+            
+        Returns:
+            List of plot IDs in the time range, sorted by timestamp.
+        """
+        if not self._temporal_index:
+            return []
+        
+        start_bucket = self._get_day_bucket(start_ts) if start_ts else self._temporal_index_min_bucket
+        end_bucket = self._get_day_bucket(end_ts) if end_ts else self._temporal_index_max_bucket
+        
+        # Collect plot IDs from relevant buckets
+        plot_ids: List[str] = []
+        for bucket in range(start_bucket, end_bucket + 1):
+            if bucket in self._temporal_index:
+                plot_ids.extend(self._temporal_index[bucket])
+        
+        # Filter by exact timestamp range if specified
+        if start_ts is not None or end_ts is not None:
+            filtered: List[Tuple[float, str]] = []
+            for pid in plot_ids:
+                plot = self.plots.get(pid)
+                if plot is None:
+                    continue
+                if start_ts is not None and plot.ts < start_ts:
+                    continue
+                if end_ts is not None and plot.ts > end_ts:
+                    continue
+                filtered.append((plot.ts, pid))
+            
+            # Sort by timestamp and limit
+            filtered.sort(key=lambda x: x[0])
+            return [pid for _, pid in filtered[:limit]]
+        
+        # Sort by timestamp and limit
+        plot_ids_with_ts = [(self.plots[pid].ts, pid) for pid in plot_ids if pid in self.plots]
+        plot_ids_with_ts.sort(key=lambda x: x[0])
+        return [pid for _, pid in plot_ids_with_ts[:limit]]
+
+    def get_recent_plots(self, n: int = 10) -> List[str]:
+        """Get the N most recent plot IDs.
+        
+        Time as First-Class Citizen: Fast access to recent memories.
+        
+        Args:
+            n: Number of recent plots to return.
+            
+        Returns:
+            List of plot IDs, most recent first.
+        """
+        if not self._temporal_index:
+            return []
+        
+        # Start from most recent bucket and work backwards
+        plot_ids: List[Tuple[float, str]] = []
+        bucket = self._temporal_index_max_bucket
+        
+        while bucket >= self._temporal_index_min_bucket and len(plot_ids) < n * 2:
+            if bucket in self._temporal_index:
+                for pid in self._temporal_index[bucket]:
+                    plot = self.plots.get(pid)
+                    if plot:
+                        plot_ids.append((plot.ts, pid))
+            bucket -= 1
+        
+        # Sort by timestamp descending and return top n
+        plot_ids.sort(key=lambda x: -x[0])
+        return [pid for _, pid in plot_ids[:n]]
+
+    def get_earliest_plots(self, n: int = 10) -> List[str]:
+        """Get the N earliest plot IDs.
+        
+        Time as First-Class Citizen: Fast access to earliest memories.
+        
+        Args:
+            n: Number of earliest plots to return.
+            
+        Returns:
+            List of plot IDs, earliest first.
+        """
+        if not self._temporal_index:
+            return []
+        
+        # Start from earliest bucket and work forwards
+        plot_ids: List[Tuple[float, str]] = []
+        bucket = self._temporal_index_min_bucket
+        
+        while bucket <= self._temporal_index_max_bucket and len(plot_ids) < n * 2:
+            if bucket in self._temporal_index:
+                for pid in self._temporal_index[bucket]:
+                    plot = self.plots.get(pid)
+                    if plot:
+                        plot_ids.append((plot.ts, pid))
+            bucket += 1
+        
+        # Sort by timestamp ascending and return top n
+        plot_ids.sort(key=lambda x: x[0])
+        return [pid for _, pid in plot_ids[:n]]
+
+    def get_temporal_statistics(self) -> Dict[str, Any]:
+        """Get statistics about the temporal distribution of memories.
+        
+        Time as First-Class Citizen: Understanding the temporal distribution
+        helps users understand their memory landscape.
+        
+        Returns:
+            Dict with temporal statistics including:
+            - total_days: Number of days with memories
+            - earliest_ts: Earliest memory timestamp
+            - latest_ts: Latest memory timestamp
+            - avg_plots_per_day: Average plots per day
+            - most_active_day: Day with most interactions
+        """
+        if not self._temporal_index:
+            return {
+                "total_days": 0,
+                "earliest_ts": None,
+                "latest_ts": None,
+                "avg_plots_per_day": 0.0,
+                "most_active_day": None,
+            }
+        
+        import datetime
+        
+        total_days = len(self._temporal_index)
+        total_plots = sum(len(pids) for pids in self._temporal_index.values())
+        
+        # Find most active day
+        most_active_bucket = max(self._temporal_index, key=lambda b: len(self._temporal_index[b]))
+        most_active_count = len(self._temporal_index[most_active_bucket])
+        most_active_date = datetime.datetime.fromtimestamp(most_active_bucket * 86400)
+        
+        # Get earliest and latest timestamps
+        earliest_ts = self._temporal_index_min_bucket * 86400 if self._temporal_index_min_bucket else None
+        latest_ts = (self._temporal_index_max_bucket + 1) * 86400 - 1 if self._temporal_index_max_bucket else None
+        
+        return {
+            "total_days": total_days,
+            "earliest_ts": earliest_ts,
+            "latest_ts": latest_ts,
+            "avg_plots_per_day": total_plots / total_days if total_days > 0 else 0.0,
+            "most_active_day": {
+                "date": most_active_date.strftime("%Y-%m-%d"),
+                "count": most_active_count,
+            },
+        }
+
+    # -------------------------------------------------------------------------
     # Common utility methods (extracted from repeated patterns)
     # -------------------------------------------------------------------------
 
@@ -242,10 +525,172 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     # VOI feature computation
     # -------------------------------------------------------------------------
 
-    def _compute_redundancy(self, emb: np.ndarray) -> float:
-        """Compute redundancy with existing memories."""
+    def _compute_redundancy(
+        self, emb: np.ndarray, text: str, ts: float
+    ) -> Tuple[float, str, Optional[str]]:
+        """Compute redundancy with existing memories, distinguishing update from redundancy.
+        
+        First Principles:
+        - Redundancy = information gain is zero (identical information repeated)
+        - Update = same entity's state change over time (carries temporal information gain)
+        - Reinforcement = short-term repetition confirming same info (some value, not new)
+        
+        In narrative psychology, re-narration repositions old info as "past self",
+        not deleting it but recontextualizing.
+        
+        Args:
+            emb: Embedding vector of new interaction
+            text: Text of new interaction (for update signal detection)
+            ts: Timestamp of new interaction
+            
+        Returns:
+            Tuple of (redundancy_score, redundancy_type, most_similar_plot_id):
+            - "novel": brand new information, redundancy = 0
+            - "update": knowledge update, redundancy = 0 (force store)
+            - "reinforcement": reinforcement, redundancy = 0.5 * similarity
+            - "pure_redundant": pure redundancy, redundancy = similarity
+        """
         hits = self.vindex.search(emb, k=8, kind="plot")
-        return max((s for _, s in hits), default=0.0)
+        if not hits:
+            return 0.0, "novel", None
+        
+        max_sim = 0.0
+        most_similar_id: Optional[str] = None
+        most_similar_plot: Optional[Plot] = None
+        
+        for pid, sim in hits:
+            if sim > max_sim:
+                max_sim = sim
+                most_similar_id = pid
+                most_similar_plot = self.plots.get(pid)
+        
+        # Low similarity -> novel content
+        if max_sim < UPDATE_MODERATE_SIMILARITY_THRESHOLD:
+            return 0.0, "novel", None
+        
+        # High similarity -> need to distinguish update vs redundancy
+        if max_sim >= UPDATE_HIGH_SIMILARITY_THRESHOLD and most_similar_plot is not None:
+            # Check for update signals
+            update_signals = self._detect_update_signals(
+                text, most_similar_plot.text, ts, most_similar_plot.ts
+            )
+            
+            if update_signals["is_update"]:
+                # This is an update, force store with zero redundancy
+                return 0.0, "update", most_similar_id
+            
+            # Check if it's a reinforcement (short time gap, same info)
+            time_gap = abs(ts - most_similar_plot.ts)
+            if time_gap < REINFORCEMENT_TIME_WINDOW:
+                # Short time gap + high similarity = reinforcement
+                return 0.5 * max_sim, "reinforcement", most_similar_id
+            
+            # Long time gap + high similarity + no update signals = pure redundancy
+            return max_sim, "pure_redundant", most_similar_id
+        
+        # Moderate similarity -> could be reinforcement or loosely related
+        if most_similar_plot is not None:
+            time_gap = abs(ts - most_similar_plot.ts)
+            if time_gap < REINFORCEMENT_TIME_WINDOW:
+                return 0.3 * max_sim, "reinforcement", most_similar_id
+        
+        # Default: treat as novel with slight redundancy penalty
+        return 0.3 * max_sim, "novel", None
+
+    def _detect_update_signals(
+        self, new_text: str, old_text: str, new_ts: float, old_ts: float
+    ) -> Dict[str, Any]:
+        """Detect whether new_text represents an update to old_text.
+        
+        First Principles:
+        1. Temporal indicators: words suggesting state change over time
+        2. Time gap: significant gap + high similarity suggests update
+        3. Numeric changes: same context but different numbers = update
+        
+        Args:
+            new_text: Text of new interaction
+            old_text: Text of existing similar interaction
+            new_ts: Timestamp of new interaction
+            old_ts: Timestamp of existing interaction
+            
+        Returns:
+            Dict with:
+            - is_update: bool - whether this is classified as an update
+            - update_type: Optional[str] - "state_change", "correction", "refinement"
+            - confidence: float - confidence in the classification
+            - signals: List[str] - detected signal types
+        """
+        signals: List[str] = []
+        update_type: Optional[str] = None
+        confidence = 0.0
+        
+        new_lower = new_text.lower()
+        old_lower = old_text.lower()
+        
+        # Signal 1: Temporal/state change keywords in new text
+        keyword_count = sum(1 for kw in UPDATE_KEYWORDS if kw in new_lower)
+        if keyword_count > 0:
+            signals.append("update_keywords")
+            confidence += min(0.3 * keyword_count, 0.6)
+            
+            # Determine update type from keywords
+            correction_indicators = {"其实", "实际上", "纠正", "更正", "actually", "correction"}
+            if any(ind in new_lower for ind in correction_indicators):
+                update_type = "correction"
+            else:
+                update_type = "state_change"
+        
+        # Signal 2: Time gap analysis
+        time_gap = new_ts - old_ts
+        if time_gap > UPDATE_TIME_GAP_THRESHOLD:
+            signals.append("time_gap")
+            # Longer gap increases confidence that semantic similarity indicates update
+            gap_factor = min(time_gap / (24 * 3600), 1.0)  # Max at 1 day
+            confidence += 0.2 * gap_factor
+        
+        # Signal 3: Numeric value changes
+        import re
+        new_numbers = set(re.findall(r'\b\d+(?:\.\d+)?\b', new_text))
+        old_numbers = set(re.findall(r'\b\d+(?:\.\d+)?\b', old_text))
+        
+        # If there are numbers in both texts and they differ, likely an update
+        if new_numbers and old_numbers and new_numbers != old_numbers:
+            # Check if any number change indicators present
+            has_change_indicator = any(ind in new_text for ind in NUMERIC_CHANGE_INDICATORS)
+            if has_change_indicator or len(new_numbers.symmetric_difference(old_numbers)) > 0:
+                signals.append("numeric_change")
+                confidence += 0.3
+                if update_type is None:
+                    update_type = "state_change"
+        
+        # Signal 4: Explicit negation of old information
+        negation_patterns = [
+            "不再", "不是", "没有", "不用", "no longer", "not anymore", "don't", "doesn't"
+        ]
+        if any(neg in new_lower for neg in negation_patterns):
+            # Check if negation relates to content in old text
+            signals.append("negation")
+            confidence += 0.25
+            if update_type is None:
+                update_type = "state_change"
+        
+        # Signal 5: Refinement patterns (adding detail to existing info)
+        refinement_patterns = ["具体来说", "详细地", "补充", "更准确", "specifically", "to be precise", "additionally"]
+        if any(ref in new_lower for ref in refinement_patterns):
+            signals.append("refinement")
+            confidence += 0.2
+            if update_type is None:
+                update_type = "refinement"
+        
+        # Determine final classification
+        is_update = confidence >= 0.3 and len(signals) >= 1
+        
+        return {
+            "is_update": is_update,
+            "update_type": update_type if is_update else None,
+            "confidence": confidence,
+            "signals": signals,
+        }
 
     def _compute_goal_relevance(self, emb: np.ndarray, context_emb: Optional[np.ndarray]) -> float:
         """Compute relevance to current goal/context."""
@@ -272,6 +717,41 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             math.tanh(len(plot.text) / TEXT_LENGTH_NORMALIZATION),
             1.0,
         ], dtype=np.float32)
+
+    def _compute_knowledge_type_weight(self, plot: Plot) -> float:
+        """
+        Compute storage weight based on knowledge type.
+        
+        Different knowledge types have different importance for storage:
+        - Identity values (0.95): Most important - core to who I am
+        - Static facts (0.9): Very important - immutable truths
+        - Identity traits (0.8): Important - personality aspects
+        - State facts (0.7): Moderate - can be updated
+        - Preferences (0.6): Lower - can evolve
+        - Behaviors (0.5): Lowest - patterns change
+        
+        Returns a weight that can boost storage probability for important knowledge.
+        """
+        if plot.knowledge_type is None:
+            return 0.6  # Default for unclassified
+        
+        type_weights = {
+            "identity_value": KNOWLEDGE_TYPE_WEIGHT_VALUE,
+            "factual_static": KNOWLEDGE_TYPE_WEIGHT_STATIC,
+            "identity_trait": KNOWLEDGE_TYPE_WEIGHT_TRAIT,
+            "factual_state": KNOWLEDGE_TYPE_WEIGHT_STATE,
+            "preference": KNOWLEDGE_TYPE_WEIGHT_PREFERENCE,
+            "behavior": KNOWLEDGE_TYPE_WEIGHT_BEHAVIOR,
+            "unknown": 0.6,
+        }
+        
+        base_weight = type_weights.get(plot.knowledge_type, 0.6)
+        
+        # Modulate by classification confidence
+        # High confidence → full weight, low confidence → dampened weight
+        confidence_factor = 0.5 + 0.5 * plot.knowledge_confidence
+        
+        return base_weight * confidence_factor
 
     # -------------------------------------------------------------------------
     # Ingest: Main entry point for new interactions
@@ -368,6 +848,65 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         self._pressure_manage()
         return plot
 
+    def ingest_session(
+        self,
+        turns: List[Dict[str, str]],
+        session_id: Optional[str] = None,
+    ) -> List[Plot]:
+        """Batch ingest all turns from a session.
+        
+        Optimized for benchmark scenarios where an entire conversation session
+        needs to be ingested at once. This is particularly useful for:
+        - LongMemEval: Multi-turn conversations with temporal dependencies
+        - MemoryAgentBench: Session-based evaluation
+        
+        Each turn is formatted as "{role}: {content}" before ingestion.
+        
+        Args:
+            turns: List of turn dictionaries, each with:
+                - "role": Speaker role (e.g., "user", "assistant", "human", "ai")
+                - "content": The message content
+            session_id: Optional session identifier for deterministic plot IDs.
+                If provided, plot IDs will be "plot-{session_id}-{turn_index}".
+        
+        Returns:
+            List of Plot objects created (stored based on VOI decision or
+            benchmark_mode setting).
+        
+        Example:
+            >>> mem = AuroraMemory(benchmark_mode=True)
+            >>> turns = [
+            ...     {"role": "user", "content": "My name is Alice"},
+            ...     {"role": "assistant", "content": "Nice to meet you, Alice!"},
+            ...     {"role": "user", "content": "I live in Beijing"},
+            ... ]
+            >>> plots = mem.ingest_session(turns)
+            >>> assert len(plots) == 3
+            >>> # With session_id for deterministic IDs
+            >>> plots = mem.ingest_session(turns, session_id="session-001")
+            >>> assert plots[0].id == "plot-session-001-0"
+        """
+        plots = []
+        for idx, turn in enumerate(turns):
+            role = turn.get("role", "unknown")
+            content = turn.get("content", "")
+            
+            # Skip empty turns
+            if not content or not content.strip():
+                continue
+            
+            # Format as "Role: content"
+            text = f"{role.capitalize()}: {content}"
+            
+            # Generate deterministic event_id if session_id provided
+            event_id = f"{session_id}-{idx}" if session_id else None
+            
+            # Ingest the turn
+            plot = self.ingest(text, event_id=event_id)
+            plots.append(plot)
+        
+        return plots
+
     def _prepare_plot(
         self,
         interaction_text: str,
@@ -375,7 +914,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         emb: np.ndarray,
         event_id: Optional[str],
     ) -> Plot:
-        """Prepare a plot with relationship-centric context."""
+        """Prepare a plot with relationship-centric context and knowledge type classification."""
         # Relationship identification
         relationship_entity = self._identify_relationship_entity(actors, interaction_text)
 
@@ -391,6 +930,11 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         identity_impact = self._extract_identity_impact(
             interaction_text, relational_context, identity_relevance
         )
+        
+        # Classify knowledge type for intelligent conflict resolution
+        classification = self.knowledge_classifier.classify(interaction_text, embedding=emb)
+        knowledge_type = classification.knowledge_type.value
+        knowledge_confidence = classification.confidence
 
         return Plot(
             id=det_id("plot", event_id) if event_id else str(uuid.uuid4()),
@@ -400,34 +944,154 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             embedding=emb,
             relational=relational_context,
             identity_impact=identity_impact,
+            knowledge_type=knowledge_type,
+            knowledge_confidence=knowledge_confidence,
         )
 
     def _compute_plot_signals(
         self, plot: Plot, emb: np.ndarray, context_emb: Optional[np.ndarray]
     ) -> None:
-        """Compute traditional signals for a plot."""
+        """Compute traditional signals for a plot, with update detection.
+        
+        Enhanced to distinguish knowledge updates from pure redundancy.
+        When an update is detected:
+        - redundancy is set to 0 (force storage)
+        - redundancy_type is set to "update"
+        - supersedes_id points to the updated plot
+        """
         plot.surprise = float(self.kde.surprise(emb))
         plot.pred_error = float(self._compute_pred_error(emb))
-        plot.redundancy = float(self._compute_redundancy(emb))
+        
+        # Use enhanced redundancy computation with update detection
+        redundancy_score, redundancy_type, supersedes_id = self._compute_redundancy(
+            emb, plot.text, plot.ts
+        )
+        
+        plot.redundancy = float(redundancy_score)
+        plot.redundancy_type = redundancy_type
+        
+        # If this is an update, record the supersession chain
+        if redundancy_type == "update" and supersedes_id is not None:
+            if supersedes_id in self.plots:
+                old_plot = self.plots[supersedes_id]
+                
+                # CRITICAL: Only supersede if actors are compatible
+                # "Assistant: Updated" should NOT supersede "User: I changed my number"
+                # Updates should only happen between messages from the same source
+                # (e.g., User info updates User info, not Assistant confirmation updates User info)
+                actors_compatible = self._actors_compatible_for_update(plot.actors, old_plot.actors)
+                
+                if actors_compatible:
+                    plot.supersedes_id = supersedes_id
+                    update_signals = self._detect_update_signals(
+                        plot.text, old_plot.text, plot.ts, old_plot.ts
+                    )
+                    plot.update_type = update_signals.get("update_type")
+                    
+                    # Mark the old plot as superseded
+                    old_plot.status = "superseded"
+                    old_plot.superseded_by_id = plot.id
+                    logger.info(
+                        f"Update detected: {plot.id[:8]}... supersedes {supersedes_id[:8]}... "
+                        f"(update_type={plot.update_type})"
+                    )
+                else:
+                    # Not compatible actors - treat as reinforcement, not update
+                    plot.redundancy_type = "reinforcement"
+                    logger.debug(
+                        f"Skipping supersession: actors not compatible. "
+                        f"New: {plot.actors}, Old: {old_plot.actors}"
+                    )
+        
         plot.goal_relevance = float(self._compute_goal_relevance(emb, context_emb))
         plot.tension = plot.surprise * (1.0 + plot.pred_error)
+
+    def _actors_compatible_for_update(
+        self, new_actors: Tuple[str, ...], old_actors: Tuple[str, ...]
+    ) -> bool:
+        """Check if actors are compatible for supersession.
+        
+        Key principle: Only supersede information from the same source.
+        
+        - User: "I live in Beijing" 
+        - User: "I moved to Shanghai"  → CAN supersede (same source)
+        
+        - User: "I changed my number to 098..."
+        - Assistant: "Updated your number"  → CANNOT supersede (different sources)
+        
+        Args:
+            new_actors: Actors in the new plot
+            old_actors: Actors in the old plot
+            
+        Returns:
+            True if new_actors can supersede old_actors
+        """
+        # Extract primary speaker from each
+        def get_primary_speaker(actors: Tuple[str, ...]) -> Optional[str]:
+            """Get the primary speaker (usually the first non-agent actor)."""
+            for actor in actors:
+                actor_lower = actor.lower()
+                if actor_lower in ("user", "human", "customer"):
+                    return "user"
+                elif actor_lower in ("assistant", "agent", "ai", "bot"):
+                    return "assistant"
+            return actors[0].lower() if actors else None
+        
+        new_speaker = get_primary_speaker(new_actors)
+        old_speaker = get_primary_speaker(old_actors)
+        
+        # Same speaker can supersede
+        if new_speaker == old_speaker:
+            return True
+        
+        # User can supersede assistant's confirmation of user info
+        # (but be conservative - don't supersede by default)
+        return False
 
     def _compute_storage_decision(self, plot: Plot) -> bool:
         """Compute whether to store this plot.
         
-        Cold start protection:
-        - First COLD_START_FORCE_STORE_COUNT plots are always stored
-        - This ensures critical early information (names, preferences, etc.) is preserved
+        Storage decision follows these principles:
         
-        For subsequent plots, combines:
-        - Identity relevance (IDENTITY_RELEVANCE_WEIGHT)
-        - VOI decision from Thompson sampling (VOI_DECISION_WEIGHT)
-        - MIN_STORE_PROB floor ensures baseline storage rate
+        0. Benchmark mode (highest priority):
+           - If benchmark_mode is True, ALWAYS store all plots
+           - Essential for benchmarks like LongMemEval where every turn matters
+           - Bypasses all gating to ensure no information loss
+        
+        1. Cold start protection:
+           - First COLD_START_FORCE_STORE_COUNT plots are always stored
+           - Ensures critical early information (names, preferences, etc.) is preserved
+        
+        2. Knowledge update detection:
+           - If redundancy_type == "update", FORCE STORE
+           - Updates carry temporal information gain even with high semantic similarity
+           - Re-narration principle: old info is repositioned as "past self"
+        
+        3. Standard VOI decision:
+           - Combines identity relevance and Thompson sampling
+           - MIN_STORE_PROB floor ensures baseline storage rate
         """
+        # Benchmark mode: force store ALL plots (no gating)
+        # This ensures no information loss for evaluation benchmarks
+        if self.benchmark_mode:
+            plot._storage_prob = 1.0
+            logger.debug(f"Benchmark mode: force storing plot {plot.id[:8]}...")
+            return True
+        
         # Cold start protection: force store first N plots
         if len(self.plots) < COLD_START_FORCE_STORE_COUNT:
             plot._storage_prob = 1.0
             logger.debug(f"Cold start: force storing plot {len(self.plots) + 1}/{COLD_START_FORCE_STORE_COUNT}")
+            return True
+        
+        # Knowledge update detection: FORCE STORE updates
+        # This is the key insight: semantic similarity != redundancy when there's temporal change
+        if plot.redundancy_type == "update":
+            plot._storage_prob = 1.0
+            logger.debug(
+                f"Knowledge update detected: force storing plot, "
+                f"supersedes={plot.supersedes_id}, update_type={plot.update_type}"
+            )
             return True
         
         # Combine traditional VOI with identity relevance
@@ -441,9 +1105,24 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             plot.embedding
         )
         
-        # Combine and apply minimum storage probability floor
-        combined_prob = IDENTITY_RELEVANCE_WEIGHT * identity_relevance + VOI_DECISION_WEIGHT * voi_decision
+        # Get knowledge type weight - important knowledge types get higher storage probability
+        knowledge_weight = self._compute_knowledge_type_weight(plot)
+        
+        # Combine all factors:
+        # - identity_relevance: how much this affects "who I am"
+        # - voi_decision: information-theoretic value
+        # - knowledge_weight: importance based on knowledge type (values > static facts > traits > states > preferences > behaviors)
+        combined_prob = (
+            IDENTITY_RELEVANCE_WEIGHT * identity_relevance + 
+            VOI_DECISION_WEIGHT * voi_decision
+        )
+        
+        # Apply knowledge weight as a boost (max 20% boost for critical knowledge types)
+        knowledge_boost = (knowledge_weight - 0.5) * 0.4  # Range: [-0.2, +0.18]
+        combined_prob = combined_prob + knowledge_boost
+        
         combined_prob = max(combined_prob, MIN_STORE_PROB)  # Ensure baseline storage rate
+        combined_prob = min(combined_prob, 1.0)  # Cap at 1.0
         plot._storage_prob = combined_prob  # Store for logging
         
         return self.rng.random() < combined_prob
@@ -453,18 +1132,232 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     # -------------------------------------------------------------------------
 
     def _store_plot(self, plot: Plot) -> None:
-        """Store plot with relationship-first organization."""
-        # Assign plot to story
+        """Store plot with relationship-first organization and conflict detection.
+        
+        AURORA Philosophy: Conflict detection happens at storage time, not after.
+        But not all conflicts need resolution - identity traits provide adaptive flexibility.
+        
+        Flow:
+        1. Detect potential conflicts with existing plots
+        2. Handle conflicts based on knowledge type (UPDATE vs PRESERVE_BOTH)
+        3. Assign plot to story
+        4. Store and weave edges
+        """
+        # 1. Conflict detection and handling (before storage)
+        conflicts = self._detect_conflicts(plot)
+        if conflicts:
+            self._handle_conflicts(plot, conflicts)
+        
+        # 2. Assign plot to story
         story, chosen_id = self._assign_plot_to_story(plot)
         
-        # Update story with plot
+        # 3. Update story with plot
         self._update_story_with_plot(story, plot)
         
-        # Store plot and weave edges
+        # 4. Store plot and weave edges
         self._weave_plot_edges(plot, story)
         
-        # Update identity dimensions
+        # 5. Add to temporal index (Time as First-Class Citizen)
+        self._add_to_temporal_index(plot)
+        
+        # 6. Update identity dimensions
         self._update_identity_dimensions(plot)
+
+    def _detect_conflicts(self, new_plot: Plot) -> List[Conflict]:
+        """Detect potential conflicts between new plot and existing memories.
+        
+        AURORA Philosophy: Only detect conflicts worth considering.
+        Uses semantic similarity as a gate - no similarity = no conflict check needed.
+        
+        Args:
+            new_plot: The plot being stored
+            
+        Returns:
+            List of detected conflicts (may be empty)
+        """
+        conflicts: List[Conflict] = []
+        
+        # Early exit if no existing plots
+        if not self.plots:
+            return conflicts
+        
+        # 1. Find semantically similar plots (gate for conflict checking)
+        similar_plots = self.vindex.search(
+            new_plot.embedding, 
+            k=CONFLICT_CHECK_K, 
+            kind="plot"
+        )
+        
+        for pid, sim in similar_plots:
+            # Skip if not similar enough to warrant conflict check
+            if sim < CONFLICT_CHECK_SIMILARITY_THRESHOLD:
+                continue
+            
+            old_plot = self.plots.get(pid)
+            if old_plot is None or old_plot.status != "active":
+                continue
+            
+            # 2. Use ContradictionDetector for probabilistic conflict detection
+            prob, explanation = self.coherence_guardian.detector.detect_contradiction(
+                old_plot, new_plot
+            )
+            
+            # 3. Register conflict if probability exceeds threshold
+            if prob > CONFLICT_PROBABILITY_THRESHOLD:
+                conflict = Conflict(
+                    type=ConflictType.FACTUAL,  # Default to factual
+                    node_a=old_plot.id,
+                    node_b=new_plot.id,
+                    severity=prob,
+                    confidence=sim,  # Use similarity as confidence
+                    description=explanation,
+                    evidence=[old_plot.text[:100], new_plot.text[:100]],
+                )
+                conflicts.append(conflict)
+                
+                logger.debug(
+                    f"Conflict detected: {old_plot.id} <-> {new_plot.id}, "
+                    f"prob={prob:.3f}, sim={sim:.3f}, reason={explanation}"
+                )
+        
+        # Limit number of conflicts to handle (for performance)
+        return conflicts[:MAX_CONFLICTS_PER_INGEST]
+
+    def _handle_conflicts(self, new_plot: Plot, conflicts: List[Conflict]) -> None:
+        """Handle detected conflicts based on knowledge type classification.
+        
+        AURORA Philosophy:
+        - State facts (phone, address) → UPDATE (new supersedes old)
+        - Identity traits (patient, efficient) → PRESERVE_BOTH (adaptive flexibility)
+        - The goal is not to eliminate all contradictions, but to manage them wisely.
+        
+        Args:
+            new_plot: The new plot being stored
+            conflicts: List of detected conflicts
+        """
+        for conflict in conflicts:
+            old_plot = self.plots.get(conflict.node_a)
+            if old_plot is None:
+                continue
+            
+            # 1. Classify knowledge type for both plots
+            old_classification = self.knowledge_classifier.classify(old_plot.text)
+            new_classification = self.knowledge_classifier.classify(new_plot.text)
+            
+            # 2. Determine time relation
+            time_gap = abs(new_plot.ts - old_plot.ts)
+            time_relation = "sequential" if time_gap > CONCURRENT_TIME_THRESHOLD else "concurrent"
+            
+            # 3. Get resolution strategy from knowledge classifier
+            analysis = self.knowledge_classifier.resolve_conflict(
+                old_classification.knowledge_type,
+                new_classification.knowledge_type,
+                time_relation,
+                old_plot.text,
+                new_plot.text,
+                old_plot.embedding,
+                new_plot.embedding,
+            )
+            
+            # 4. Apply resolution
+            self._apply_conflict_resolution(
+                old_plot, new_plot, analysis, conflict
+            )
+
+    def _apply_conflict_resolution(
+        self,
+        old_plot: Plot,
+        new_plot: Plot,
+        analysis: ConflictAnalysis,
+        conflict: Conflict,
+    ) -> None:
+        """Apply the conflict resolution strategy.
+        
+        Resolution strategies:
+        - UPDATE: New supersedes old (state facts)
+        - PRESERVE_BOTH: Both remain active (identity traits, adaptive)
+        - CORRECT: Old is marked as corrected (static facts)
+        - EVOLVE: Track change timeline (preferences, behaviors)
+        
+        Args:
+            old_plot: The existing plot
+            new_plot: The new plot
+            analysis: Conflict analysis with resolution strategy
+            conflict: The original conflict
+        """
+        resolution = analysis.resolution
+        
+        if resolution == ConflictResolution.UPDATE:
+            # State fact update: new supersedes old
+            new_plot.supersedes_id = old_plot.id
+            old_plot.superseded_by_id = new_plot.id
+            old_plot.status = "superseded"
+            new_plot.update_type = "state_change"
+            new_plot.redundancy_type = "update"
+            
+            logger.info(
+                f"UPDATE resolution: {new_plot.id} supersedes {old_plot.id}. "
+                f"Reason: {analysis.rationale}"
+            )
+        
+        elif resolution == ConflictResolution.PRESERVE_BOTH:
+            # Identity traits / adaptive contradictions: preserve both
+            # Create a tension edge in the graph to track the relationship
+            self.graph.ensure_edge(old_plot.id, new_plot.id, "tension")
+            self.graph.ensure_edge(new_plot.id, old_plot.id, "tension")
+            
+            # Register with TensionManager if it's truly adaptive
+            if analysis.is_complementary:
+                from aurora.algorithms.tension import Tension, TensionType
+                tension = Tension(
+                    id=f"tension-{old_plot.id}-{new_plot.id}",
+                    element_a_id=old_plot.id,
+                    element_a_type="plot",
+                    element_b_id=new_plot.id,
+                    element_b_type="plot",
+                    description=f"Complementary traits: {analysis.rationale}",
+                    tension_type=TensionType.ADAPTIVE,
+                    severity=conflict.severity,
+                )
+                self.coherence_guardian.tension_manager.tensions[tension.id] = tension
+            
+            logger.info(
+                f"PRESERVE_BOTH resolution: {old_plot.id} and {new_plot.id} both active. "
+                f"Reason: {analysis.rationale}"
+            )
+        
+        elif resolution == ConflictResolution.CORRECT:
+            # Static fact correction: old was wrong
+            new_plot.supersedes_id = old_plot.id
+            old_plot.superseded_by_id = new_plot.id
+            old_plot.status = "corrected"
+            new_plot.update_type = "correction"
+            new_plot.redundancy_type = "update"
+            
+            logger.info(
+                f"CORRECT resolution: {old_plot.id} corrected by {new_plot.id}. "
+                f"Reason: {analysis.rationale}"
+            )
+        
+        elif resolution == ConflictResolution.EVOLVE:
+            # Preference/behavior evolution: track timeline
+            new_plot.supersedes_id = old_plot.id
+            new_plot.update_type = "refinement"
+            new_plot.redundancy_type = "update"
+            # Keep old as active for historical tracking
+            self.graph.ensure_edge(old_plot.id, new_plot.id, "evolved_to")
+            
+            logger.info(
+                f"EVOLVE resolution: {old_plot.id} evolved to {new_plot.id}. "
+                f"Reason: {analysis.rationale}"
+            )
+        
+        else:
+            # NO_ACTION: No changes needed
+            logger.debug(
+                f"NO_ACTION for conflict between {old_plot.id} and {new_plot.id}. "
+                f"Reason: {analysis.rationale}"
+            )
 
     def _assign_plot_to_story(self, plot: Plot) -> Tuple[StoryArc, str]:
         """Assign a plot to an existing or new story."""
@@ -641,9 +1534,18 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         # Detect query type if not provided
         detected_type = query_type if query_type is not None else self.retriever._classify_query(text)
         
-        # Adjust k for multi-hop queries (they need more results for relationship exploration)
+        # Adjust k based on benchmark mode and query type
         effective_k = k
-        if detected_type == QueryType.MULTI_HOP:
+        if self.benchmark_mode:
+            # Benchmark mode: use larger k values to ensure comprehensive retrieval
+            # LongMemEval multi-session questions need aggregation across many turns
+            if detected_type == QueryType.MULTI_HOP:
+                effective_k = max(k, BENCHMARK_MULTI_SESSION_K)
+                logger.debug(f"Benchmark mode + multi-hop: using k={effective_k}")
+            else:
+                effective_k = max(k, BENCHMARK_DEFAULT_K)
+                logger.debug(f"Benchmark mode: using k={effective_k}")
+        elif detected_type == QueryType.MULTI_HOP:
             effective_k = int(k * MULTI_HOP_K_MULTIPLIER)
             logger.debug(f"Multi-hop query detected, adjusting k from {k} to {effective_k}")
         
@@ -678,6 +1580,33 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         if len(trace.ranked) > k:
             trace.ranked = trace.ranked[:k]
         
+        # =====================================================================
+        # FIRST PRINCIPLES: Timeline-based organization (superseded ≠ deleted)
+        # =====================================================================
+        # 
+        # OLD APPROACH (filter-based - DEPRECATED):
+        #   trace.ranked = self._filter_active_results(trace.ranked)
+        #   Problem: Loses temporal context. "Where did I used to live?" fails.
+        #
+        # NEW APPROACH (timeline-based):
+        #   Organize results into timelines showing knowledge evolution.
+        #   Let the semantic understanding layer (LLM) decide based on full context.
+        #
+        # Key insight from narrative psychology:
+        #   - "I lived in Beijing" is still TRUE, just in the past tense
+        #   - Past facts are repositioned, not deleted
+        #   - The retrieval layer should provide information, not make decisions
+        # =====================================================================
+        
+        # Group results into timelines preserving full temporal context
+        trace.timeline_group = self._group_into_timelines(trace.ranked)
+        trace.include_historical = True  # By default, preserve full history
+        
+        # For backward compatibility: also provide filtered ranked list
+        # This ensures existing code that expects only active results still works
+        # But new code can access timeline_group for full temporal context
+        trace.ranked = self._filter_active_results(trace.ranked)
+        
         # Enrich trace with relationship context and query type
         trace.asker_id = asker_id
         trace.activated_identity = activated_identity
@@ -688,6 +1617,481 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         self._update_access_counts(trace)
         
         return trace
+
+    def _filter_active_results(
+        self, ranked: List[Tuple[str, float, str]]
+    ) -> List[Tuple[str, float, str]]:
+        """Filter retrieval results to only include active plots.
+        
+        DEPRECATED: This filter-based approach is being replaced by timeline-based
+        retrieval. Instead of filtering out superseded plots (treating them as
+        "invalid"), we now organize them into timelines with temporal markers.
+        
+        First Principles insight:
+        - superseded ≠ deleted
+        - "I lived in Beijing" is still TRUE, just in the past tense
+        - The semantic understanding layer (LLM) should decide, not the retrieval layer
+        
+        This method is kept for backward compatibility but should be replaced
+        by _group_into_timelines() which preserves full temporal context.
+        
+        Args:
+            ranked: List of (id, score, kind) tuples
+            
+        Returns:
+            Filtered list with only active plots (stories/themes always pass)
+        """
+        filtered: List[Tuple[str, float, str]] = []
+        
+        for nid, score, kind in ranked:
+            if kind == "plot":
+                plot = self.plots.get(nid)
+                if plot is None:
+                    continue
+                # Only include active plots
+                # Exclude: superseded, corrected, archived, dormant
+                if plot.status != "active":
+                    logger.debug(
+                        f"Filtering out non-active plot {nid[:8]}... "
+                        f"(status={plot.status}, superseded_by={plot.superseded_by_id})"
+                    )
+                    continue
+            # Stories and themes always pass through
+            filtered.append((nid, score, kind))
+        
+        return filtered
+    
+    # -------------------------------------------------------------------------
+    # Timeline-Based Retrieval (First Principles: superseded ≠ deleted)
+    # -------------------------------------------------------------------------
+
+    def _get_update_chain(self, plot_id: str) -> List[str]:
+        """Get the complete update chain for a plot.
+        
+        First Principles:
+        - In narrative psychology, past facts are repositioned, not deleted
+        - "I lived in Beijing" becomes "I **used to** live in Beijing"
+        - The fact is still true, just with different temporal positioning
+        
+        This method traces the complete evolution of a piece of knowledge:
+        - Backward: Find all predecessors (what this plot superseded)
+        - Forward: Find all successors (what superseded this plot)
+        
+        Args:
+            plot_id: The plot ID to trace
+            
+        Returns:
+            List of plot IDs in chronological order [oldest, ..., newest]
+            The input plot_id is guaranteed to be in the chain.
+            
+        Example:
+            For plot "I moved to Shanghai" that superseded "I live in Beijing":
+            >>> chain = mem._get_update_chain("plot-shanghai")
+            >>> chain  # ["plot-beijing", "plot-shanghai"]
+        """
+        if plot_id not in self.plots:
+            return [plot_id]  # Return as-is if not found
+        
+        chain: List[str] = []
+        visited: set = set()  # Prevent cycles
+        
+        # Phase 1: Trace backward through supersedes_id
+        current_id: Optional[str] = plot_id
+        backward_chain: List[str] = []
+        
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            backward_chain.insert(0, current_id)
+            
+            current_plot = self.plots.get(current_id)
+            if current_plot and current_plot.supersedes_id:
+                current_id = current_plot.supersedes_id
+            else:
+                break
+        
+        chain.extend(backward_chain)
+        
+        # Phase 2: Trace forward through superseded_by_id
+        current_id = plot_id
+        visited.clear()
+        visited.add(plot_id)  # Already in chain
+        
+        while current_id:
+            current_plot = self.plots.get(current_id)
+            if not current_plot or not current_plot.superseded_by_id:
+                break
+            
+            next_id = current_plot.superseded_by_id
+            if next_id in visited:
+                break  # Prevent cycles
+            
+            visited.add(next_id)
+            chain.append(next_id)
+            current_id = next_id
+        
+        return chain
+
+    def _group_into_timelines(
+        self, ranked: List[Tuple[str, float, str]]
+    ) -> TimelineGroup:
+        """Group retrieval results into knowledge timelines.
+        
+        First Principles:
+        - Don't filter superseded plots as "invalid"
+        - Organize them into timelines showing knowledge evolution
+        - Let the semantic understanding layer (LLM) make decisions
+        
+        This replaces the filter-based approach with structure-based organization:
+        - Old: Filter out superseded → lose temporal context
+        - New: Group into timelines → preserve full evolution history
+        
+        Args:
+            ranked: List of (id, score, kind) tuples from retrieval
+            
+        Returns:
+            TimelineGroup containing:
+            - timelines: Related plots organized by update chains
+            - standalone_results: Results not part of any update chain
+            
+        Example:
+            For query "Where do I live?":
+            - Timeline 1: [Beijing (historical), Shanghai (historical), Shenzhen (current)]
+            - Standalone: [work location plot, favorite restaurant plot]
+        """
+        timelines: List[KnowledgeTimeline] = []
+        standalone: List[Tuple[str, float, str]] = []
+        processed_plots: set = set()
+        
+        # First, find all plot results
+        plot_results: Dict[str, Tuple[float, str]] = {}  # plot_id -> (score, kind)
+        other_results: List[Tuple[str, float, str]] = []  # stories, themes
+        
+        for nid, score, kind in ranked:
+            if kind == "plot":
+                plot_results[nid] = (score, kind)
+            else:
+                other_results.append((nid, score, kind))
+        
+        # Process each plot, grouping into timelines
+        for plot_id, (score, kind) in plot_results.items():
+            if plot_id in processed_plots:
+                continue
+            
+            # Get the complete update chain
+            chain = self._get_update_chain(plot_id)
+            
+            if len(chain) == 1:
+                # No update chain - standalone result
+                standalone.append((plot_id, score, kind))
+                processed_plots.add(plot_id)
+            else:
+                # Part of an update chain - create timeline
+                # Mark all chain members as processed
+                for pid in chain:
+                    processed_plots.add(pid)
+                
+                # Find the current (active) plot in the chain
+                current_id: Optional[str] = None
+                for pid in reversed(chain):  # Start from newest
+                    plot = self.plots.get(pid)
+                    if plot and plot.status == "active":
+                        current_id = pid
+                        break
+                
+                # Use the best score from any plot in the chain
+                best_score = score
+                for pid in chain:
+                    if pid in plot_results:
+                        pid_score, _ = plot_results[pid]
+                        best_score = max(best_score, pid_score)
+                
+                # Create topic signature from the earliest plot text
+                topic_sig = ""
+                if chain:
+                    first_plot = self.plots.get(chain[0])
+                    if first_plot:
+                        topic_sig = first_plot.text[:50]
+                
+                timeline = KnowledgeTimeline(
+                    chain=chain,
+                    current_id=current_id,
+                    topic_signature=topic_sig,
+                    match_score=best_score,
+                )
+                timelines.append(timeline)
+        
+        # Sort timelines by match score
+        timelines.sort(key=lambda t: t.match_score, reverse=True)
+        
+        # Add non-plot results to standalone
+        standalone.extend(other_results)
+        
+        return TimelineGroup(timelines=timelines, standalone_results=standalone)
+
+    def format_retrieval_with_temporal_markers(
+        self, trace: RetrievalTrace, max_results: int = 10
+    ) -> str:
+        """Format retrieval results with temporal markers for LLM consumption.
+        
+        First Principles:
+        - Let the LLM see the full temporal context
+        - Use clear markers: [CURRENT], [HISTORICAL], [UPDATED TO]
+        - The LLM can then decide based on query intent
+        
+        Format example:
+            [TIMELINE: User residence]
+            [HISTORICAL - updated 2024-06-15] User: I live in Beijing
+              → Updated to: User: I moved to Shanghai
+            [HISTORICAL - updated 2024-12-01] User: I moved to Shanghai
+              → Updated to: User: I moved to Shenzhen
+            [CURRENT] User: I moved to Shenzhen
+            
+            [STANDALONE]
+            [CURRENT] User: I work at TechCorp
+        
+        Args:
+            trace: RetrievalTrace with timeline_group populated
+            max_results: Maximum number of results to format
+            
+        Returns:
+            Formatted string with temporal markers for LLM context
+        """
+        if not trace.timeline_group:
+            # Fallback: format ranked results without timeline structure
+            return self._format_ranked_simple(trace.ranked, max_results)
+        
+        parts: List[str] = []
+        result_count = 0
+        
+        # Format timelines first
+        for timeline in trace.timeline_group.timelines:
+            if result_count >= max_results:
+                break
+            
+            if timeline.has_evolution():
+                # Multi-version timeline - show full evolution
+                parts.append(f"\n[KNOWLEDGE EVOLUTION: {timeline.topic_signature}]")
+                
+                for i, plot_id in enumerate(timeline.chain):
+                    if result_count >= max_results:
+                        break
+                    
+                    plot = self.plots.get(plot_id)
+                    if not plot:
+                        continue
+                    
+                    is_current = (plot_id == timeline.current_id)
+                    
+                    if is_current:
+                        marker = "[CURRENT]"
+                    elif plot.status == "superseded":
+                        # Find what superseded it
+                        next_plot = self.plots.get(plot.superseded_by_id) if plot.superseded_by_id else None
+                        if next_plot:
+                            marker = f"[HISTORICAL - superseded]"
+                            update_info = f"\n  → Updated to: {next_plot.text[:100]}"
+                        else:
+                            marker = "[HISTORICAL]"
+                            update_info = ""
+                    elif plot.status == "corrected":
+                        marker = "[CORRECTED]"
+                        update_info = ""
+                    else:
+                        marker = f"[{plot.status.upper()}]"
+                        update_info = ""
+                    
+                    formatted_text = f"{marker} {plot.text[:200]}"
+                    if plot.status == "superseded" and 'update_info' in dir() and update_info:
+                        formatted_text += update_info
+                    
+                    parts.append(formatted_text)
+                    result_count += 1
+            else:
+                # Single-version - treat as standalone
+                plot_id = timeline.chain[0]
+                plot = self.plots.get(plot_id)
+                if plot:
+                    parts.append(f"[CURRENT] {plot.text[:200]}")
+                    result_count += 1
+        
+        # Format standalone results
+        if trace.timeline_group.standalone_results and result_count < max_results:
+            parts.append("\n[OTHER RELEVANT MEMORIES]")
+            
+            for nid, score, kind in trace.timeline_group.standalone_results:
+                if result_count >= max_results:
+                    break
+                
+                if kind == "plot":
+                    plot = self.plots.get(nid)
+                    if plot:
+                        marker = "[CURRENT]" if plot.status == "active" else f"[{plot.status.upper()}]"
+                        parts.append(f"{marker} {plot.text[:200]}")
+                        result_count += 1
+                elif kind == "story":
+                    story = self.stories.get(nid)
+                    if story:
+                        parts.append(f"[STORY] {story.relationship_with or 'Unknown'}: {len(story.plot_ids)} interactions")
+                        result_count += 1
+                elif kind == "theme":
+                    theme = self.themes.get(nid)
+                    if theme:
+                        parts.append(f"[THEME] {theme.identity_dimension or 'Unknown theme'}")
+                        result_count += 1
+        
+        return "\n".join(parts)
+
+    def _format_ranked_simple(
+        self, ranked: List[Tuple[str, float, str]], max_results: int
+    ) -> str:
+        """Simple formatting for ranked results without timeline structure."""
+        parts: List[str] = []
+        
+        for nid, score, kind in ranked[:max_results]:
+            if kind == "plot":
+                plot = self.plots.get(nid)
+                if plot:
+                    marker = "[CURRENT]" if plot.status == "active" else f"[{plot.status.upper()}]"
+                    parts.append(f"{marker} {plot.text[:200]}")
+            elif kind == "story":
+                story = self.stories.get(nid)
+                if story:
+                    parts.append(f"[STORY] {story.relationship_with or 'Unknown'}")
+            elif kind == "theme":
+                theme = self.themes.get(nid)
+                if theme:
+                    parts.append(f"[THEME] {theme.identity_dimension or 'Unknown'}")
+        
+        return "\n".join(parts)
+
+    # -------------------------------------------------------------------------
+    # Public Timeline-Aware Query Methods
+    # -------------------------------------------------------------------------
+
+    def query_with_timeline(
+        self,
+        text: str,
+        k: int = 5,
+        asker_id: Optional[str] = None,
+        query_type: Optional[QueryType] = None,
+        format_for_llm: bool = False,
+    ) -> RetrievalTrace:
+        """Query with full timeline context for temporal reasoning.
+        
+        First Principles:
+        - superseded ≠ deleted
+        - Past facts are repositioned, not invalidated
+        - "I lived in Beijing" is still TRUE, just in the past tense
+        
+        This method is designed for queries that need temporal context:
+        - "Where did I used to live?" → needs historical data
+        - "How has my opinion changed?" → needs evolution timeline
+        - "When did I first mention X?" → needs temporal ordering
+        
+        Unlike query(), this method:
+        1. Does NOT filter out superseded plots
+        2. Organizes results into knowledge timelines
+        3. Provides temporal markers for LLM consumption
+        
+        Args:
+            text: The query text
+            k: Number of results to return
+            asker_id: Optional entity ID for relationship context
+            query_type: Optional query type override
+            format_for_llm: If True, returns trace with formatted context
+                in trace.relationship_context (reusing the field)
+                
+        Returns:
+            RetrievalTrace with:
+            - timeline_group: Organized timelines showing evolution
+            - ranked: ALL relevant plots (including historical)
+            - relationship_context: If format_for_llm=True, contains
+                temporal-marker-formatted context string
+                
+        Example:
+            >>> trace = mem.query_with_timeline("Where did I used to live?")
+            >>> for timeline in trace.timeline_group.timelines:
+            ...     print(f"Timeline: {len(timeline.chain)} versions")
+            ...     for plot_id in timeline.chain:
+            ...         plot = mem.plots[plot_id]
+            ...         marker = "CURRENT" if plot.status == "active" else "HISTORICAL"
+            ...         print(f"  [{marker}] {plot.text[:50]}")
+        """
+        # Use standard query but get full results before filtering
+        trace = self.query(
+            text=text,
+            k=k * 2,  # Get more results to ensure we have full timelines
+            asker_id=asker_id,
+            query_type=query_type,
+        )
+        
+        # The trace already has timeline_group populated
+        # Override ranked with unfiltered results for temporal queries
+        if trace.timeline_group:
+            # Reconstruct ranked from timeline_group to include historical
+            all_ranked: List[Tuple[str, float, str]] = []
+            
+            for timeline in trace.timeline_group.timelines:
+                for plot_id in timeline.chain:
+                    plot = self.plots.get(plot_id)
+                    if plot:
+                        # Use original score or timeline score
+                        score = timeline.match_score
+                        all_ranked.append((plot_id, score, "plot"))
+            
+            # Add standalone results
+            all_ranked.extend(trace.timeline_group.standalone_results)
+            
+            # Sort by score and trim
+            all_ranked.sort(key=lambda x: x[1], reverse=True)
+            trace.ranked = all_ranked[:k]
+        
+        # Optionally format for LLM consumption
+        if format_for_llm:
+            formatted = self.format_retrieval_with_temporal_markers(trace, max_results=k)
+            # Store in relationship_context for convenience
+            trace.relationship_context = (
+                f"[Timeline-Aware Context]\n{formatted}"
+                + (f"\n\n[Relationship Context]\n{trace.relationship_context}" 
+                   if trace.relationship_context else "")
+            )
+        
+        return trace
+
+    def get_knowledge_evolution(self, topic_query: str, k: int = 5) -> List[KnowledgeTimeline]:
+        """Get the evolution timeline for a specific knowledge topic.
+        
+        First Principles:
+        - Knowledge evolves over time
+        - The retrieval should show this evolution, not hide it
+        - Let the consumer decide what's relevant
+        
+        This is a specialized method for exploring how knowledge has changed.
+        
+        Args:
+            topic_query: Query to find relevant knowledge topic
+            k: Maximum number of timelines to return
+            
+        Returns:
+            List of KnowledgeTimeline objects showing evolution
+            
+        Example:
+            >>> timelines = mem.get_knowledge_evolution("user address")
+            >>> for t in timelines:
+            ...     print(f"Evolution ({len(t.chain)} versions):")
+            ...     for pid in t.chain:
+            ...         plot = mem.plots[pid]
+            ...         status = "→ CURRENT" if pid == t.current_id else "(historical)"
+            ...         print(f"  {status}: {plot.text[:50]}")
+        """
+        trace = self.query_with_timeline(topic_query, k=k * 2)
+        
+        if trace.timeline_group:
+            # Return only timelines with evolution (multiple versions)
+            evolved = [t for t in trace.timeline_group.timelines if t.has_evolution()]
+            return evolved[:k]
+        
+        return []
 
     def _retrieve_with_relationship_priority(
         self, 
