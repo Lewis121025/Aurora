@@ -1,0 +1,38 @@
+{
+  "results": {
+    "temporal-reasoning": {
+      "correct": 0,
+      "total": 133,
+      "accuracy": 0.0
+    },
+    "multi-session": {
+      "correct": 0,
+      "total": 133,
+      "accuracy": 0.0
+    },
+    "knowledge-update": {
+      "correct": 0,
+      "total": 78,
+      "accuracy": 0.0
+    },
+    "single-session-preference": {
+      "correct": 0,
+      "total": 30,
+      "accuracy": 0.0
+    },
+    "single-session-assistant": {
+      "correct": 0,
+      "total": 56,
+      "accuracy": 0.0
+    },
+    "single-session-user": {
+      "correct": 0,
+      "total": 70,
+      "accuracy": 0.0
+    }
+  },
+  "total_correct": 0,
+  "total_tested": 500,
+  "overall_accuracy": 0.0,
+  "elapsed_minutes": 67.72991249958675
+}

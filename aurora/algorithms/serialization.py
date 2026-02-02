@@ -33,6 +33,7 @@ from aurora.algorithms.models.plot import Plot
 from aurora.algorithms.models.story import StoryArc
 from aurora.algorithms.models.theme import Theme
 from aurora.algorithms.retrieval.field_retriever import FieldRetriever
+from aurora.algorithms.entity_tracker import EntityTracker
 
 
 class SerializationMixin:
@@ -94,6 +95,9 @@ class SerializationMixin:
             "temporal_index": {str(k): v for k, v in self._temporal_index.items()},
             "temporal_index_min_bucket": self._temporal_index_min_bucket,
             "temporal_index_max_bucket": self._temporal_index_max_bucket,
+            
+            # Entity-attribute tracker (Phase 3)
+            "entity_tracker": getattr(self, 'entity_tracker', None).to_state_dict() if hasattr(self, 'entity_tracker') and self.entity_tracker else None,
         }
 
     # -------------------------------------------------------------------------
@@ -177,3 +181,19 @@ class SerializationMixin:
                     self._temporal_index_min_bucket = day_bucket
                 if not self._temporal_index_max_bucket or day_bucket > self._temporal_index_max_bucket:
                     self._temporal_index_max_bucket = day_bucket
+        
+        # Restore entity tracker (Phase 3)
+        entity_tracker_dict = d.get("entity_tracker")
+        if entity_tracker_dict:
+            self.entity_tracker = EntityTracker.from_state_dict(entity_tracker_dict)
+        elif hasattr(self, 'entity_tracker'):
+            # If not in state dict but entity_tracker exists, keep it (backward compatibility)
+            pass
+        else:
+            # Create new entity tracker if not present
+            seed = d.get("seed", 0)
+            self.entity_tracker = EntityTracker(seed=seed)
+            # Rebuild from plots if available
+            if self.plots:
+                for pid, plot in self.plots.items():
+                    self.entity_tracker.update(plot.text, pid, plot.ts)

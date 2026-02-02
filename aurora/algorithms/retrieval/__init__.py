@@ -12,9 +12,15 @@ from aurora.algorithms.retrieval.field_retriever import (
     QueryType,
     TimeAnchor,
 )
+from aurora.algorithms.retrieval.time_filter import (
+    TimeRange,
+    TimeRangeExtractor,
+)
 
 __all__ = [
     "FieldRetriever",
     "QueryType",
     "TimeAnchor",
+    "TimeRange",
+    "TimeRangeExtractor",
 ]

@@ -1,0 +1,38 @@
+{
+  "results": {
+    "knowledge-update": {
+      "correct": 8,
+      "total": 10,
+      "accuracy": 80.0
+    },
+    "multi-session": {
+      "correct": 6,
+      "total": 10,
+      "accuracy": 60.0
+    },
+    "single-session-assistant": {
+      "correct": 6,
+      "total": 10,
+      "accuracy": 60.0
+    },
+    "single-session-preference": {
+      "correct": 6,
+      "total": 10,
+      "accuracy": 60.0
+    },
+    "single-session-user": {
+      "correct": 8,
+      "total": 10,
+      "accuracy": 80.0
+    },
+    "temporal-reasoning": {
+      "correct": 4,
+      "total": 10,
+      "accuracy": 40.0
+    }
+  },
+  "total_correct": 38,
+  "total_tested": 60,
+  "errors": 0,
+  "overall_accuracy": 63.33333333333333
+}

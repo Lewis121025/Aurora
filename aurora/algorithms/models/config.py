@@ -136,8 +136,8 @@ class MemoryConfig:
     faiss_ef_construction: int = 64  # Construction-time search depth
     faiss_ef_search: int = 32  # Query-time search depth (increase for better recall)
 
-    # Benchmark mode: forces storage of ALL plots, bypassing VOI gating
-    # Essential for evaluation benchmarks like LongMemEval where every turn matters
+    # Benchmark mode: force store all plots, bypass VOI gating
+    # Essential for benchmarks like LongMemEval where every turn may contain critical information
     benchmark_mode: bool = False
 
     # Algorithm config (nested, optional for backward compatibility)
@@ -162,6 +162,7 @@ class MemoryConfig:
             "faiss_m": self.faiss_m,
             "faiss_ef_construction": self.faiss_ef_construction,
             "faiss_ef_search": self.faiss_ef_search,
+            "benchmark_mode": self.benchmark_mode,
             "algo": self.algo.to_state_dict() if self.algo else None,
         }
 
@@ -183,5 +184,6 @@ class MemoryConfig:
             faiss_m=d.get("faiss_m", 32),
             faiss_ef_construction=d.get("faiss_ef_construction", 64),
             faiss_ef_search=d.get("faiss_ef_search", 32),
+            benchmark_mode=d.get("benchmark_mode", False),
             algo=algo,
         )

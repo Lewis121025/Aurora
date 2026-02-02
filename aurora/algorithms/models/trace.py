@@ -15,6 +15,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from aurora.algorithms.retrieval.field_retriever import QueryType
+    from aurora.algorithms.abstention import AbstentionResult
 
 
 @dataclass
@@ -60,6 +61,9 @@ class RetrievalTrace:
     # Timeline extensions - First Principles: preserve temporal evolution
     timeline_group: Optional[TimelineGroup] = None
     include_historical: bool = True  # By default, include full history
+    
+    # Abstention detection
+    abstention: Optional[Any] = None  # AbstentionResult (use Any to avoid circular import)
 
 
 @dataclass

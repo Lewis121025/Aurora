@@ -1,0 +1,316 @@
+{
+  "current_overall": 66.074,
+  "target_overall": 90.0,
+  "gap": 23.926000000000002,
+  "by_roi": [
+    {
+      "name": "temporal-reasoning",
+      "current_correct": 79.8,
+      "target_correct": 106.4,
+      "delta_correct": 26.60000000000001,
+      "delta_overall_pct": 5.320000000000002,
+      "current_contribution": 15.959999999999999,
+      "target_contribution": 21.28,
+      "roi": 1.773333333333334,
+      "difficulty": "medium",
+      "estimated_effort": 3
+    },
+    {
+      "name": "multi-session",
+      "current_correct": 70.49000000000001,
+      "target_correct": 106.4,
+      "delta_correct": 35.91,
+      "delta_overall_pct": 7.1819999999999995,
+      "current_contribution": 14.098000000000003,
+      "target_contribution": 21.28,
+      "roi": 1.4364,
+      "difficulty": "hard",
+      "estimated_effort": 5
+    },
+    {
+      "name": "single-session-assistant",
+      "current_correct": 40.879999999999995,
+      "target_correct": 47.6,
+      "delta_correct": 6.720000000000006,
+      "delta_overall_pct": 1.3440000000000012,
+      "current_contribution": 8.175999999999998,
+      "target_contribution": 9.520000000000001,
+      "roi": 1.3440000000000012,
+      "difficulty": "easy",
+      "estimated_effort": 1
+    },
+    {
+      "name": "single-session-user",
+      "current_correct": 60.9,
+      "target_correct": 66.5,
+      "delta_correct": 5.600000000000001,
+      "delta_overall_pct": 1.1200000000000003,
+      "current_contribution": 12.18,
+      "target_contribution": 13.3,
+      "roi": 1.1200000000000003,
+      "difficulty": "easy",
+      "estimated_effort": 1
+    },
+    {
+      "name": "single-session-preference",
+      "current_correct": 15.9,
+      "target_correct": 24.0,
+      "delta_correct": 8.1,
+      "delta_overall_pct": 1.6199999999999999,
+      "current_contribution": 3.18,
+      "target_contribution": 4.8,
+      "roi": 0.8099999999999999,
+      "difficulty": "medium",
+      "estimated_effort": 2
+    },
+    {
+      "name": "knowledge-update",
+      "current_correct": 62.400000000000006,
+      "target_correct": 70.2,
+      "delta_correct": 7.799999999999997,
+      "delta_overall_pct": 1.5599999999999994,
+      "current_contribution": 12.48,
+      "target_contribution": 14.04,
+      "roi": 0.7799999999999997,
+      "difficulty": "medium",
+      "estimated_effort": 2
+    }
+  ],
+  "by_impact": [
+    {
+      "name": "multi-session",
+      "current_correct": 70.49000000000001,
+      "target_correct": 106.4,
+      "delta_correct": 35.91,
+      "delta_overall_pct": 7.1819999999999995,
+      "current_contribution": 14.098000000000003,
+      "target_contribution": 21.28,
+      "roi": 1.4364,
+      "difficulty": "hard",
+      "estimated_effort": 5
+    },
+    {
+      "name": "temporal-reasoning",
+      "current_correct": 79.8,
+      "target_correct": 106.4,
+      "delta_correct": 26.60000000000001,
+      "delta_overall_pct": 5.320000000000002,
+      "current_contribution": 15.959999999999999,
+      "target_contribution": 21.28,
+      "roi": 1.773333333333334,
+      "difficulty": "medium",
+      "estimated_effort": 3
+    },
+    {
+      "name": "single-session-preference",
+      "current_correct": 15.9,
+      "target_correct": 24.0,
+      "delta_correct": 8.1,
+      "delta_overall_pct": 1.6199999999999999,
+      "current_contribution": 3.18,
+      "target_contribution": 4.8,
+      "roi": 0.8099999999999999,
+      "difficulty": "medium",
+      "estimated_effort": 2
+    },
+    {
+      "name": "knowledge-update",
+      "current_correct": 62.400000000000006,
+      "target_correct": 70.2,
+      "delta_correct": 7.799999999999997,
+      "delta_overall_pct": 1.5599999999999994,
+      "current_contribution": 12.48,
+      "target_contribution": 14.04,
+      "roi": 0.7799999999999997,
+      "difficulty": "medium",
+      "estimated_effort": 2
+    },
+    {
+      "name": "single-session-assistant",
+      "current_correct": 40.879999999999995,
+      "target_correct": 47.6,
+      "delta_correct": 6.720000000000006,
+      "delta_overall_pct": 1.3440000000000012,
+      "current_contribution": 8.175999999999998,
+      "target_contribution": 9.520000000000001,
+      "roi": 1.3440000000000012,
+      "difficulty": "easy",
+      "estimated_effort": 1
+    },
+    {
+      "name": "single-session-user",
+      "current_correct": 60.9,
+      "target_correct": 66.5,
+      "delta_correct": 5.600000000000001,
+      "delta_overall_pct": 1.1200000000000003,
+      "current_contribution": 12.18,
+      "target_contribution": 13.3,
+      "roi": 1.1200000000000003,
+      "difficulty": "easy",
+      "estimated_effort": 1
+    }
+  ],
+  "priority_list": [
+    {
+      "priority": 1,
+      "name": "single-session-assistant",
+      "composite_score": 5.075200000000001,
+      "current_correct": 40.879999999999995,
+      "target_correct": 47.6,
+      "delta_correct": 6.720000000000006,
+      "delta_overall_pct": 1.3440000000000012,
+      "current_contribution": 8.175999999999998,
+      "target_contribution": 9.520000000000001,
+      "roi": 1.3440000000000012,
+      "difficulty": "easy",
+      "estimated_effort": 1
+    },
+    {
+      "priority": 2,
+      "name": "single-session-user",
+      "composite_score": 4.896000000000001,
+      "current_correct": 60.9,
+      "target_correct": 66.5,
+      "delta_correct": 5.600000000000001,
+      "delta_overall_pct": 1.1200000000000003,
+      "current_contribution": 12.18,
+      "target_contribution": 13.3,
+      "roi": 1.1200000000000003,
+      "difficulty": "easy",
+      "estimated_effort": 1
+    },
+    {
+      "priority": 3,
+      "name": "temporal-reasoning",
+      "composite_score": 4.837333333333335,
+      "current_correct": 79.8,
+      "target_correct": 106.4,
+      "delta_correct": 26.60000000000001,
+      "delta_overall_pct": 5.320000000000002,
+      "current_contribution": 15.959999999999999,
+      "target_contribution": 21.28,
+      "roi": 1.773333333333334,
+      "difficulty": "medium",
+      "estimated_effort": 3
+    },
+    {
+      "priority": 4,
+      "name": "multi-session",
+      "composite_score": 4.780693333333333,
+      "current_correct": 70.49000000000001,
+      "target_correct": 106.4,
+      "delta_correct": 35.91,
+      "delta_overall_pct": 7.1819999999999995,
+      "current_contribution": 14.098000000000003,
+      "target_contribution": 21.28,
+      "roi": 1.4364,
+      "difficulty": "hard",
+      "estimated_effort": 5
+    },
+    {
+      "priority": 5,
+      "name": "single-session-preference",
+      "composite_score": 2.972,
+      "current_correct": 15.9,
+      "target_correct": 24.0,
+      "delta_correct": 8.1,
+      "delta_overall_pct": 1.6199999999999999,
+      "current_contribution": 3.18,
+      "target_contribution": 4.8,
+      "roi": 0.8099999999999999,
+      "difficulty": "medium",
+      "estimated_effort": 2
+    },
+    {
+      "priority": 6,
+      "name": "knowledge-update",
+      "composite_score": 2.936,
+      "current_correct": 62.400000000000006,
+      "target_correct": 70.2,
+      "delta_correct": 7.799999999999997,
+      "delta_overall_pct": 1.5599999999999994,
+      "current_contribution": 12.48,
+      "target_contribution": 14.04,
+      "roi": 0.7799999999999997,
+      "difficulty": "medium",
+      "estimated_effort": 2
+    }
+  ],
+  "failure_patterns": {
+    "multi-session": {
+      "common_failures": [
+        "跨会话信息聚合失败",
+        "VOI门控丢弃关键信息",
+        "检索范围不足（k值太小）",
+        "缺乏显式聚合机制"
+      ],
+      "fix_complexity": "high",
+      "requires": [
+        "修复代码错误（类型转换）",
+        "启用benchmark_mode",
+        "增加检索k值",
+        "改进聚合prompt",
+        "实现会话标记和Story聚合"
+      ]
+    },
+    "temporal-reasoning": {
+      "common_failures": [
+        "时序关系理解不足",
+        "时间过滤不准确",
+        "时间顺序推理失败"
+      ],
+      "fix_complexity": "medium",
+      "requires": [
+        "改进时间过滤逻辑",
+        "增强时序推理prompt",
+        "优化时间嵌入"
+      ]
+    },
+    "single-session-preference": {
+      "common_failures": [
+        "偏好信息未正确存储",
+        "偏好提取失败"
+      ],
+      "fix_complexity": "medium",
+      "requires": [
+        "改进偏好识别",
+        "增强偏好存储"
+      ]
+    },
+    "knowledge-update": {
+      "common_failures": [
+        "更新检测失败",
+        "旧值未正确标记为superseded"
+      ],
+      "fix_complexity": "medium",
+      "requires": [
+        "改进更新检测逻辑",
+        "优化相似度阈值"
+      ]
+    },
+    "single-session-user": {
+      "common_failures": [
+        "检索噪声",
+        "上下文截断"
+      ],
+      "fix_complexity": "low",
+      "requires": [
+        "优化检索",
+        "增加上下文长度"
+      ]
+    },
+    "single-session-assistant": {
+      "common_failures": [
+        "benchmark_mode导致检索噪声",
+        "未优先检索assistant turns",
+        "prompt弱化"
+      ],
+      "fix_complexity": "low",
+      "requires": [
+        "为assistant问题优先检索assistant turns",
+        "恢复上下文长度",
+        "增强prompt"
+      ]
+    }
+  }
+}

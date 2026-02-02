@@ -18,8 +18,11 @@ from aurora.utils.math_utils import l2_normalize, softmax
 from aurora.algorithms.models.trace import RetrievalTrace
 from aurora.algorithms.components.metric import LowRankMetric
 from aurora.algorithms.constants import (
+    AGGREGATION_KEYWORDS,
     CAUSAL_KEYWORDS,
     EARLIEST_ANCHOR_KEYWORDS,
+    FACT_KEY_BOOST_MAX,
+    FACT_KEY_MATCH_THRESHOLD,
     FACTUAL_ATTRACTOR_WEIGHT,
     FACTUAL_PLOT_PRIORITY_BOOST,
     FACTUAL_SEMANTIC_WEIGHT,
@@ -36,6 +39,7 @@ from aurora.embeddings.hash import HashEmbedding
 from aurora.algorithms.graph.edge_belief import EdgeBelief
 from aurora.algorithms.graph.memory_graph import MemoryGraph
 from aurora.algorithms.graph.vector_index import VectorIndex
+from aurora.algorithms.retrieval.time_filter import TimeRangeExtractor, TimeRange
 
 
 class QueryType(Enum):
@@ -108,6 +112,7 @@ class FieldRetriever:
         self.metric = metric
         self.vindex = vindex
         self.graph = graph
+        self.time_extractor = TimeRangeExtractor()
 
     # -------------------------------------------------------------------------
     # Query Type Classification
@@ -120,6 +125,7 @@ class FieldRetriever:
         - Temporal keywords indicate time-based queries
         - Causal keywords indicate why/how questions
         - Multi-hop keywords indicate relationship/comparison queries
+        - Aggregation keywords indicate counting/summing across sessions
         - Default to FACTUAL for direct information retrieval
 
         Args:
@@ -131,7 +137,15 @@ class FieldRetriever:
         query_lower = query_text.lower()
 
         # Check for temporal keywords first (most specific)
-        for keyword in TEMPORAL_KEYWORDS:
+        # Include both TEMPORAL_KEYWORDS and anchor keywords (earliest/recent/span)
+        # since anchor keywords are inherently temporal
+        all_temporal_keywords = (
+            TEMPORAL_KEYWORDS | 
+            EARLIEST_ANCHOR_KEYWORDS | 
+            RECENT_ANCHOR_KEYWORDS | 
+            SPAN_ANCHOR_KEYWORDS
+        )
+        for keyword in all_temporal_keywords:
             if keyword in query_lower:
                 return QueryType.TEMPORAL
 
@@ -140,6 +154,14 @@ class FieldRetriever:
             if keyword in query_lower:
                 return QueryType.CAUSAL
 
+        # Check for aggregation keywords (before multi-hop, as aggregation is more specific)
+        # Aggregation queries need to collect information across multiple sessions
+        for keyword in AGGREGATION_KEYWORDS:
+            if keyword in query_lower:
+                # Aggregation queries are treated as MULTI_HOP for retrieval purposes
+                # but we mark them specially for k adjustment
+                return QueryType.MULTI_HOP
+
         # Check for multi-hop keywords
         for keyword in MULTI_HOP_KEYWORDS:
             if keyword in query_lower:
@@ -147,6 +169,153 @@ class FieldRetriever:
 
         # Default to factual query
         return QueryType.FACTUAL
+    
+    def _is_aggregation_query(self, query_text: str) -> bool:
+        """Detect if a query requires aggregation across multiple sessions.
+        
+        Aggregation queries typically ask for:
+        - Counts: "How many books do I have?"
+        - Totals: "What's the total amount spent?"
+        - Lists: "What are all the projects I've worked on?"
+        
+        These queries need information from multiple sessions to be aggregated.
+        
+        Args:
+            query_text: The query text to check
+            
+        Returns:
+            True if the query requires aggregation, False otherwise
+        """
+        query_lower = query_text.lower()
+        for keyword in AGGREGATION_KEYWORDS:
+            if keyword in query_lower:
+                return True
+        return False
+
+    def _extract_aggregation_entities(self, query_text: str) -> List[str]:
+        """Extract key entities from an aggregation query for keyword matching.
+        
+        For queries like "How much money spent on bike-related expenses?",
+        this extracts entities like ["bike", "money", "expense"].
+        
+        Aggregation queries need to retrieve ALL mentions of a topic,
+        not just the semantically most similar ones. Keyword matching
+        helps catch mentions that have different semantic contexts.
+        
+        Args:
+            query_text: The aggregation query text
+            
+        Returns:
+            List of key entity strings for keyword matching
+        """
+        query_lower = query_text.lower()
+        
+        # Common aggregation entity patterns
+        entity_patterns = {
+            # Activities and events
+            'camping': ['camping', 'camp', 'tent'],
+            'trip': ['trip', 'travel', 'visit', 'vacation'],
+            'bike': ['bike', 'bicycle', 'cycling', 'biking'],
+            'game': ['game', 'gaming', 'play', 'playing'],
+            'book': ['book', 'reading', 'read'],
+            'movie': ['movie', 'film', 'watch'],
+            'exercise': ['exercise', 'workout', 'gym', 'fitness'],
+            'meeting': ['meeting', 'call', 'appointment'],
+            'doctor': ['doctor', 'appointment', 'medical', 'health'],
+            
+            # Financial
+            'money': ['money', 'spent', 'cost', 'price', 'paid', 'bought', 'purchase', '$'],
+            'luxury': ['luxury', 'expensive', 'premium'],
+            'expense': ['expense', 'spent', 'spending', 'cost'],
+            
+            # Time units
+            'hour': ['hour', 'hours'],
+            'day': ['day', 'days'],
+            'week': ['week', 'weeks'],
+            'month': ['month', 'months'],
+            'year': ['year', 'years'],
+            
+            # Quantities
+            'total': ['total', 'all', 'altogether', 'sum'],
+        }
+        
+        entities = []
+        
+        # Find matching entity patterns
+        for key, keywords in entity_patterns.items():
+            for kw in keywords:
+                if kw in query_lower:
+                    entities.extend(keywords)
+                    break
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_entities = []
+        for e in entities:
+            if e not in seen:
+                seen.add(e)
+                unique_entities.append(e)
+        
+        return unique_entities
+
+    def _keyword_search(
+        self, 
+        keywords: List[str], 
+        kinds: Tuple[str, ...],
+        max_results: int = 50
+    ) -> List[Tuple[str, float, str]]:
+        """Search for plots containing specified keywords.
+        
+        This provides keyword-based retrieval to augment semantic search.
+        For aggregation queries, we need to find ALL mentions of a topic,
+        not just the semantically similar ones.
+        
+        Args:
+            keywords: List of keywords to search for
+            kinds: Tuple of kinds to search ("plot", "story", "theme")
+            max_results: Maximum number of results to return
+            
+        Returns:
+            List of (id, score, kind) tuples for matching items
+        """
+        if not keywords:
+            return []
+        
+        results: List[Tuple[str, float, str]] = []
+        keywords_lower = [kw.lower() for kw in keywords]
+        
+        # Search through all nodes in graph
+        for nid in self.graph.g.nodes():
+            kind = self.graph.kind(nid)
+            if kind not in kinds:
+                continue
+            
+            payload = self.graph.payload(nid)
+            if payload is None:
+                continue
+            
+            # Get text content
+            text = getattr(payload, 'text', '')
+            if not text:
+                text = getattr(payload, 'name', '')
+            if not text:
+                continue
+            
+            text_lower = text.lower()
+            
+            # Count keyword matches
+            match_count = sum(1 for kw in keywords_lower if kw in text_lower)
+            
+            if match_count > 0:
+                # Score based on number of keyword matches
+                score = match_count / len(keywords_lower)
+                results.append((nid, score, kind))
+        
+        # Sort by score (number of keyword matches) descending
+        results.sort(key=lambda x: x[1], reverse=True)
+        
+        return results[:max_results]
+
 
     def _detect_time_anchor(self, query_text: str) -> TimeAnchor:
         """Detect the temporal anchor of a query.
@@ -207,6 +376,45 @@ class FieldRetriever:
             return getattr(payload, 'ts', getattr(payload, 'created_ts', 0.0))
         except Exception:
             return 0.0
+    
+    def _apply_time_filter(
+        self,
+        ranked: List[Tuple[str, float, str]],
+        time_range: TimeRange
+    ) -> List[Tuple[str, float, str]]:
+        """Apply time range filtering to ranked results.
+        
+        Args:
+            ranked: List of (id, score, kind) tuples
+            time_range: TimeRange to filter by
+            
+        Returns:
+            Filtered list of results within time range
+        """
+        if time_range.relation == "any" or time_range.relation == "span":
+            return ranked
+        
+        filtered = []
+        for nid, score, kind in ranked:
+            ts = self._get_timestamp(nid)
+            
+            # Apply time bounds
+            if time_range.start is not None and ts < time_range.start:
+                continue
+            if time_range.end is not None and ts > time_range.end:
+                continue
+            
+            filtered.append((nid, score, kind))
+        
+        # Sort by relation type
+        if time_range.relation == "first":
+            # Sort ascending (earliest first)
+            filtered.sort(key=lambda x: self._get_timestamp(x[0]))
+        elif time_range.relation == "last":
+            # Sort descending (latest first)
+            filtered.sort(key=lambda x: -self._get_timestamp(x[0]))
+        
+        return filtered
 
     def _temporal_aware_rerank(
         self, 
@@ -551,7 +759,15 @@ class FieldRetriever:
             belief: EdgeBelief = data["belief"]
             H.add_edge(u, v, w=max(1e-6, belief.mean()))
         
-        result = nx.pagerank(H, alpha=damping, personalization=personalization, weight="w", max_iter=max_iter)
+        try:
+            result = nx.pagerank(H, alpha=damping, personalization=personalization, weight="w", max_iter=max_iter)
+        except nx.PowerIterationFailedConvergence:
+            # Fall back to uniform distribution on small/sparse graphs
+            n = len(H.nodes())
+            if n > 0:
+                result = {node: 1.0 / n for node in H.nodes()}
+            else:
+                result = {}
         
         # Store in cache
         self.graph.set_cached_pagerank(personalization, damping, max_iter, result)
@@ -567,6 +783,7 @@ class FieldRetriever:
         max_iter: int = 40,
         semantic_weight: float = 0.7,
         query_type: Optional[QueryType] = None,
+        query_text: Optional[str] = None,
     ) -> List[Tuple[str, float, str]]:
         """Direct semantic search without mean-shift attractor transformation.
         
@@ -642,6 +859,10 @@ class FieldRetriever:
             # Blend: prioritize semantic similarity for factual queries
             blended_score = semantic_weight * sem_score + pagerank_weight * norm_pr
             
+            # Phase 5: Fact key matching boost (for plots only)
+            # Fact boost is computed in retrieve_hybrid after direct search
+            # This method doesn't have query_text, so boost is applied later
+            
             # Small bonus for access frequency
             payload = self.graph.payload(nid)
             bonus = float(getattr(payload, "mass")()) if hasattr(payload, "mass") else 0.0
@@ -651,6 +872,90 @@ class FieldRetriever:
         
         ranked.sort(key=lambda x: x[1], reverse=True)
         return ranked[:k]
+    
+    def _compute_fact_key_boost(
+        self, 
+        plot_id: str, 
+        query_text: str,
+        query_emb: np.ndarray,
+        embed_func=None
+    ) -> float:
+        """Compute fact key matching boost for a plot.
+        
+        Phase 5: Fact-Enhanced Indexing
+        - Extracts facts from query using FactExtractor
+        - Matches against plot's fact_keys
+        - Returns boost score [0, FACT_KEY_BOOST_MAX]
+        
+        Args:
+            plot_id: Plot ID to check
+            query_text: Query text (for fact extraction)
+            query_emb: Query embedding (for semantic matching)
+            embed_func: Optional embedding function for fact embeddings
+            
+        Returns:
+            Boost score (0.0 to FACT_KEY_BOOST_MAX)
+        """
+        try:
+            payload = self.graph.payload(plot_id)
+            if not hasattr(payload, 'fact_keys') or not payload.fact_keys:
+                return 0.0
+            
+            plot_fact_keys = payload.fact_keys
+            if not plot_fact_keys:
+                return 0.0
+            
+            # Extract facts from query
+            from aurora.algorithms.fact_extractor import FactExtractor
+            fact_extractor = FactExtractor()
+            query_facts = fact_extractor.extract(query_text)
+            if not query_facts:
+                return 0.0
+            
+            # Match query facts against plot fact_keys
+            # Strategy: Check if any query fact matches any plot fact_key
+            # Match can be exact text match or semantic similarity
+            matches = 0
+            total_query_facts = len(query_facts)
+            
+            for query_fact in query_facts:
+                query_fact_text = query_fact.fact_text.lower()
+                
+                # Check for exact or partial text match
+                for plot_fact_key in plot_fact_keys:
+                    plot_fact_key_lower = plot_fact_key.lower()
+                    
+                    # Exact match
+                    if query_fact_text == plot_fact_key_lower:
+                        matches += 1
+                        break
+                    
+                    # Partial match (one contains the other)
+                    if query_fact_text in plot_fact_key_lower or plot_fact_key_lower in query_fact_text:
+                        matches += 0.5
+                        break
+                    
+                    # Type-based match (same fact type)
+                    if query_fact.fact_type in plot_fact_key_lower or plot_fact_key_lower.startswith(query_fact.fact_type + ":"):
+                        # Check entity overlap
+                        if query_fact.entities and any(
+                            entity.lower() in plot_fact_key_lower 
+                            for entity in query_fact.entities
+                        ):
+                            matches += 0.3
+                            break
+            
+            if matches == 0:
+                return 0.0
+            
+            # Normalize match score to [0, 1]
+            match_score = min(1.0, matches / max(1, total_query_facts))
+            
+            # Return boost proportional to match score
+            return FACT_KEY_BOOST_MAX * match_score
+            
+        except Exception:
+            return 0.0
 
     def retrieve_hybrid(
         self,
@@ -719,6 +1024,21 @@ class FieldRetriever:
         
         q = embed.embed(query_text)
         
+        # Extract time range for TEMPORAL queries (pre-filtering optimization)
+        time_range: Optional[TimeRange] = None
+        if detected_type == QueryType.TEMPORAL:
+            # Build events timeline from graph for anchor resolution
+            events_timeline: List[Tuple[str, float]] = []
+            for nid in self.graph.g.nodes():
+                if self.graph.kind(nid) in kinds:
+                    ts = self._get_timestamp(nid)
+                    if ts > 0:
+                        payload = self.graph.payload(nid)
+                        text = getattr(payload, 'text', getattr(payload, 'name', ''))
+                        events_timeline.append((text, ts))
+            
+            time_range = self.time_extractor.extract(query_text, events_timeline)
+        
         # Adjust attractor weight based on query type
         # FACTUAL queries need precise semantic matching - reduce attractor influence
         effective_attractor_weight = attractor_weight
@@ -737,7 +1057,33 @@ class FieldRetriever:
             damping=damping,
             max_iter=effective_max_iter,
             query_type=detected_type,  # Pass query type for semantic weight adjustment
+            query_text=query_text,  # Pass query text for fact key matching
         )
+        
+        # Apply time range pre-filtering for TEMPORAL queries (Branch A)
+        if time_range and time_range.relation != "any" and time_range.relation != "span":
+            direct_ranked = self._apply_time_filter(direct_ranked, time_range)
+        
+        # =====================================================================
+        # Phase 5: Enhance direct results with fact key matching
+        # =====================================================================
+        # Apply fact key boost to direct results (for plots only)
+        enhanced_direct_ranked: List[Tuple[str, float, str]] = []
+        for nid, score, kind in direct_ranked:
+            enhanced_score = score
+            if kind == "plot" and query_text:
+                fact_boost = self._compute_fact_key_boost(
+                    plot_id=nid,
+                    query_text=query_text,
+                    query_emb=q,
+                    embed_func=embed
+                )
+                enhanced_score += fact_boost
+            enhanced_direct_ranked.append((nid, enhanced_score, kind))
+        
+        # Re-sort enhanced direct results
+        enhanced_direct_ranked.sort(key=lambda x: x[1], reverse=True)
+        direct_ranked = enhanced_direct_ranked
         
         # =====================================================================
         # Branch B: Attractor-based retrieval (existing mean-shift logic)
@@ -748,6 +1094,15 @@ class FieldRetriever:
             for _id, sim in self.vindex.search(q, k=initial_k, kind=kind):
                 if _id not in self.graph.g:
                     continue
+                
+                # Apply time range pre-filtering for TEMPORAL queries
+                if time_range and time_range.relation != "any" and time_range.relation != "span":
+                    ts = self._get_timestamp(_id)
+                    if time_range.start is not None and ts < time_range.start:
+                        continue
+                    if time_range.end is not None and ts > time_range.end:
+                        continue
+                
                 payload = self.graph.payload(_id)
                 vec = getattr(payload, "embedding", getattr(payload, "centroid", getattr(payload, "prototype", None)))
                 if vec is None:
@@ -763,6 +1118,14 @@ class FieldRetriever:
         personalization: Dict[str, float] = {}
         for kind in kinds:
             for _id, sim in self.vindex.search(attractor, k=effective_reseed_k, kind=kind):
+                # Apply time range pre-filtering for TEMPORAL queries
+                if time_range and time_range.relation != "any" and time_range.relation != "span":
+                    ts = self._get_timestamp(_id)
+                    if time_range.start is not None and ts < time_range.start:
+                        continue
+                    if time_range.end is not None and ts > time_range.end:
+                        continue
+                
                 personalization[_id] = max(personalization.get(_id, 0.0), sim)
         
         pr = self._pagerank(personalization, damping=damping, max_iter=effective_max_iter)
@@ -780,12 +1143,51 @@ class FieldRetriever:
         attractor_ranked = attractor_ranked[:effective_k]
         
         # =====================================================================
-        # Merge both branches with weighted combination
+        # Phase 5: Enhance direct results with fact key matching
+        # =====================================================================
+        # Apply fact key boost to direct results (for plots only)
+        enhanced_direct_ranked: List[Tuple[str, float, str]] = []
+        for nid, score, kind in direct_ranked:
+            enhanced_score = score
+            if kind == "plot":
+                fact_boost = self._compute_fact_key_boost(
+                    plot_id=nid,
+                    query_text=query_text,
+                    query_emb=q,
+                    embed_func=embed
+                )
+                enhanced_score += fact_boost
+            enhanced_direct_ranked.append((nid, enhanced_score, kind))
+        
+        # Re-sort enhanced direct results
+        enhanced_direct_ranked.sort(key=lambda x: x[1], reverse=True)
+        
+        # =====================================================================
+        # Branch C: Keyword-based retrieval for aggregation queries
+        # =====================================================================
+        # Aggregation queries need high recall to gather ALL mentions of a topic.
+        # Semantic similarity alone may miss mentions with different contexts.
+        keyword_ranked: List[Tuple[str, float, str]] = []
+        is_aggregation = self._is_aggregation_query(query_text)
+        
+        if is_aggregation:
+            # Extract key entities from the query
+            entities = self._extract_aggregation_entities(query_text)
+            if entities:
+                # Search for keyword matches
+                keyword_ranked = self._keyword_search(
+                    keywords=entities,
+                    kinds=kinds,
+                    max_results=effective_k * 2  # Get more for better recall
+                )
+        
+        # =====================================================================
+        # Merge all branches with weighted combination
         # =====================================================================
         merged_scores: Dict[str, Tuple[float, str]] = {}
         
-        # Add direct results with direct_weight
-        for nid, score, kind in direct_ranked:
+        # Add direct results with direct_weight (using enhanced scores)
+        for nid, score, kind in enhanced_direct_ranked:
             merged_scores[nid] = (direct_weight * score, kind)
         
         # Add attractor results with effective_attractor_weight
@@ -795,6 +1197,18 @@ class FieldRetriever:
                 merged_scores[nid] = (existing_score + effective_attractor_weight * score, existing_kind)
             else:
                 merged_scores[nid] = (effective_attractor_weight * score, kind)
+        
+        # Add keyword results for aggregation queries (high weight to ensure inclusion)
+        if is_aggregation and keyword_ranked:
+            keyword_weight = 0.4  # Strong weight to ensure keyword matches are included
+            for nid, score, kind in keyword_ranked:
+                if nid in merged_scores:
+                    existing_score, existing_kind = merged_scores[nid]
+                    # Boost existing entries that also match keywords
+                    merged_scores[nid] = (existing_score + keyword_weight * score, existing_kind)
+                else:
+                    # Add new entries from keyword search
+                    merged_scores[nid] = (keyword_weight * score, kind)
         
         # Apply plot priority boost for FACTUAL queries
         # Plots contain specific facts and should rank above aggregate structures

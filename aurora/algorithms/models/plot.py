@@ -204,6 +204,10 @@ class Plot:
     ]] = None
     knowledge_confidence: float = 0.0  # Confidence in classification [0, 1]
 
+    # === Phase 5: Fact-Enhanced Indexing ===
+    # Fact keys extracted from text for multi-session recall enhancement
+    fact_keys: List[str] = field(default_factory=list)  # Extracted fact strings for indexing
+
     # Usage stats -> "mass" emerges
     access_count: int = 0
     last_access_ts: float = field(default_factory=now_ts)
@@ -258,6 +262,7 @@ class Plot:
             "redundancy_type": self.redundancy_type,
             "knowledge_type": self.knowledge_type,
             "knowledge_confidence": self.knowledge_confidence,
+            "fact_keys": self.fact_keys,
             "access_count": self.access_count,
             "last_access_ts": self.last_access_ts,
             "status": self.status,
@@ -306,6 +311,7 @@ class Plot:
             redundancy_type=d.get("redundancy_type"),
             knowledge_type=d.get("knowledge_type"),
             knowledge_confidence=d.get("knowledge_confidence", 0.0),
+            fact_keys=d.get("fact_keys", []),
             access_count=d.get("access_count", 0),
             last_access_ts=d.get("last_access_ts", now_ts()),
             status=d.get("status", "active"),

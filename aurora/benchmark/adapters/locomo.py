@@ -78,6 +78,7 @@ from aurora.benchmark.interface import (
     fuzzy_match_score,
 )
 from aurora.utils.time_utils import now_ts
+from aurora.llm.prompts import build_qa_prompt
 
 try:
     from pydantic import BaseModel, Field
@@ -917,34 +918,32 @@ Respond with your evaluation."""
         if self.llm is None:
             return context[0] if context else ""
         
-        # Build prompt based on reasoning type
-        reasoning_hints = {
-            LOCOMOReasoningType.SINGLE_HOP: "Answer directly from the context.",
-            LOCOMOReasoningType.MULTI_HOP: "Combine information from multiple parts of the context.",
-            LOCOMOReasoningType.TEMPORAL: "Pay attention to time references and event ordering.",
-            LOCOMOReasoningType.COMMONSENSE: "Use common sense to interpret the context.",
-            LOCOMOReasoningType.WORLD_KNOWLEDGE: "You may need to apply general world knowledge.",
+        # Map LOCOMO reasoning type to question type hint
+        reasoning_to_qtype = {
+            LOCOMOReasoningType.SINGLE_HOP: None,  # Use default
+            LOCOMOReasoningType.MULTI_HOP: 'multi-session',  # Multi-hop often requires aggregation
+            LOCOMOReasoningType.TEMPORAL: 'temporal-reasoning',
+            LOCOMOReasoningType.COMMONSENSE: None,  # Use default
+            LOCOMOReasoningType.WORLD_KNOWLEDGE: None,  # Use default
         }
         
-        hint = reasoning_hints.get(reasoning_type, "")
+        qtype_hint = reasoning_to_qtype.get(reasoning_type)
         context_text = "\n\n".join(context) if context else "No relevant context found."
         
-        system_prompt = f"""You are a precise question-answering assistant.
+        # Use type-specific prompt template
+        prompt = build_qa_prompt(
+            question=question,
+            context=context_text,
+            question_type_hint=qtype_hint,
+            max_context_length=5000
+        )
+        
+        system_prompt = """You are a precise question-answering assistant.
 Answer the question based on the provided conversation context.
-{hint}
 Be concise and answer directly."""
         
-        user_prompt = f"""Context from memory:
-{context_text}
-
-Question: {question}
-
-Answer:"""
-        
         try:
-            # Use LLM to generate answer
-            # For now, return a simple completion
-            # In production, this would use the LLM provider
+            # Use LLM to generate answer with type-specific prompt
             from pydantic import BaseModel, Field
             
             class QAAnswer(BaseModel):
@@ -952,7 +951,7 @@ Answer:"""
             
             result = self.llm.complete_json(
                 system=system_prompt,
-                user=user_prompt,
+                user=prompt,
                 schema=QAAnswer,
                 temperature=0.1,
             )

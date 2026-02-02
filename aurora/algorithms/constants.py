@@ -178,21 +178,27 @@ CAUSAL_KEYWORDS = {
 }
 
 # Multi-hop query keywords (多跳查询关键词)
-# Extended with aggregation keywords for multi-session queries
 MULTI_HOP_KEYWORDS = {
     # Chinese
     "相关", "关联", "联系", "连接", "对比", "比较", "类似", "相似", "区别",
     "所有", "全部", "总结", "概括", "归纳", "涉及", "包含", "关系",
-    # Aggregation (聚合统计)
-    "多少", "几个", "几次", "几件", "总共", "一共", "加起来", "总计",
-    "列出", "列举", "每个", "每次", "分别", "各自", "统计",
     # English
     "related", "connection", "link", "compare", "contrast", "similar", "difference",
     "all", "every", "summarize", "overview", "involve", "contain", "relationship",
     "between", "across", "through",
-    # Aggregation (counting/listing)
-    "how many", "how much", "total", "count", "number of", "list", "each",
-    "altogether", "combined", "in total", "overall", "sum", "enumerate",
+}
+
+# Aggregation query keywords (聚合查询关键词)
+# These indicate questions that require aggregating information across multiple sessions
+# Examples: "How many books do I have?" requires counting across sessions
+AGGREGATION_KEYWORDS = {
+    # Chinese
+    "多少", "几个", "总数", "总共", "合计", "一共", "累计", "汇总", "总计",
+    "所有", "全部", "都", "每", "各",
+    # English
+    "how many", "how much", "total", "sum", "count", "all", "every", "each",
+    "aggregate", "combined", "together", "altogether", "in total", "in all",
+    "number of", "amount of", "quantity of",
 }
 
 # Query type retrieval parameters
@@ -201,6 +207,10 @@ TEMPORAL_SORT_WEIGHT = 0.35   # Weight for timestamp in temporal ranking
                                # Reduced from 0.6 to preserve semantic relevance
                                # 0.35 means 65% semantic, 35% temporal
 MULTI_HOP_EXTRA_PAGERANK_ITER = 20  # Additional PageRank iterations for multi-hop
+
+# Aggregation query parameters
+# Aggregation queries need more results to cover multiple sessions
+AGGREGATION_K_MULTIPLIER = 3.0  # Increase k by 3x for aggregation queries
 
 # =============================================================================
 # Temporal Anchor Detection (时间锚点检测)
@@ -219,7 +229,11 @@ RECENT_ANCHOR_KEYWORDS = {
     "最近", "上次", "刚才", "刚刚", "近期", "这段时间", "最新", "最后",
     # English
     "recently", "last time", "just now", "lately", "latest", "most recent",
-    "newest", "current",  # Removed "just", "last", "now" - too ambiguous
+    "newest", "current",
+    # Phrases with "last" that are clearly temporal
+    "last thing", "last topic", "last event", "last item", "the last",
+    # Phrases with "just" that indicate recency
+    "just talked", "just mentioned", "just discussed", "just said",
 }
 
 # Earliest time anchor keywords (最早/第一次)
@@ -501,3 +515,12 @@ CONCURRENT_TIME_THRESHOLD = 60.0  # 1 minute
 BENCHMARK_DEFAULT_K = 15          # Default k for benchmark queries
 BENCHMARK_MULTI_SESSION_K = 20    # K for multi-session/multi-hop queries
 BENCHMARK_AGGREGATION_K = 25      # K when aggregation is detected
+
+# =============================================================================
+# Phase 5: Fact-Enhanced Indexing Constants
+# =============================================================================
+
+# Fact key matching boost for multi-session recall enhancement
+# When a query fact matches a plot's fact_keys, boost the score
+FACT_KEY_BOOST_MAX = 0.15  # Maximum boost score for fact key matches
+FACT_KEY_MATCH_THRESHOLD = 0.7  # Minimum similarity for fact key matching (0.0-1.0)

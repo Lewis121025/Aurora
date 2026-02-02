@@ -31,6 +31,7 @@ from aurora.algorithms.aurora_core import AuroraMemory
 from aurora.algorithms.models.config import MemoryConfig
 from aurora.embeddings.bailian import BailianEmbedding
 from aurora.llm.ark import ArkLLM
+from aurora.llm.prompts import build_qa_prompt
 
 
 @dataclass
@@ -46,6 +47,8 @@ class QuestionResult:
     context_length: int
     elapsed_ms: float
     error: Optional[str] = None
+    is_abstention: bool = False
+    abstention_detected: bool = False
 
 
 @dataclass 
@@ -55,6 +58,11 @@ class BaselineResults:
     by_type: Dict[str, Dict[str, int]] = field(default_factory=dict)
     total_time_seconds: float = 0.0
     errors: int = 0
+    abstention_stats: Dict[str, int] = field(default_factory=lambda: {
+        'total_abstention_questions': 0,
+        'correct_abstentions': 0,
+        'abstention_detected': 0
+    })
     
     def add(self, result: QuestionResult):
         self.results.append(result)
@@ -66,6 +74,14 @@ class BaselineResults:
             self.by_type[qtype]['correct'] += 1
         if result.error:
             self.errors += 1
+        
+        # Track abstention statistics
+        if result.is_abstention:
+            self.abstention_stats['total_abstention_questions'] += 1
+            if result.abstention_detected:
+                self.abstention_stats['abstention_detected'] += 1
+            if result.is_correct:
+                self.abstention_stats['correct_abstentions'] += 1
     
     def to_dict(self) -> Dict[str, Any]:
         type_results = {}
@@ -90,26 +106,65 @@ class BaselineResults:
                 'elapsed_seconds': round(self.total_time_seconds, 1)
             },
             'by_type': type_results,
+            'abstention_stats': self.abstention_stats.copy(),
             'detailed_results': [
                 {
                     'question_id': r.question_id,
                     'question_type': r.question_type,
                     'is_correct': r.is_correct,
-                    'error': r.error
+                    'error': r.error,
+                    'is_abstention': r.is_abstention,
+                    'abstention_detected': r.abstention_detected
                 }
                 for r in self.results
             ]
         }
 
 
-def evaluate_answer(expected: str, generated: str, context: str) -> bool:
+def evaluate_answer(
+    expected: str, 
+    generated: str, 
+    context: str, 
+    is_abstention_question: bool = False,
+    trace_abstention: Optional[Any] = None
+) -> bool:
     """
     Evaluate if the generated answer matches expected.
     Uses multiple matching strategies for robustness.
+    
+    For abstention questions (question_id ends with '_abs'), the correct answer
+    is "I don't know" or similar expressions. The evaluation checks:
+    1. If trace.abstention.should_abstain is True (system correctly rejected)
+    2. If generated answer contains abstention phrases
     """
-    expected_lower = expected.lower().strip()
-    generated_lower = generated.lower().strip()
-    context_lower = context.lower()
+    # Handle abstention questions
+    if is_abstention_question:
+        # Check if system correctly detected abstention
+        if trace_abstention and trace_abstention.should_abstain:
+            return True  # System correctly rejected answering
+        
+        # Check if generated answer contains abstention phrases
+        generated_lower = str(generated).lower().strip()
+        abstention_phrases = [
+            "don't know", "do not know", "don't have", "do not have",
+            "no information", "not available", "unknown", "unclear",
+            "cannot answer", "can't answer", "unable to answer",
+            "not mentioned", "never mentioned", "not discussed",
+            "没有信息", "不知道", "不清楚", "无法回答", "未提及"
+        ]
+        for phrase in abstention_phrases:
+            if phrase in generated_lower:
+                return True  # Generated answer correctly abstains
+        
+        # If system gave an answer but should have abstained, it's wrong
+        return False
+    
+    # Normal evaluation for non-abstention questions
+    # Convert expected to string first (handles int/float types)
+    expected_str = str(expected).strip()
+    expected_lower = expected_str.lower()
+    generated_lower = str(generated).lower().strip()
+    context_lower = str(context).lower()
     
     # Direct match
     if expected_lower in generated_lower:
@@ -160,7 +215,8 @@ def test_question(
     
     try:
         # Create fresh memory instance for this question
-        memory = AuroraMemory(cfg=config, seed=42, embedder=embedder)
+        # Use benchmark_mode=True to force store all plots (no VOI gating)
+        memory = AuroraMemory(cfg=config, seed=42, embedder=embedder, benchmark_mode=True)
         
         # Ingest all sessions
         for session in item['haystack_sessions']:
@@ -168,8 +224,19 @@ def test_question(
                 text = f"{turn['role'].capitalize()}: {turn['content']}"
                 memory.ingest(text)
         
-        # Query
-        trace = memory.query(question, k=10)
+        # Check if this is an abstention question
+        is_abstention_question = question_id.endswith('_abs')
+        
+        # Query - system will automatically detect aggregation queries and adjust k
+        # For multi-session questions, aggregation detection will use BENCHMARK_AGGREGATION_K=25
+        # For other questions, use default k=10 (will be adjusted to BENCHMARK_DEFAULT_K=15 in benchmark_mode)
+        k = 10  # Base k, will be auto-adjusted by query() based on query type and aggregation detection
+        trace = memory.query(question, k=k)
+        
+        # Check abstention detection
+        abstention_detected = False
+        if trace.abstention:
+            abstention_detected = trace.abstention.should_abstain
         
         # Build context from top results
         context_parts = []
@@ -181,16 +248,18 @@ def test_question(
         context = "\n".join(context_parts)
         
         # Generate answer using LLM
-        if context.strip():
-            prompt = f"""Based on the conversation history below, answer the question concisely.
-Focus on extracting the specific information requested.
-
-Conversation Context:
-{context[:3500]}
-
-Question: {question}
-
-Answer (be brief, specific, and factual):"""
+        # For abstention questions, if system detected abstention, return abstention response
+        if is_abstention_question and abstention_detected:
+            generated = "I don't know."
+        elif context.strip():
+            # Use type-specific prompt template
+            prompt = build_qa_prompt(
+                question=question,
+                context=context,
+                question_type_hint=question_type,
+                is_abstention=is_abstention_question,
+                max_context_length=3500
+            )
             
             try:
                 generated = llm.complete(prompt, max_tokens=150).strip()
@@ -198,10 +267,16 @@ Answer (be brief, specific, and factual):"""
                 # Fallback to context extraction
                 generated = context[:300]
         else:
-            generated = "No relevant information found in memory."
+            generated = "I don't know."
         
         # Evaluate
-        is_correct = evaluate_answer(expected, generated, context)
+        is_correct = evaluate_answer(
+            expected, 
+            generated, 
+            context,
+            is_abstention_question=is_abstention_question,
+            trace_abstention=trace.abstention
+        )
         
         elapsed = (time.time() - start_time) * 1000
         
@@ -214,7 +289,9 @@ Answer (be brief, specific, and factual):"""
             is_correct=is_correct,
             retrieval_count=len(trace.ranked),
             context_length=len(context),
-            elapsed_ms=elapsed
+            elapsed_ms=elapsed,
+            is_abstention=is_abstention_question,
+            abstention_detected=abstention_detected
         )
         
     except Exception as e:
@@ -294,6 +371,15 @@ def print_final_report(results: BaselineResults):
     
     print("-" * 60)
     print(f"{'OVERALL':<30} {summary['total_correct']:<10} {summary['total_tested']:<10} {summary['overall_accuracy']:.1f}%")
+    
+    # Abstention statistics
+    if results.abstention_stats['total_abstention_questions'] > 0:
+        abs_stats = results.abstention_stats
+        abs_acc = abs_stats['correct_abstentions'] / abs_stats['total_abstention_questions'] * 100
+        print(f"\nAbstention Questions:")
+        print(f"  Total: {abs_stats['total_abstention_questions']}")
+        print(f"  Correct: {abs_stats['correct_abstentions']} ({abs_acc:.1f}%)")
+        print(f"  Detected by system: {abs_stats['abstention_detected']}")
 
 
 def main():

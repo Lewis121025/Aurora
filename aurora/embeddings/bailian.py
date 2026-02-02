@@ -92,12 +92,19 @@ class BailianEmbedding(EmbeddingProvider):
         key = self._cache_key(text)
         self._cache[key] = embedding
     
+    # Bailian API has 8192 character limit, use 7500 for safety
+    MAX_TEXT_LENGTH = 7500
+    
     def embed(self, text: str) -> np.ndarray:
         """Generate embedding for a single text.
         
         Returns:
             np.ndarray of shape (dimension,) with float32 dtype, L2-normalized
         """
+        # Truncate text if too long (API limit: 8192 chars)
+        if len(text) > self.MAX_TEXT_LENGTH:
+            text = text[:self.MAX_TEXT_LENGTH]
+        
         cached = self._get_from_cache(text)
         if cached is not None:
             return np.array(cached, dtype=np.float32)
@@ -148,6 +155,9 @@ class BailianEmbedding(EmbeddingProvider):
         indices_to_embed = []
         
         for i, text in enumerate(texts):
+            # Truncate text if too long
+            if len(text) > self.MAX_TEXT_LENGTH:
+                text = text[:self.MAX_TEXT_LENGTH]
             cached = self._get_from_cache(text)
             if cached is not None:
                 results[i] = np.array(cached, dtype=np.float32)

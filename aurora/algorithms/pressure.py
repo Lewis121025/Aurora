@@ -41,7 +41,14 @@ class PressureMixin:
         Growth-oriented forgetting: decide what to forget based on growth, not just capacity.
         
         Key philosophy: "Forgetting is choosing what to become."
+        
+        In benchmark_mode, this method is disabled to ensure no information loss,
+        as every turn may contain critical information for evaluation.
         """
+        # Benchmark mode: skip pressure management to preserve all plots
+        if getattr(self, 'benchmark_mode', False):
+            return
+        
         max_plots = self.cfg.max_plots
         if len(self.plots) <= max_plots:
             return

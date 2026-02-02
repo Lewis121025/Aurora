@@ -57,6 +57,7 @@ from aurora.benchmark.interface import (
     MemoryProtocol,
 )
 from aurora.utils.time_utils import now_ts
+from aurora.llm.prompts import build_qa_prompt, detect_question_type
 
 logger = logging.getLogger(__name__)
 
@@ -1790,6 +1791,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         """Use LLM to extract precise answer from context.
         
         Supports both English and Chinese questions/answers.
+        Uses type-specific prompts for better accuracy.
         
         Args:
             question: The question to answer (English or Chinese)
@@ -1800,27 +1802,29 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         """
         context_text = "\n\n".join(context[:5])
         
-        prompt = f"""Based on the following context, answer the question concisely.
-Only provide the specific answer, not a full sentence unless necessary.
-根据以下上下文，简洁地回答问题。只提供具体答案，除非必要，否则不需要完整句子。
-
-Context / 上下文:
-{context_text}
-
-Question / 问题: {question}
-
-Answer / 答案:"""
+        # Detect question type and build prompt
+        qtype = detect_question_type(question)
+        base_prompt = build_qa_prompt(
+            question=question,
+            context=context_text,
+            question_type_hint=qtype,
+            max_context_length=5000
+        )
         
-        system = """You are a precise answer extraction system that supports both English and Chinese.
-Give only the direct answer, not explanations.
-你是一个精确的答案提取系统，同时支持中英文。只给出直接答案，不需要解释。
+        # Enhance with bilingual support for MemoryAgentBench
+        prompt = f"""{base_prompt}
 
+Note: 根据以下上下文，简洁地回答问题。只提供具体答案，除非必要，否则不需要完整句子。
 For questions like:
 - 地点问题 (在哪/哪里/住在): 返回地点名称
 - 人物问题 (谁/叫什么/名字): 返回人名
 - 时间问题 (什么时候/几点/哪天): 返回具体时间
 - 数量问题 (多少/几个): 返回数字
 - 偏好问题 (喜欢什么/最爱): 返回偏好内容"""
+        
+        system = """You are a precise answer extraction system that supports both English and Chinese.
+Give only the direct answer, not explanations.
+你是一个精确的答案提取系统，同时支持中英文。只给出直接答案，不需要解释。"""
         
         answer = self.llm.complete(
             prompt,
