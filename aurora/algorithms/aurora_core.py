@@ -56,6 +56,8 @@ from aurora.algorithms.constants import (
     MAX_CONFLICTS_PER_INGEST,
     MAX_RECENT_PLOTS_FOR_RETRIEVAL,
     MIN_STORE_PROB,
+    QUESTION_TYPE_HINT_MAPPINGS,
+    SINGLE_SESSION_USER_K_MULTIPLIER,
     MULTI_HOP_K_MULTIPLIER,
     NUMERIC_CHANGE_INDICATORS,
     RECENT_ENCODED_PLOTS_WINDOW,
@@ -1694,6 +1696,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         k: int = 5, 
         asker_id: Optional[str] = None,
         query_type: Optional[QueryType] = None,
+        query_type_hint: Optional[str] = None,
     ) -> RetrievalTrace:
         """Query the memory system with relationship-first and type-aware retrieval.
 
@@ -1764,8 +1767,20 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         if not text or not text.strip():
             raise ValidationError("query text cannot be empty")
         
-        # Detect query type if not provided
-        detected_type = query_type if query_type is not None else self.retriever._classify_query(text)
+        # Detect query type from hint, explicit parameter, or auto-detection
+        detected_type = query_type
+        if detected_type is None and query_type_hint:
+            # Map string hint to QueryType
+            hint_lower = query_type_hint.lower().replace(' ', '-')
+            mapped_type = QUESTION_TYPE_HINT_MAPPINGS.get(hint_lower)
+            if mapped_type:
+                try:
+                    detected_type = QueryType[mapped_type]
+                except KeyError:
+                    pass
+        
+        if detected_type is None:
+            detected_type = self.retriever._classify_query(text)
         
         # Check if this is an aggregation query (requires collecting info across sessions)
         is_aggregation = self.retriever._is_aggregation_query(text)
@@ -1782,6 +1797,10 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             elif detected_type == QueryType.MULTI_HOP:
                 effective_k = max(k, BENCHMARK_MULTI_SESSION_K)
                 logger.debug(f"Benchmark mode + multi-hop: using k={effective_k}")
+            elif detected_type == QueryType.USER_FACT:
+                # USER_FACT queries need broader coverage due to semantic mismatch
+                effective_k = max(k, int(BENCHMARK_DEFAULT_K * SINGLE_SESSION_USER_K_MULTIPLIER))
+                logger.debug(f"Benchmark mode + user-fact: using k={effective_k}")
             else:
                 effective_k = max(k, BENCHMARK_DEFAULT_K)
                 logger.debug(f"Benchmark mode: using k={effective_k}")
@@ -1793,6 +1812,10 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         elif detected_type == QueryType.MULTI_HOP:
             effective_k = int(k * MULTI_HOP_K_MULTIPLIER)
             logger.debug(f"Multi-hop query detected, adjusting k from {k} to {effective_k}")
+        elif detected_type == QueryType.USER_FACT:
+            # USER_FACT queries need broader coverage due to semantic mismatch
+            effective_k = int(k * SINGLE_SESSION_USER_K_MULTIPLIER)
+            logger.debug(f"User-fact query detected, adjusting k from {k} to {effective_k}")
         
         # Relationship identification and identity activation
         activated_identity = None

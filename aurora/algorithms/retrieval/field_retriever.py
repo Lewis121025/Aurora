@@ -26,14 +26,19 @@ from aurora.algorithms.constants import (
     FACTUAL_ATTRACTOR_WEIGHT,
     FACTUAL_PLOT_PRIORITY_BOOST,
     FACTUAL_SEMANTIC_WEIGHT,
+    KEYWORD_MATCH_BOOST,
+    KEYWORD_MATCH_MIN_RATIO,
     MULTI_HOP_EXTRA_PAGERANK_ITER,
     MULTI_HOP_KEYWORDS,
+    QUESTION_STOP_WORDS,
     RECENT_ANCHOR_KEYWORDS,
+    SINGLE_SESSION_USER_K_MULTIPLIER,
     SPAN_ANCHOR_KEYWORDS,
     TEMPORAL_DIVERSITY_BUCKETS,
     TEMPORAL_DIVERSITY_MMR_LAMBDA,
     TEMPORAL_KEYWORDS,
     TEMPORAL_SORT_WEIGHT,
+    USER_ROLE_PRIORITY_BOOST,
 )
 from aurora.embeddings.hash import HashEmbedding
 from aurora.algorithms.graph.edge_belief import EdgeBelief
@@ -50,11 +55,13 @@ class QueryType(Enum):
     - TEMPORAL: Requires timestamp-aware ranking and sorting
     - MULTI_HOP: Requires deeper graph exploration and more results
     - CAUSAL: Requires causal chain traversal and explanation
+    - USER_FACT: Single-session user fact extraction, needs keyword boosting
     """
     FACTUAL = auto()    # 事实查询：直接语义匹配
     TEMPORAL = auto()   # 时序查询：需要时间戳排序
     MULTI_HOP = auto()  # 多跳查询：需要图扩展
     CAUSAL = auto()     # 因果查询：需要因果链追踪
+    USER_FACT = auto()  # 用户事实查询：需要关键词增强
 
 
 class TimeAnchor(Enum):
@@ -202,6 +209,10 @@ class FieldRetriever:
         not just the semantically most similar ones. Keyword matching
         helps catch mentions that have different semantic contexts.
         
+        This method uses a two-pronged approach:
+        1. Pattern-based: Match against known entity patterns
+        2. Dynamic: Extract nouns and noun-like words from the query
+        
         Args:
             query_text: The aggregation query text
             
@@ -210,23 +221,29 @@ class FieldRetriever:
         """
         query_lower = query_text.lower()
         
-        # Common aggregation entity patterns
+        # Common aggregation entity patterns (expanded)
         entity_patterns = {
             # Activities and events
-            'camping': ['camping', 'camp', 'tent'],
-            'trip': ['trip', 'travel', 'visit', 'vacation'],
-            'bike': ['bike', 'bicycle', 'cycling', 'biking'],
-            'game': ['game', 'gaming', 'play', 'playing'],
-            'book': ['book', 'reading', 'read'],
-            'movie': ['movie', 'film', 'watch'],
-            'exercise': ['exercise', 'workout', 'gym', 'fitness'],
-            'meeting': ['meeting', 'call', 'appointment'],
-            'doctor': ['doctor', 'appointment', 'medical', 'health'],
+            'camping': ['camping', 'camp', 'tent', 'campsite', 'campground'],
+            'trip': ['trip', 'travel', 'visit', 'vacation', 'journey', 'tour'],
+            'bike': ['bike', 'bicycle', 'cycling', 'biking', 'cycle', 'cyclist'],
+            'game': ['game', 'gaming', 'play', 'playing', 'video game'],
+            'book': ['book', 'books', 'reading', 'read', 'novel', 'library'],
+            'movie': ['movie', 'film', 'watch', 'cinema', 'theater', 'theatre'],
+            'exercise': ['exercise', 'workout', 'gym', 'fitness', 'training', 'sport'],
+            'meeting': ['meeting', 'call', 'appointment', 'conference'],
+            'doctor': ['doctor', 'appointment', 'medical', 'health', 'hospital', 'clinic'],
+            'art': ['art', 'gallery', 'museum', 'exhibition', 'exhibit', 'painting', 'sculpture'],
+            'event': ['event', 'concert', 'show', 'performance', 'festival'],
+            'model': ['model', 'kit', 'hobby', 'craft', 'build', 'assemble'],
+            'clothing': ['clothing', 'clothes', 'shirt', 'pants', 'dress', 'jacket', 'outfit'],
+            'food': ['food', 'meal', 'restaurant', 'dinner', 'lunch', 'breakfast', 'eat'],
+            'work': ['work', 'job', 'project', 'task', 'assignment'],
             
             # Financial
-            'money': ['money', 'spent', 'cost', 'price', 'paid', 'bought', 'purchase', '$'],
-            'luxury': ['luxury', 'expensive', 'premium'],
-            'expense': ['expense', 'spent', 'spending', 'cost'],
+            'money': ['money', 'spent', 'cost', 'price', 'paid', 'bought', 'purchase', '$', 'dollar', 'dollars'],
+            'luxury': ['luxury', 'expensive', 'premium', 'high-end'],
+            'expense': ['expense', 'expenses', 'spent', 'spending', 'cost', 'costs'],
             
             # Time units
             'hour': ['hour', 'hours'],
@@ -236,7 +253,8 @@ class FieldRetriever:
             'year': ['year', 'years'],
             
             # Quantities
-            'total': ['total', 'all', 'altogether', 'sum'],
+            'total': ['total', 'all', 'altogether', 'sum', 'combined'],
+            'different': ['different', 'various', 'unique', 'distinct'],
         }
         
         entities = []
@@ -247,6 +265,41 @@ class FieldRetriever:
                 if kw in query_lower:
                     entities.extend(keywords)
                     break
+        
+        # Dynamic extraction: extract meaningful words from the query
+        # Remove common stop words and question words
+        stop_words = {
+            'what', 'where', 'when', 'how', 'why', 'who', 'which', 'whom',
+            'is', 'are', 'was', 'were', 'be', 'been', 'being',
+            'have', 'has', 'had', 'having',
+            'do', 'does', 'did', 'doing',
+            'the', 'a', 'an', 'this', 'that', 'these', 'those',
+            'i', 'me', 'my', 'mine', 'we', 'us', 'our', 'ours',
+            'you', 'your', 'yours', 'he', 'him', 'his', 'she', 'her', 'hers',
+            'it', 'its', 'they', 'them', 'their', 'theirs',
+            'to', 'of', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
+            'up', 'about', 'into', 'over', 'after',
+            'and', 'but', 'or', 'nor', 'so', 'yet',
+            'many', 'much', 'some', 'any', 'few', 'more', 'most',
+            'can', 'could', 'will', 'would', 'shall', 'should', 'may', 'might', 'must',
+            'need', 'dare', 'used',
+            'total', 'number', 'amount', 'count', 'sum',  # aggregation words
+        }
+        
+        # Extract words that might be meaningful entities
+        import re
+        words = re.findall(r'\b[a-z]+(?:-[a-z]+)?\b', query_lower)
+        
+        for word in words:
+            # Skip short words and stop words
+            if len(word) <= 2 or word in stop_words:
+                continue
+            # Skip if already in entities
+            if word in entities:
+                continue
+            # Add potential entity words (nouns are usually 4+ chars)
+            if len(word) >= 4:
+                entities.append(word)
         
         # Remove duplicates while preserving order
         seen = set()
@@ -262,7 +315,8 @@ class FieldRetriever:
         self, 
         keywords: List[str], 
         kinds: Tuple[str, ...],
-        max_results: int = 50
+        max_results: int = 100,
+        exhaustive: bool = False
     ) -> List[Tuple[str, float, str]]:
         """Search for plots containing specified keywords.
         
@@ -274,6 +328,7 @@ class FieldRetriever:
             keywords: List of keywords to search for
             kinds: Tuple of kinds to search ("plot", "story", "theme")
             max_results: Maximum number of results to return
+            exhaustive: If True, return ALL matches (for aggregation queries)
             
         Returns:
             List of (id, score, kind) tuples for matching items
@@ -283,6 +338,9 @@ class FieldRetriever:
         
         results: List[Tuple[str, float, str]] = []
         keywords_lower = [kw.lower() for kw in keywords]
+        
+        # For exhaustive search, we want ANY match
+        min_matches = 1
         
         # Search through all nodes in graph
         for nid in self.graph.g.nodes():
@@ -303,19 +361,145 @@ class FieldRetriever:
             
             text_lower = text.lower()
             
-            # Count keyword matches
-            match_count = sum(1 for kw in keywords_lower if kw in text_lower)
+            # Count keyword matches - also check for partial word matches
+            match_count = 0
+            for kw in keywords_lower:
+                if kw in text_lower:
+                    match_count += 1
+                # Also check for word variations (e.g., "bike" matches "biking")
+                elif len(kw) >= 4:
+                    # Check if the stem appears
+                    stem = kw[:4]
+                    if stem in text_lower:
+                        match_count += 0.5
             
-            if match_count > 0:
-                # Score based on number of keyword matches
-                score = match_count / len(keywords_lower)
+            if match_count >= min_matches:
+                # Score: combination of match count and match density
+                text_words = len(text_lower.split())
+                density_bonus = min(0.3, match_count / max(text_words, 1) * 10)
+                score = match_count / len(keywords_lower) + density_bonus
                 results.append((nid, score, kind))
         
         # Sort by score (number of keyword matches) descending
         results.sort(key=lambda x: x[1], reverse=True)
         
+        # For exhaustive search, return all matches
+        if exhaustive:
+            return results
+        
         return results[:max_results]
 
+
+    def _extract_query_keywords(self, query_text: str) -> List[str]:
+        """Extract meaningful keywords from a query for keyword-based matching.
+        
+        For single-session-user questions, semantic similarity may be low
+        because the user mentioned facts in passing (e.g., "500 Mbps" in a 
+        Netflix discussion). Keyword extraction helps catch these mentions.
+        
+        Args:
+            query_text: The query text to extract keywords from
+            
+        Returns:
+            List of lowercase keywords
+        """
+        query_lower = query_text.lower()
+        keywords = []
+        
+        for word in query_lower.split():
+            # Clean punctuation
+            clean_word = word.strip('?.,!\'\"()[]{}:;')
+            
+            # Skip short words and stop words
+            if len(clean_word) > 2 and clean_word not in QUESTION_STOP_WORDS:
+                keywords.append(clean_word)
+        
+        return keywords
+    
+    def _compute_keyword_boost(
+        self,
+        plot_id: str,
+        keywords: List[str],
+    ) -> float:
+        """Compute keyword-based boost for a plot.
+        
+        For single-session-user questions, boost plots that contain
+        keywords from the question, even if semantic similarity is low.
+        
+        Args:
+            plot_id: Plot ID to check
+            keywords: List of keywords from the query
+            
+        Returns:
+            Boost score [0.0, KEYWORD_MATCH_BOOST]
+        """
+        if not keywords:
+            return 0.0
+        
+        try:
+            payload = self.graph.payload(plot_id)
+            if payload is None:
+                return 0.0
+            
+            # Get plot text
+            text = getattr(payload, 'text', '')
+            if not text:
+                return 0.0
+            
+            text_lower = text.lower()
+            
+            # Count keyword matches
+            matches = sum(1 for kw in keywords if kw in text_lower)
+            
+            if matches == 0:
+                return 0.0
+            
+            # Compute match ratio
+            match_ratio = matches / len(keywords)
+            
+            # Only apply boost if above threshold
+            if match_ratio < KEYWORD_MATCH_MIN_RATIO:
+                return 0.0
+            
+            # Scale boost by match ratio
+            return KEYWORD_MATCH_BOOST * min(1.0, match_ratio * 1.5)
+            
+        except Exception:
+            return 0.0
+    
+    def _compute_user_role_boost(self, plot_id: str) -> float:
+        """Compute boost for plots containing user statements.
+        
+        For single-session-user questions, prioritize content where
+        the user is speaking (as opposed to assistant responses).
+        
+        Args:
+            plot_id: Plot ID to check
+            
+        Returns:
+            Boost score [0.0, USER_ROLE_PRIORITY_BOOST]
+        """
+        try:
+            payload = self.graph.payload(plot_id)
+            if payload is None:
+                return 0.0
+            
+            text = getattr(payload, 'text', '')
+            if not text:
+                return 0.0
+            
+            text_lower = text.lower()
+            
+            # Check for user statement markers
+            user_markers = ['user:', '用户:', 'user：', '用户：']
+            for marker in user_markers:
+                if marker in text_lower:
+                    return USER_ROLE_PRIORITY_BOOST
+            
+            return 0.0
+            
+        except Exception:
+            return 0.0
 
     def _detect_time_anchor(self, query_text: str) -> TimeAnchor:
         """Detect the temporal anchor of a query.
@@ -1021,6 +1205,11 @@ class FieldRetriever:
             effective_k = int(k * 1.5)
             effective_max_iter = max_iter + MULTI_HOP_EXTRA_PAGERANK_ITER
             effective_reseed_k = int(reseed_k * 1.2)
+        elif detected_type == QueryType.USER_FACT:
+            # For USER_FACT queries, increase k to capture more potential matches
+            # Semantic similarity may be low, so we need broader coverage
+            effective_k = int(k * SINGLE_SESSION_USER_K_MULTIPLIER)
+            effective_reseed_k = int(reseed_k * 1.5)
         
         q = embed.embed(query_text)
         
@@ -1040,12 +1229,20 @@ class FieldRetriever:
             time_range = self.time_extractor.extract(query_text, events_timeline)
         
         # Adjust attractor weight based on query type
-        # FACTUAL queries need precise semantic matching - reduce attractor influence
+        # FACTUAL and USER_FACT queries need precise semantic matching - reduce attractor influence
         effective_attractor_weight = attractor_weight
         if detected_type == QueryType.FACTUAL:
             effective_attractor_weight = FACTUAL_ATTRACTOR_WEIGHT
+        elif detected_type == QueryType.USER_FACT:
+            # For USER_FACT, reduce attractor even more - we want keyword-based matching
+            effective_attractor_weight = FACTUAL_ATTRACTOR_WEIGHT * 0.8
         
         direct_weight = 1.0 - effective_attractor_weight
+        
+        # Extract keywords for USER_FACT queries (used for boosting)
+        query_keywords: List[str] = []
+        if detected_type == QueryType.USER_FACT:
+            query_keywords = self._extract_query_keywords(query_text)
         
         # =====================================================================
         # Branch A: Direct semantic search (no mean-shift transformation)
@@ -1079,6 +1276,13 @@ class FieldRetriever:
                     embed_func=embed
                 )
                 enhanced_score += fact_boost
+                
+                # For USER_FACT queries, also apply keyword and user role boosts
+                if detected_type == QueryType.USER_FACT and query_keywords:
+                    keyword_boost = self._compute_keyword_boost(nid, query_keywords)
+                    user_role_boost = self._compute_user_role_boost(nid)
+                    enhanced_score += keyword_boost + user_role_boost
+                    
             enhanced_direct_ranked.append((nid, enhanced_score, kind))
         
         # Re-sort enhanced direct results
@@ -1143,30 +1347,11 @@ class FieldRetriever:
         attractor_ranked = attractor_ranked[:effective_k]
         
         # =====================================================================
-        # Phase 5: Enhance direct results with fact key matching
-        # =====================================================================
-        # Apply fact key boost to direct results (for plots only)
-        enhanced_direct_ranked: List[Tuple[str, float, str]] = []
-        for nid, score, kind in direct_ranked:
-            enhanced_score = score
-            if kind == "plot":
-                fact_boost = self._compute_fact_key_boost(
-                    plot_id=nid,
-                    query_text=query_text,
-                    query_emb=q,
-                    embed_func=embed
-                )
-                enhanced_score += fact_boost
-            enhanced_direct_ranked.append((nid, enhanced_score, kind))
-        
-        # Re-sort enhanced direct results
-        enhanced_direct_ranked.sort(key=lambda x: x[1], reverse=True)
-        
-        # =====================================================================
         # Branch C: Keyword-based retrieval for aggregation queries
         # =====================================================================
         # Aggregation queries need high recall to gather ALL mentions of a topic.
         # Semantic similarity alone may miss mentions with different contexts.
+        # For aggregation, we do EXHAUSTIVE keyword search to find every mention.
         keyword_ranked: List[Tuple[str, float, str]] = []
         is_aggregation = self._is_aggregation_query(query_text)
         
@@ -1174,11 +1359,11 @@ class FieldRetriever:
             # Extract key entities from the query
             entities = self._extract_aggregation_entities(query_text)
             if entities:
-                # Search for keyword matches
+                # Exhaustive search for aggregation - find ALL matches
                 keyword_ranked = self._keyword_search(
                     keywords=entities,
                     kinds=kinds,
-                    max_results=effective_k * 2  # Get more for better recall
+                    max_results=100  # High limit for aggregation
                 )
         
         # =====================================================================
@@ -1199,8 +1384,10 @@ class FieldRetriever:
                 merged_scores[nid] = (effective_attractor_weight * score, kind)
         
         # Add keyword results for aggregation queries (high weight to ensure inclusion)
+        # For aggregation, keyword matches are critical - they find mentions that 
+        # semantic search might miss due to different context
         if is_aggregation and keyword_ranked:
-            keyword_weight = 0.4  # Strong weight to ensure keyword matches are included
+            keyword_weight = 0.6  # Strong weight to ensure keyword matches are included (was 0.4)
             for nid, score, kind in keyword_ranked:
                 if nid in merged_scores:
                     existing_score, existing_kind = merged_scores[nid]
@@ -1208,6 +1395,7 @@ class FieldRetriever:
                     merged_scores[nid] = (existing_score + keyword_weight * score, existing_kind)
                 else:
                     # Add new entries from keyword search
+                    # Even pure keyword matches should be included for aggregation
                     merged_scores[nid] = (keyword_weight * score, kind)
         
         # Apply plot priority boost for FACTUAL queries

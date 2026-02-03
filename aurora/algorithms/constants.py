@@ -210,7 +210,8 @@ MULTI_HOP_EXTRA_PAGERANK_ITER = 20  # Additional PageRank iterations for multi-h
 
 # Aggregation query parameters
 # Aggregation queries need more results to cover multiple sessions
-AGGREGATION_K_MULTIPLIER = 3.0  # Increase k by 3x for aggregation queries
+# Multi-session questions often need to find ALL instances of a topic across many sessions
+AGGREGATION_K_MULTIPLIER = 5.0  # Increase k by 5x for aggregation queries (was 3.0)
 
 # =============================================================================
 # Temporal Anchor Detection (时间锚点检测)
@@ -513,8 +514,12 @@ CONCURRENT_TIME_THRESHOLD = 60.0  # 1 minute
 # In benchmark mode, we use larger k values to ensure comprehensive retrieval
 # LongMemEval multi-session questions need aggregation across many turns
 BENCHMARK_DEFAULT_K = 15          # Default k for benchmark queries
-BENCHMARK_MULTI_SESSION_K = 20    # K for multi-session/multi-hop queries
-BENCHMARK_AGGREGATION_K = 25      # K when aggregation is detected
+BENCHMARK_MULTI_SESSION_K = 30    # K for multi-session/multi-hop queries (was 20)
+BENCHMARK_AGGREGATION_K = 50      # K when aggregation is detected (was 25)
+
+# Maximum results to include in context for aggregation queries
+# This is separate from retrieval k - we may retrieve 50 but include 20 in context
+AGGREGATION_CONTEXT_MAX_RESULTS = 20
 
 # =============================================================================
 # Phase 5: Fact-Enhanced Indexing Constants
@@ -524,3 +529,66 @@ BENCHMARK_AGGREGATION_K = 25      # K when aggregation is detected
 # When a query fact matches a plot's fact_keys, boost the score
 FACT_KEY_BOOST_MAX = 0.15  # Maximum boost score for fact key matches
 FACT_KEY_MATCH_THRESHOLD = 0.7  # Minimum similarity for fact key matching (0.0-1.0)
+
+# =============================================================================
+# Single-Session-User Enhancement Constants
+# =============================================================================
+
+# For single-session-user questions, the semantic similarity between the question
+# and the answer-containing content is often low (e.g., asking about "internet speed"
+# when the user mentioned "500 Mbps" in a Netflix discussion).
+# 
+# Solution: Increase retrieval coverage and prioritize user statements.
+
+# Retrieval k multiplier for single-session-user questions
+# Higher k ensures more sessions are retrieved, increasing chance of finding the answer
+SINGLE_SESSION_USER_K_MULTIPLIER = 2.0
+
+# Maximum context length for single-session-user (longer to capture more user statements)
+SINGLE_SESSION_USER_MAX_CONTEXT = 15000
+
+# Boost score for plots containing extracted question keywords
+# Applied to plots that match question entities (e.g., "internet", "speed", "plan")
+KEYWORD_MATCH_BOOST = 0.20
+
+# Minimum keyword match ratio to apply boost (0.0-1.0)
+# If question has 3 keywords, need at least 1 to match (0.33)
+KEYWORD_MATCH_MIN_RATIO = 0.25
+
+# Role-based priority for single-session-user questions
+# User statements are prioritized over assistant statements
+USER_ROLE_PRIORITY_BOOST = 0.15
+
+# Common stop words to exclude from keyword extraction
+QUESTION_STOP_WORDS = {
+    # English
+    'what', 'where', 'when', 'how', 'why', 'who', 'which', 'whose', 'whom',
+    'is', 'are', 'was', 'were', 'did', 'do', 'does', 'done', 'been', 'being',
+    'the', 'a', 'an', 'of', 'to', 'in', 'for', 'on', 'with', 'at', 'by', 'from',
+    'my', 'your', 'i', 'you', 'me', 'we', 'they', 'it', 'our', 'their', 'its',
+    'have', 'has', 'had', 'can', 'could', 'would', 'should', 'will', 'shall',
+    'about', 'that', 'this', 'these', 'those', 'there', 'here',
+    # Chinese
+    '什么', '哪里', '哪个', '谁', '怎么', '为什么', '是', '的', '了', '吗', '我', '你',
+}
+
+# Question type hint mappings for benchmark integration
+# Maps benchmark-provided question type strings to internal QueryType
+QUESTION_TYPE_HINT_MAPPINGS = {
+    # Single-session-user questions need USER_FACT treatment
+    'single-session-user': 'USER_FACT',
+    'single_session_user': 'USER_FACT',
+    'singlesessionuser': 'USER_FACT',
+    'user': 'USER_FACT',
+    # Multi-session questions
+    'multi-session': 'MULTI_HOP',
+    'multi_session': 'MULTI_HOP',
+    'multisession': 'MULTI_HOP',
+    # Temporal questions
+    'temporal-reasoning': 'TEMPORAL',
+    'temporal_reasoning': 'TEMPORAL',
+    'temporal': 'TEMPORAL',
+    # Standard single-session assistant questions
+    'single-session-assistant': 'FACTUAL',
+    'single_session_assistant': 'FACTUAL',
+}

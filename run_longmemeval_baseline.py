@@ -238,14 +238,28 @@ def test_question(
         if trace.abstention:
             abstention_detected = trace.abstention.should_abstain
         
-        # Build context from top results
+        # Build context from retrieval results
+        # For multi-session/aggregation questions, use more results to capture all relevant info
+        is_aggregation = question_type == 'multi-session' or any(
+            kw in question.lower() 
+            for kw in ['how many', 'how much', 'total', 'all', 'every', 'count', 'sum']
+        )
+        
+        # Use more results for aggregation queries (up to 20), otherwise top 5
+        max_context_results = 20 if is_aggregation else 5
+        
         context_parts = []
-        for r in trace.ranked[:5]:
+        seen_texts = set()  # Deduplicate similar content
+        for r in trace.ranked[:max_context_results]:
             plot_id, score, kind = r  # Unpack tuple (id, score, kind)
             plot = memory.plots.get(plot_id)
-            if plot:
-                context_parts.append(plot.text)
-        context = "\n".join(context_parts)
+            if plot and plot.text:
+                # Simple deduplication: skip if text is very similar to already included
+                text_key = plot.text[:100].lower()
+                if text_key not in seen_texts:
+                    context_parts.append(plot.text)
+                    seen_texts.add(text_key)
+        context = "\n---\n".join(context_parts)  # Use delimiter for clarity
         
         # Generate answer using LLM
         # For abstention questions, if system detected abstention, return abstention response

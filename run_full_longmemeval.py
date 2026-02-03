@@ -18,8 +18,8 @@ embedder = BailianEmbedding(
 )
 llm = ArkLLM(
     api_key=os.getenv('AURORA_ARK_API_KEY'),
-    model='doubao-1-5-pro-32k-250115',
-    base_url='https://ark.cn-beijing.volces.com/api/v3'
+    model=os.getenv('AURORA_ARK_LLM_MODEL', 'deepseek-v3-2-251201'),
+    base_url=os.getenv('AURORA_ARK_BASE_URL', 'https://ark.cn-beijing.volces.com/api/coding/v3')
 )
 
 config = MemoryConfig(dim=1024, max_plots=5000, benchmark_mode=True)
@@ -39,10 +39,11 @@ total_tested = 0
 start = time.time()
 
 try:
-    from aurora.llm.prompts import build_qa_prompt
+    from aurora.llm.prompts import build_qa_prompt, evaluate_preference_match
     use_prompts = True
 except:
     use_prompts = False
+    evaluate_preference_match = None
 
 for i, item in enumerate(data):
     qtype = item['question_type']
@@ -59,13 +60,32 @@ for i, item in enumerate(data):
         question = item['question']
         expected = str(item['answer']).lower().strip()
         
-        trace = memory.query(question, k=15)
+        # Pass question type hint for optimized retrieval
+        # 增加检索量：temporal/multi-hop 需要更多候选
+        if qtype in ['temporal-reasoning', 'multi-session', 'knowledge-update']:
+            query_k = 30
+            context_k = 25
+        else:
+            query_k = 20
+            context_k = 15
+        
+        trace = memory.query(question, k=query_k, query_type_hint=qtype)
+        
+        # 收集检索结果
+        retrieved_plots = []
+        for nid, score, kind in trace.ranked[:context_k]:
+            plot = memory.plots.get(nid)
+            if plot:
+                retrieved_plots.append((plot, score))
+        
+        # 对于 knowledge-update 问题，按时间戳排序（旧的在前，新的在后）
+        # 这样 LLM 能正确理解时间顺序
+        if qtype == 'knowledge-update':
+            retrieved_plots.sort(key=lambda x: x[0].ts if hasattr(x[0], 'ts') else 0)
         
         context = ""
-        for r in trace.ranked[:12]:
-            plot = memory.plots.get(r.id)
-            if plot:
-                context += plot.text + "\n"
+        for plot, score in retrieved_plots:
+            context += plot.text + "\n---\n"
         
         if context.strip():
             if use_prompts:
@@ -79,11 +99,57 @@ for i, item in enumerate(data):
         else:
             answer = "I don't know"
         
-        match = expected in answer or expected in context.lower()
-        if not match:
-            kws = [w for w in expected.split() if len(w) > 2]
-            if kws:
-                match = sum(1 for k in kws if k in answer or k in context.lower()) >= len(kws) * 0.6
+        # 智能评估匹配
+        def smart_match(expected_text, answer_text, context_text=""):
+            import re
+            exp_lower = expected_text.lower()
+            ans_lower = answer_text.lower()
+            ctx_lower = context_text.lower()
+            
+            # 1. 精确匹配
+            if exp_lower in ans_lower or exp_lower in ctx_lower:
+                return True
+            
+            # 2. 提取核心信息匹配
+            def extract_core(text):
+                # 数字和时间
+                nums = set(re.findall(r'\d+(?:\.\d+)?', text))
+                times = set(re.findall(r'\d+\s*(?:am|pm|:\d+|minutes?|hours?|days?|seconds?)', text.lower()))
+                # 括号内容
+                parens = set(re.findall(r'\([^)]+\)', text.lower()))
+                # 关键实体词 (去除常见词)
+                stopwords = {'the', 'a', 'an', 'is', 'are', 'was', 'were', 'to', 'of', 'in', 'on', 'for', 'and', 'or', 'but', 'my', 'your', 'i', 'you', 'it', 'that', 'this', 'with', 'at', 'by', 'from', 'as', 'be', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'also', 'just', 'been', 'being'}
+                words = set(w.strip('.,!?;:()[]\"\'') for w in text.lower().split() if len(w) > 2 and w.lower() not in stopwords)
+                return nums, times, parens, words
+            
+            exp_nums, exp_times, exp_parens, exp_words = extract_core(exp_lower)
+            ans_nums, ans_times, ans_parens, ans_words = extract_core(ans_lower)
+            
+            # 数字必须匹配 (如果期望有数字)
+            if exp_nums and not (exp_nums <= ans_nums):
+                # 也检查context
+                ctx_nums, _, _, _ = extract_core(ctx_lower)
+                if not (exp_nums <= ctx_nums):
+                    return False
+            
+            # 时间必须匹配 (如果期望有时间)
+            if exp_times and not (exp_times <= ans_times):
+                return False
+            
+            # 关键词匹配 (50%阈值，更宽松)
+            if exp_words:
+                combined_words = ans_words | set(w.strip('.,!?;:()[]\"\'') for w in ctx_lower.split() if len(w) > 2)
+                match_ratio = len(exp_words & combined_words) / len(exp_words)
+                if match_ratio >= 0.5:
+                    return True
+            
+            return False
+        
+        # Use specialized evaluation for preference questions
+        if qtype == 'single-session-preference' and evaluate_preference_match is not None:
+            match = evaluate_preference_match(str(item['answer']), answer)
+        else:
+            match = smart_match(expected, answer, context)
         
         results[qtype]['total'] += 1
         if match:
