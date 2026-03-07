@@ -18,7 +18,7 @@ class TestOnlineKDE:
         assert len(kde._vecs) == 0
 
     def test_add_vectors(self):
-        """Test adding vectors to reservoir."""
+        """测试向向量库添加向量。"""
         kde = OnlineKDE(dim=32, reservoir=10, seed=0)
 
         for i in range(5):
@@ -28,7 +28,7 @@ class TestOnlineKDE:
         assert len(kde._vecs) == 5
 
     def test_reservoir_sampling(self):
-        """Test reservoir sampling when exceeding capacity."""
+        """测试超过容量时的向量库采样。"""
         kde = OnlineKDE(dim=16, reservoir=10, seed=0)
 
         for i in range(100):
@@ -39,7 +39,7 @@ class TestOnlineKDE:
         assert len(kde._vecs) == 10
 
     def test_log_density_empty(self):
-        """Test log density with empty reservoir."""
+        """测试空向量库的对数密度。"""
         kde = OnlineKDE(dim=32, seed=0)
         v = np.random.randn(32).astype(np.float32)
 
@@ -48,7 +48,7 @@ class TestOnlineKDE:
         assert log_d == -10.0
 
     def test_log_density_with_vectors(self):
-        """Test log density with vectors in reservoir."""
+        """测试向量库中有向量时的对数密度。"""
         kde = OnlineKDE(dim=32, reservoir=100, seed=0)
 
         # Add some vectors
@@ -65,7 +65,7 @@ class TestOnlineKDE:
         assert log_d < 0
 
     def test_surprise(self):
-        """Test surprise computation."""
+        """测试惊奇度计算。"""
         kde = OnlineKDE(dim=32, reservoir=100, seed=0)
 
         # Add vectors
@@ -81,7 +81,7 @@ class TestOnlineKDE:
         assert np.isclose(surprise, -log_d)
 
     def test_density_changes_with_data(self):
-        """Test that log density changes as data is added."""
+        """测试随着数据添加对数密度会改变。"""
         np.random.seed(42)
         kde = OnlineKDE(dim=8, reservoir=100, seed=42)
 
@@ -102,7 +102,7 @@ class TestOnlineKDE:
         assert np.isfinite(log_d)
 
     def test_serialization(self):
-        """Test state dict serialization and deserialization."""
+        """测试状态字典的序列化和反序列化。"""
         kde1 = OnlineKDE(dim=16, reservoir=50, k_sigma=5, seed=123)
 
         # Add some vectors
@@ -128,7 +128,7 @@ class TestOnlineKDE:
             np.testing.assert_array_almost_equal(v1, v2)
 
     def test_deterministic_with_seed(self):
-        """Test that same seed produces same results."""
+        """测试相同的 seed 产生相同的结果。"""
         kde1 = OnlineKDE(dim=32, reservoir=10, seed=42)
         kde2 = OnlineKDE(dim=32, reservoir=10, seed=42)
 

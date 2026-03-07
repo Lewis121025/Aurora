@@ -1,4 +1,4 @@
-"""Tests for FAISS vector index."""
+"""FAISS 向量索引的测试。"""
 
 import time
 import numpy as np

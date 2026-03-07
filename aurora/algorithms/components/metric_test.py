@@ -19,13 +19,13 @@ class TestLowRankMetric:
         assert metric.G.shape == (16, 64)
 
     def test_rank_clamping(self):
-        """Test that rank is clamped to dim."""
+        """测试 rank 被限制在 dim 范围内。"""
         metric = LowRankMetric(dim=32, rank=100, seed=0)
         # Rank should be clamped to dim
         assert metric.rank == 32
 
     def test_d2_self_zero(self):
-        """Test that distance from a vector to itself is near zero."""
+        """测试向量到自身的距离接近零。"""
         metric = LowRankMetric(dim=32, rank=8, seed=0)
         v = np.random.randn(32).astype(np.float32)
 
@@ -33,7 +33,7 @@ class TestLowRankMetric:
         assert np.isclose(d2, 0.0, atol=1e-6)
 
     def test_d2_symmetric(self):
-        """Test that distance is symmetric."""
+        """测试距离是对称的。"""
         metric = LowRankMetric(dim=32, rank=8, seed=0)
         v1 = np.random.randn(32).astype(np.float32)
         v2 = np.random.randn(32).astype(np.float32)
@@ -43,7 +43,7 @@ class TestLowRankMetric:
         assert np.isclose(d12, d21)
 
     def test_d2_positive(self):
-        """Test that distance is non-negative."""
+        """测试距离非负。"""
         metric = LowRankMetric(dim=32, rank=8, seed=0)
         v1 = np.random.randn(32).astype(np.float32)
         v2 = np.random.randn(32).astype(np.float32)
@@ -52,7 +52,7 @@ class TestLowRankMetric:
         assert d2 >= 0
 
     def test_sim_range(self):
-        """Test that similarity is in (0, 1]."""
+        """测试相似度在 (0, 1] 范围内。"""
         metric = LowRankMetric(dim=32, rank=8, seed=0)
         v1 = np.random.randn(32).astype(np.float32)
         v2 = np.random.randn(32).astype(np.float32)
@@ -65,7 +65,7 @@ class TestLowRankMetric:
         assert np.isclose(self_sim, 1.0)
 
     def test_update_triplet_no_loss(self):
-        """Test triplet update when constraint already satisfied."""
+        """测试约束已满足时的三元组更新。"""
         metric = LowRankMetric(dim=32, rank=8, seed=0)
 
         anchor = np.random.randn(32).astype(np.float32)
@@ -79,7 +79,7 @@ class TestLowRankMetric:
         assert loss >= 0
 
     def test_update_triplet_with_loss(self):
-        """Test triplet update when constraint violated."""
+        """测试约束被违反时的三元组更新。"""
         metric = LowRankMetric(dim=32, rank=8, seed=0)
 
         anchor = np.random.randn(32).astype(np.float32)
@@ -94,7 +94,7 @@ class TestLowRankMetric:
         assert metric.t == 1
 
     def test_learning_improves_metric(self):
-        """Test that triplet learning improves the metric."""
+        """测试三元组学习改进指标。"""
         metric = LowRankMetric(dim=32, rank=16, seed=42)
 
         # Create a consistent pattern
@@ -119,7 +119,7 @@ class TestLowRankMetric:
         assert margin_after > margin_before or margin_after > 0.5
 
     def test_average_loss(self):
-        """Test average loss tracking."""
+        """测试平均损失跟踪。"""
         metric = LowRankMetric(dim=32, rank=8, seed=0)
 
         # No updates yet
@@ -138,7 +138,7 @@ class TestLowRankMetric:
         assert metric._update_count > 0
 
     def test_window_rescaling(self):
-        """Test that window rescaling maintains plasticity."""
+        """测试窗口重新缩放保持可塑性。"""
         metric = LowRankMetric(dim=32, rank=8, seed=0, window_size=100, decay_factor=0.5)
 
         anchor = np.random.randn(32).astype(np.float32)
@@ -153,7 +153,7 @@ class TestLowRankMetric:
         assert metric.t == 150
 
     def test_serialization(self):
-        """Test state dict serialization and deserialization."""
+        """测试状态字典的序列化和反序列化。"""
         metric1 = LowRankMetric(dim=32, rank=8, seed=123, window_size=500, decay_factor=0.3)
 
         # Do some updates
@@ -184,7 +184,7 @@ class TestLowRankMetric:
         np.testing.assert_array_almost_equal(metric2.G, metric1.G)
 
     def test_deterministic_with_seed(self):
-        """Test that same seed produces same initial state."""
+        """测试相同的 seed 产生相同的初始状态。"""
         metric1 = LowRankMetric(dim=32, rank=8, seed=42)
         metric2 = LowRankMetric(dim=32, rank=8, seed=42)
 

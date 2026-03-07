@@ -23,7 +23,7 @@ class TestThompsonBernoulliGate:
         assert gate.grad2.shape == (6,)
 
     def test_prob_range(self):
-        """Test that probability is in [0, 1]."""
+        """测试概率在 [0, 1] 范围内。"""
         gate = ThompsonBernoulliGate(feature_dim=6, seed=0)
         x = np.random.randn(6).astype(np.float32)
 
@@ -31,7 +31,7 @@ class TestThompsonBernoulliGate:
         assert 0 <= prob <= 1
 
     def test_decide_returns_bool(self):
-        """Test that decide returns boolean."""
+        """测试 decide 返回布尔值。"""
         gate = ThompsonBernoulliGate(feature_dim=6, seed=0)
         x = np.random.randn(6).astype(np.float32)
 
@@ -39,7 +39,7 @@ class TestThompsonBernoulliGate:
         assert isinstance(decision, bool)
 
     def test_decide_updates_counts(self):
-        """Test that decide updates encode/skip counts."""
+        """测试 decide 更新编码/跳过计数。"""
         gate = ThompsonBernoulliGate(feature_dim=6, seed=42)
 
         # Run many decisions
@@ -51,7 +51,7 @@ class TestThompsonBernoulliGate:
         assert gate._encode_count + gate._skip_count == 100
 
     def test_pass_rate(self):
-        """Test pass rate computation."""
+        """测试通过率计算。"""
         gate = ThompsonBernoulliGate(feature_dim=6, seed=0)
 
         # No decisions yet
@@ -63,7 +63,7 @@ class TestThompsonBernoulliGate:
         assert gate.pass_rate() == 0.3
 
     def test_update_increments_t(self):
-        """Test that update increments time counter."""
+        """测试 update 增加时间计数器。"""
         gate = ThompsonBernoulliGate(feature_dim=6, seed=0)
         x = np.random.randn(6).astype(np.float32)
 
@@ -74,7 +74,7 @@ class TestThompsonBernoulliGate:
         assert gate.t == 2
 
     def test_update_changes_weights(self):
-        """Test that update changes weight mean."""
+        """测试 update 改变权重均值。"""
         gate = ThompsonBernoulliGate(feature_dim=6, seed=0)
         x = np.array([1.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 
@@ -87,7 +87,7 @@ class TestThompsonBernoulliGate:
         assert not np.allclose(gate.w_mean, initial_w)
 
     def test_learning_from_rewards(self):
-        """Test that consistent rewards affect probability."""
+        """测试一致的奖励影响概率。"""
         gate = ThompsonBernoulliGate(feature_dim=4, seed=42)
 
         # Create a simple pattern: high feature 0 -> should encode
@@ -104,7 +104,7 @@ class TestThompsonBernoulliGate:
         assert avg_prob > 0.5  # Should lean toward encoding
 
     def test_forgetting_factor_maintains_plasticity(self):
-        """Test that forgetting factor prevents precision from exploding."""
+        """测试遗忘因子防止精度爆炸。"""
         gate = ThompsonBernoulliGate(feature_dim=6, seed=0, forgetting_factor=0.99)
         x = np.array([1.0, 1.0, 1.0, 1.0, 1.0, 1.0], dtype=np.float32)
 
@@ -123,7 +123,7 @@ class TestThompsonBernoulliGate:
         assert np.all(final_prec > 0)
 
     def test_serialization(self):
-        """Test state dict serialization and deserialization."""
+        """测试状态字典的序列化和反序列化。"""
         gate1 = ThompsonBernoulliGate(feature_dim=6, seed=123, forgetting_factor=0.95)
 
         # Do some updates
@@ -152,7 +152,7 @@ class TestThompsonBernoulliGate:
         np.testing.assert_array_almost_equal(gate2.grad2, gate1.grad2)
 
     def test_sample_w_uses_precision(self):
-        """Test that sampled weights use precision for variance."""
+        """测试采样权重使用精度计算方差。"""
         gate = ThompsonBernoulliGate(feature_dim=4, seed=42)
 
         # With weak initial precision, samples should vary more
