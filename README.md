@@ -64,17 +64,63 @@ aurora/
 │   ├── aurora_core.py   # 主入口
 │   ├── tension.py       # 矛盾管理
 │   ├── coherence.py     # 一致性
-│   └── self_narrative.py
-├── embeddings/          # 嵌入
+│   ├── self_narrative.py # 自我叙事
+│   ├── entity_tracker.py # 实体追踪
+│   ├── relationship.py   # 关系管理
+│   ├── evolution.py      # 记忆演化
+│   ├── pressure.py       # 压力机制
+│   ├── causal.py         # 因果推理
+│   ├── abstention.py     # 弃权机制
+│   ├── knowledge_classifier.py # 知识分类
+│   ├── components/       # 算法组件
+│   ├── graph/            # 图结构
+│   ├── models/           # 数据模型
+│   ├── narrator/         # 叙事生成
+│   └── retrieval/        # 检索算法
+├── embeddings/          # 嵌入实现
+│   ├── base.py          # 基础接口
+│   ├── ark.py           # Ark 嵌入
+│   ├── bailian.py       # 百炼嵌入
+│   ├── hash.py          # 哈希嵌入
+│   └── local_semantic.py # 本地语义嵌入
+├── llm/                 # LLM 集成
+│   ├── provider.py      # 提供商接口
+│   ├── ark.py           # Ark LLM
+│   ├── prompts.py       # 提示模板
+│   └── schemas.py       # 数据模式
 ├── services/            # CQRS 服务
-├── storage/             # 存储
-└── api/                 # REST API
+│   ├── ingestion.py     # 摄入服务
+│   ├── query.py         # 查询服务
+│   └── worker.py        # 后台任务
+├── storage/             # 存储层
+│   ├── vector_store.py  # 向量存储
+│   ├── doc_store.py     # 文档存储
+│   ├── state_store.py   # 状态存储
+│   ├── event_log.py     # 事件日志
+│   └── snapshot.py      # 快照管理
+├── api/                 # REST API
+│   ├── app.py           # FastAPI 应用
+│   └── schemas.py       # API 模式
+├── benchmark/           # 基准测试
+│   ├── interface.py     # 测试接口
+│   ├── metrics.py       # 评估指标
+│   └── adapters/        # 适配器
+├── mcp/                 # MCP 服务器
+├── privacy/             # 隐私保护
+├── utils/               # 工具函数
+├── cli.py               # 命令行接口
+├── service.py           # 主服务
+└── hub.py               # 中心协调器
 ```
 
 ## 文档
 
-- `docs/AURORA_memory_algorithm.md` - 算法设计
-- `docs/narrative_memory_architecture.md` - 架构说明
+- [AURORA_memory_algorithm.md](docs/AURORA_memory_algorithm.md) - 核心算法设计
+- [narrative_memory_architecture.md](docs/narrative_memory_architecture.md) - 叙事记忆架构
+- [AURORA_production_pack.md](docs/AURORA_production_pack.md) - 生产环境部署
+- [benchmark_guide.md](docs/benchmark_guide.md) - 基准测试指南
+- [longmemeval_sota_analysis.md](docs/longmemeval_sota_analysis.md) - LongMemEval 分析
+- [lessons_learned/](docs/lessons_learned/) - 经验总结
 
 ## 许可
 
