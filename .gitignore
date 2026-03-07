@@ -72,3 +72,9 @@ Thumbs.db
 # Aurora specific
 snapshots/
 *.pkl
+
+# Test results and analysis
+*.json
+!package.json
+!package-lock.json
+!tsconfig.json
