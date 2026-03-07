@@ -1,4 +1,4 @@
-"""Tests for assignment models (CRP, StoryModel, ThemeModel)."""
+"""分配模型（CRP、StoryModel、ThemeModel）的测试。"""
 
 import math
 import numpy as np
@@ -13,10 +13,10 @@ from aurora.utils.time_utils import now_ts
 
 
 class TestCRPAssigner:
-    """Tests for CRPAssigner class."""
+    """CRPAssigner 类的测试。"""
 
     def test_initial_state(self):
-        """Test initial state of CRP assigner."""
+        """测试 CRP 分配器的初始状态。"""
         crp = CRPAssigner(alpha=1.5, seed=42)
         assert crp.alpha == 1.5
         assert crp._seed == 42

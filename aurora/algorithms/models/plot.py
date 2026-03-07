@@ -1,13 +1,13 @@
 """
-AURORA Plot Model
+AURORA Plot 模型
 ==================
 
-Atomic interaction/event memory - the fundamental unit of AURORA memory.
+原子交互/事件记忆 - AURORA 记忆的基本单位。
 
-Enhanced with relational and identity layers:
-- Layer 1 (Factual): What happened (immutable, but can be forgotten)
-- Layer 2 (Relational): The relational context and meaning
-- Layer 3 (Identity): Impact on self-identity (can evolve over time)
+增强了关系层和身份层：
+- 第1层（事实层）：发生了什么（不可变，但可以被遗忘）
+- 第2层（关系层）：关系上下文和含义
+- 第3层（身份层）：对自我身份的影响（可随时间演变）
 """
 
 from __future__ import annotations
@@ -22,70 +22,70 @@ from aurora.utils.time_utils import now_ts
 
 
 # -----------------------------------------------------------------------------
-# Relational and Identity Layer Data Structures
+# 关系层和身份层数据结构
 # -----------------------------------------------------------------------------
 
 @dataclass
 class RelationalContext:
     """
-    The relational layer of a Plot - captures "who I am in this relationship".
-    
-    This is the core innovation: memory is not just about what happened,
-    but about what it means for the relationship and my role in it.
+    Plot 的关系层 - 捕获"我在这段关系中是谁"。
+
+    这是核心创新：记忆不仅仅是关于发生了什么，
+    而是关于它对关系和我在其中的角色意味着什么。
     """
-    with_whom: str                      # Relationship entity ID
-    my_role_in_relation: str            # "Who I am in this relationship"
-    relationship_quality_delta: float   # Impact on relationship quality [-1, 1]
-    what_this_says_about_us: str        # Natural language description of relational meaning
-    
+    with_whom: str                      # 关系实体 ID
+    my_role_in_relation: str            # "我在这段关系中是谁"
+    relationship_quality_delta: float   # 对关系质量的影响 [-1, 1]
+    what_this_says_about_us: str        # 关系含义的自然语言描述
+
     def to_state_dict(self) -> Dict[str, Any]:
-        """Serialize to JSON-compatible dict."""
+        """序列化为 JSON 兼容的字典。"""
         return {
             "with_whom": self.with_whom,
             "my_role_in_relation": self.my_role_in_relation,
             "relationship_quality_delta": self.relationship_quality_delta,
             "what_this_says_about_us": self.what_this_says_about_us,
         }
-    
-    # Backward compatibility alias
+
+    # 向后兼容别名
     to_dict = to_state_dict
-    
+
     @classmethod
     def from_state_dict(cls, d: Dict[str, Any]) -> "RelationalContext":
-        """Reconstruct from state dict."""
+        """从状态字典重构。"""
         return cls(
             with_whom=d["with_whom"],
             my_role_in_relation=d.get("my_role_in_relation", "assistant"),
             relationship_quality_delta=d.get("relationship_quality_delta", 0.0),
             what_this_says_about_us=d.get("what_this_says_about_us", ""),
         )
-    
-    # Backward compatibility alias
+
+    # 向后兼容别名
     from_dict = from_state_dict
 
 
 @dataclass
 class IdentityImpact:
     """
-    The identity layer of a Plot - captures how this experience affects "who I am".
-    
-    Key insight: The meaning of an experience can evolve over time.
-    What seemed like a failure may later be understood as a turning point.
+    Plot 的身份层 - 捕获这个经历如何影响"我是谁"。
+
+    关键洞察：一个经历的含义可以随时间演变。
+    看起来像失败的东西后来可能被理解为转折点。
     """
-    when_formed: float                              # When this interpretation was formed
-    initial_meaning: str                            # Initial understanding
-    current_meaning: str                            # Current understanding (can be updated)
-    identity_dimensions_affected: List[str]         # Which identity dimensions are affected
-    evolution_history: List[Tuple[float, str]]      # (timestamp, meaning) evolution history
-    
+    when_formed: float                              # 何时形成这个解释
+    initial_meaning: str                            # 初始理解
+    current_meaning: str                            # 当前理解（可以更新）
+    identity_dimensions_affected: List[str]         # 哪些身份维度受到影响
+    evolution_history: List[Tuple[float, str]]      # （时间戳，含义）演变历史
+
     def update_meaning(self, new_meaning: str) -> None:
-        """Update the current meaning and record the evolution."""
+        """更新当前含义并记录演变。"""
         if new_meaning != self.current_meaning:
             self.evolution_history.append((now_ts(), self.current_meaning))
             self.current_meaning = new_meaning
-    
+
     def to_state_dict(self) -> Dict[str, Any]:
-        """Serialize to JSON-compatible dict."""
+        """序列化为 JSON 兼容的字典。"""
         return {
             "when_formed": self.when_formed,
             "initial_meaning": self.initial_meaning,
@@ -93,13 +93,13 @@ class IdentityImpact:
             "identity_dimensions_affected": self.identity_dimensions_affected,
             "evolution_history": self.evolution_history,
         }
-    
-    # Backward compatibility alias
+
+    # 向后兼容别名
     to_dict = to_state_dict
-    
+
     @classmethod
     def from_state_dict(cls, d: Dict[str, Any]) -> "IdentityImpact":
-        """Reconstruct from state dict."""
+        """从状态字典重构。"""
         return cls(
             when_formed=d["when_formed"],
             initial_meaning=d["initial_meaning"],
@@ -107,143 +107,143 @@ class IdentityImpact:
             identity_dimensions_affected=d.get("identity_dimensions_affected", []),
             evolution_history=d.get("evolution_history", []),
         )
-    
-    # Backward compatibility alias
+
+    # 向后兼容别名
     from_dict = from_state_dict
 
 
 # -----------------------------------------------------------------------------
-# Plot Model
+# Plot 模型
 # -----------------------------------------------------------------------------
 
 @dataclass
 class Plot:
     """
-    Atomic interaction/event memory with three layers:
-    
-    Layer 1 - Factual (immutable):
-        What happened - the objective event record.
-        
-    Layer 2 - Relational (core):
-        The relational context - "who I am in this relationship".
-        This is the primary organizational dimension.
-        
-    Layer 3 - Identity (evolvable):
-        The identity impact - how this affects "who I am".
-        This can evolve as understanding deepens.
+    原子交互/事件记忆，包含三个层级：
 
-    Attributes:
-        id: Unique identifier
-        ts: Timestamp when the plot was created
-        text: Full interaction text
-        actors: Tuple of actor identifiers involved
-        embedding: Vector embedding of the interaction
+    第1层 - 事实层（不可变）：
+        发生了什么 - 客观事件记录。
 
-    Signals (computed online, no fixed mixing weights):
-        surprise: -log p(x) under OnlineKDE
-        pred_error: Mismatch with best story predictor
-        redundancy: Max similarity to existing plots
-        goal_relevance: Similarity to query/goal context
-        tension: Free-energy proxy
+    第2层 - 关系层（核心）：
+        关系上下文 - "我在这段关系中是谁"。
+        这是主要的组织维度。
 
-    Relational Layer:
-        relational: RelationalContext capturing relationship meaning
-        
-    Identity Layer:
-        identity_impact: IdentityImpact capturing self-identity effects
+    第3层 - 身份层（可演变）：
+        身份影响 - 这如何影响"我是谁"。
+        随着理解的深化可以演变。
 
-    Assignment:
-        story_id: ID of the story this plot belongs to
+    属性:
+        id: 唯一标识符
+        ts: Plot 创建时的时间戳
+        text: 完整交互文本
+        actors: 涉及的参与者标识符元组
+        embedding: 交互的向量嵌入
 
-    Usage stats:
-        access_count: Number of times accessed
-        last_access_ts: Last access timestamp
-        status: Current status (active, absorbed, archived)
+    信号（在线计算，无固定混合权重）：
+        surprise: OnlineKDE 下的 -log p(x)
+        pred_error: 与最佳故事预测器的不匹配
+        redundancy: 与现有 Plot 的最大相似度
+        goal_relevance: 与查询/目标上下文的相似度
+        tension: 自由能代理
+
+    关系层:
+        relational: 捕获关系含义的 RelationalContext
+
+    身份层:
+        identity_impact: 捕获自我身份影响的 IdentityImpact
+
+    分配:
+        story_id: 该 Plot 所属故事的 ID
+
+    使用统计:
+        access_count: 访问次数
+        last_access_ts: 最后访问时间戳
+        status: 当前状态（active、absorbed、archived）
     """
 
-    # === Layer 1: Factual (immutable, but can be forgotten) ===
+    # === 第1层：事实层（不可变，但可以被遗忘）===
     id: str
     ts: float
     text: str
     actors: Tuple[str, ...]
     embedding: np.ndarray
 
-    # Signals computed online (no fixed mixing weights)
+    # 在线计算的信号（无固定混合权重）
     surprise: float = 0.0
     pred_error: float = 0.0
     redundancy: float = 0.0
     goal_relevance: float = 0.0
     tension: float = 0.0
 
-    # === Layer 2: Relational (core - "who I am in this relationship") ===
+    # === 第2层：关系层（核心 - "我在这段关系中是谁"）===
     relational: Optional[RelationalContext] = None
 
-    # === Layer 3: Identity (evolvable - "how this affects who I am") ===
+    # === 第3层：身份层（可演变 - "这如何影响我是谁"）===
     identity_impact: Optional[IdentityImpact] = None
 
-    # Assignment
+    # 分配
     story_id: Optional[str] = None
 
-    # === Knowledge Update Tracking ===
-    # For re-narration: old info is not deleted, but repositioned as "past self"
-    supersedes_id: Optional[str] = None       # ID of the plot this one supersedes/updates
-    superseded_by_id: Optional[str] = None    # ID of the plot that superseded this
+    # === 知识更新追踪 ===
+    # 用于重新叙述：旧信息不被删除，而是重新定位为"过去的自我"
+    supersedes_id: Optional[str] = None       # 该 Plot 替代/更新的 Plot 的 ID
+    superseded_by_id: Optional[str] = None    # 替代该 Plot 的 Plot 的 ID
     update_type: Optional[Literal["state_change", "correction", "refinement"]] = None
     redundancy_type: Optional[Literal["novel", "update", "reinforcement", "pure_redundant"]] = None
-    
-    # === Knowledge Type Classification ===
-    # Used for intelligent conflict resolution (not all contradictions need elimination)
+
+    # === 知识类型分类 ===
+    # 用于智能冲突解决（不是所有矛盾都需要消除）
     knowledge_type: Optional[Literal[
-        "factual_state",    # Mutable facts (address, job) - UPDATE strategy
-        "factual_static",   # Immutable facts (birthday) - CORRECT strategy
-        "identity_trait",   # Personality traits - PRESERVE_BOTH strategy
-        "identity_value",   # Core values - PRESERVE_BOTH strategy
-        "preference",       # Likes/dislikes - EVOLVE strategy
-        "behavior",         # Behavioral patterns - EVOLVE strategy
-        "unknown"           # Cannot classify
+        "factual_state",    # 可变事实（地址、工作）- UPDATE 策略
+        "factual_static",   # 不可变事实（生日）- CORRECT 策略
+        "identity_trait",   # 性格特征 - PRESERVE_BOTH 策略
+        "identity_value",   # 核心价值观 - PRESERVE_BOTH 策略
+        "preference",       # 喜好/厌恶 - EVOLVE 策略
+        "behavior",         # 行为模式 - EVOLVE 策略
+        "unknown"           # 无法分类
     ]] = None
-    knowledge_confidence: float = 0.0  # Confidence in classification [0, 1]
+    knowledge_confidence: float = 0.0  # 分类置信度 [0, 1]
 
-    # === Phase 5: Fact-Enhanced Indexing ===
-    # Fact keys extracted from text for multi-session recall enhancement
-    fact_keys: List[str] = field(default_factory=list)  # Extracted fact strings for indexing
+    # === 第5阶段：事实增强索引 ===
+    # 从文本中提取的事实键，用于多会话回忆增强
+    fact_keys: List[str] = field(default_factory=list)  # 用于索引的提取事实字符串
 
-    # Usage stats -> "mass" emerges
+    # 使用统计 -> "质量"涌现
     access_count: int = 0
     last_access_ts: float = field(default_factory=now_ts)
     status: Literal["active", "absorbed", "archived", "superseded", "corrected"] = "active"
 
     def mass(self) -> float:
         """
-        Emergent inertia: increases with access frequency, decreases with age.
+        涌现惯性：随访问频率增加而增加，随年龄增加而减少。
 
-        Returns:
-            Mass value combining freshness and access count
+        返回:
+            结合新鲜度和访问计数的质量值
         """
         age = max(1.0, now_ts() - self.ts)
         freshness = 1.0 / math.log1p(age)
         return freshness * math.log1p(self.access_count + 1)
     
     def get_relationship_entity(self) -> Optional[str]:
-        """Get the relationship entity ID from relational context."""
+        """从关系上下文获取关系实体 ID。"""
         return self.relational.with_whom if self.relational else None
     
     def get_my_role(self) -> str:
-        """Get my role in the relationship."""
+        """获取我在关系中的角色。"""
         return self.relational.my_role_in_relation if self.relational else "assistant"
     
     def has_identity_impact(self) -> bool:
-        """Check if this plot has identity impact."""
+        """检查该 Plot 是否有身份影响。"""
         return self.identity_impact is not None
     
     def get_identity_dimensions(self) -> List[str]:
-        """Get the identity dimensions affected by this plot."""
+        """获取该 Plot 影响的身份维度。"""
         if self.identity_impact:
             return self.identity_impact.identity_dimensions_affected
         return []
 
     def to_state_dict(self) -> Dict[str, Any]:
-        """Serialize to JSON-compatible dict."""
+        """序列化为 JSON 兼容的字典。"""
         result = {
             "id": self.id,
             "ts": self.ts,
@@ -267,26 +267,26 @@ class Plot:
             "last_access_ts": self.last_access_ts,
             "status": self.status,
         }
-        
-        # Add relational context if present
+
+        # 如果存在关系上下文则添加
         if self.relational is not None:
             result["relational"] = self.relational.to_state_dict()
-        
-        # Add identity impact if present
+
+        # 如果存在身份影响则添加
         if self.identity_impact is not None:
             result["identity_impact"] = self.identity_impact.to_state_dict()
-        
+
         return result
 
     @classmethod
     def from_state_dict(cls, d: Dict[str, Any]) -> "Plot":
-        """Reconstruct from state dict."""
-        # Parse relational context if present
+        """从状态字典重构。"""
+        # 如果存在则解析关系上下文
         relational = None
         if "relational" in d and d["relational"] is not None:
             relational = RelationalContext.from_state_dict(d["relational"])
-        
-        # Parse identity impact if present
+
+        # 如果存在则解析身份影响
         identity_impact = None
         if "identity_impact" in d and d["identity_impact"] is not None:
             identity_impact = IdentityImpact.from_state_dict(d["identity_impact"])

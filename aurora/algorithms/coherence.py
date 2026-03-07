@@ -1,15 +1,15 @@
 """
-AURORA Coherence Guardian Module
+AURORA 连贯性守护模块
 ================================
 
-Maintains narrative and factual coherence without hard-coded rules.
-All consistency judgments are probabilistic.
+在没有硬编码规则的情况下维护叙述和事实连贯性。
+所有一致性判断都是概率性的。
 
-Key components:
-- ContradictionDetector: Probabilistic contradiction detection
-- CoherenceScorer: Compute global coherence score
-- ConflictResolver: Automated conflict resolution strategies
-- BeliefNetwork: Probabilistic belief propagation
+关键组件：
+- ContradictionDetector：概率性矛盾检测
+- CoherenceScorer：计算全局连贯性分数
+- ConflictResolver：自动冲突解决策略
+- BeliefNetwork：概率性信念传播
 """
 
 from __future__ import annotations
@@ -50,79 +50,79 @@ from aurora.utils.embedding_utils import get_embedding_from_object
 
 
 # -----------------------------------------------------------------------------
-# Data Structures
+# 数据结构
 # -----------------------------------------------------------------------------
 
 class ConflictType(Enum):
-    """Types of coherence conflicts"""
-    FACTUAL = "factual"           # Contradicting facts
-    TEMPORAL = "temporal"         # Timeline inconsistency
-    CAUSAL = "causal"             # Causal cycle or paradox
-    THEMATIC = "thematic"         # Conflicting themes
-    SELF_NARRATIVE = "self"       # Self-narrative inconsistency
+    """连贯性冲突的类型"""
+    FACTUAL = "factual"           # 矛盾的事实
+    TEMPORAL = "temporal"         # 时间线不一致
+    CAUSAL = "causal"             # 因果循环或悖论
+    THEMATIC = "thematic"         # 冲突的主题
+    SELF_NARRATIVE = "self"       # 自我叙述不一致
 
 
 @dataclass
 class Conflict:
-    """Detected coherence conflict"""
+    """检测到的连贯性冲突"""
     type: ConflictType
     node_a: str
     node_b: str
-    
-    # Probabilistic severity (not a hard threshold)
-    severity: float  # 0-1, higher = more severe
-    confidence: float  # 0-1, how confident in this detection
-    
+
+    # 概率性严重程度（不是硬阈值）
+    severity: float  # 0-1，越高越严重
+    confidence: float  # 0-1，对此检测的置信度
+
     description: str
     evidence: List[str] = field(default_factory=list)
-    
-    # Potential resolutions
+
+    # 潜在的解决方案
     resolutions: List['Resolution'] = field(default_factory=list)
 
 
 @dataclass
 class Resolution:
-    """Proposed resolution for a conflict"""
+    """冲突的建议解决方案"""
     strategy: str  # "weaken", "condition", "merge", "remove"
     target_node: str
     action_description: str
-    
-    # Expected outcomes
+
+    # 预期结果
     expected_coherence_gain: float
-    cost: float  # Information loss or complexity
-    
-    # Conditions under which this resolution applies
+    cost: float  # 信息丢失或复杂性
+
+    # 此解决方案适用的条件
     condition: Optional[str] = None
 
 
 @dataclass
 class CoherenceReport:
-    """Full coherence analysis report"""
-    overall_score: float  # 0-1, higher = more coherent
-    
+    """完整的连贯性分析报告"""
+    overall_score: float  # 0-1，越高越连贯
+
     conflicts: List[Conflict]
     unfinished_stories: List[str]
     orphan_plots: List[str]
-    
-    # Per-type scores
+
+    # 按类型的分数
     factual_coherence: float
     temporal_coherence: float
     causal_coherence: float
     thematic_coherence: float
-    
+
     recommended_actions: List[Resolution]
 
 
 # -----------------------------------------------------------------------------
-# Belief Network (Probabilistic Coherence)
+# 信念网络（概率性连贯性）
 # -----------------------------------------------------------------------------
 
 class BeliefNetwork:
     """
-    Probabilistic belief network for coherence reasoning.
-    
-    Each node has a belief state (probability distribution).
-    Conflicts arise when connected beliefs are incompatible.
+    用于连贯性推理的概率性信念网络。
+
+    每个节点都有一个信念状态（概率分布）。
+    当连接的信念不兼容时会产生冲突。
     """
     
     def __init__(self):
@@ -135,13 +135,13 @@ class BeliefNetwork:
         prior: float,
         evidence_strength: float = 1.0,
     ) -> None:
-        """Add a belief node"""
+        """添加信念节点"""
         self.graph.add_node(node_id)
         self.beliefs[node_id] = BeliefState(
             prior=prior,
             evidence_strength=evidence_strength,
         )
-    
+
     def add_dependency(
         self,
         from_id: str,
@@ -149,7 +149,7 @@ class BeliefNetwork:
         dependency_type: str,  # "supports", "contradicts"
         strength: float,
     ) -> None:
-        """Add dependency between beliefs"""
+        """添加信念之间的依赖关系"""
         self.graph.add_edge(
             from_id, to_id,
             type=dependency_type,
@@ -158,81 +158,81 @@ class BeliefNetwork:
     
     def propagate_beliefs(self, iterations: int = BELIEF_PROPAGATION_ITERATIONS) -> Dict[str, float]:
         """
-        Propagate beliefs through network.
-        Returns final belief probabilities.
+        通过网络传播信念。
+        返回最终的信念概率。
         """
         probabilities = {
             node_id: state.prior
             for node_id, state in self.beliefs.items()
         }
-        
+
         for _ in range(iterations):
             new_probs = {}
-            
+
             for node_id in self.graph.nodes():
                 if node_id not in self.beliefs:
                     continue
-                
+
                 base_prob = self.beliefs[node_id].prior
                 evidence = self.beliefs[node_id].evidence_strength
-                
-                # Aggregate influence from neighbors
+
+                # 聚合来自邻居的影响
                 support = 0.0
                 contradiction = 0.0
-                
+
                 for pred in self.graph.predecessors(node_id):
                     edge = self.graph.edges[pred, node_id]
                     pred_prob = probabilities.get(pred, 0.5)
-                    
+
                     if edge['type'] == 'supports':
                         support += edge['strength'] * pred_prob
                     elif edge['type'] == 'contradicts':
                         contradiction += edge['strength'] * pred_prob
-                
-                # Update probability
+
+                # 更新概率
                 influence = support - contradiction
                 updated = sigmoid(
                     math.log(base_prob / (1 - base_prob + 1e-9) + 1e-9) +
                     evidence * influence
                 )
-                
+
                 new_probs[node_id] = updated
-            
+
             probabilities = new_probs
-        
+
         return probabilities
 
 
 @dataclass
 class BeliefState:
-    """State of a belief in the network"""
+    """网络中信念的状态"""
     prior: float
     evidence_strength: float
     last_updated: float = field(default_factory=now_ts)
 
 
 # -----------------------------------------------------------------------------
-# Contradiction Detector
+# 矛盾检测器
 # -----------------------------------------------------------------------------
 
 class ContradictionDetector:
     """
-    Detect contradictions between memory elements.
-    
-    Uses multiple signals combined probabilistically:
-    - Semantic opposition
-    - Temporal impossibility
-    - Causal inconsistency
-    - Claim conflicts
+    检测内存元素之间的矛盾。
+
+    使用多个信号概率性地组合：
+    - 语义对立
+    - 时间不可能性
+    - 因果不一致
+    - 声明冲突
     """
     
     def __init__(self, metric: LowRankMetric, seed: int = 0):
         self.metric = metric
         self.rng = np.random.default_rng(seed)
-        
-        # Opposition patterns (learned from data, not hard-coded)
+
+        # 对立模式（从数据学习，不是硬编码）
         self.opposition_patterns: List[Tuple[np.ndarray, np.ndarray]] = []
-    
+
     def detect_contradiction(
         self,
         a: MemoryElement,
@@ -240,183 +240,183 @@ class ContradictionDetector:
         context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[float, str]:
         """
-        Detect if a and b contradict each other.
-        
-        Returns:
-            (probability, explanation)
+        检测 a 和 b 是否相互矛盾。
+
+        返回：
+            (概率，解释)
         """
         log_odds_contradiction = 0.0
         explanations = []
-        
-        # Get embeddings
+
+        # 获取嵌入
         emb_a = self._get_embedding(a)
         emb_b = self._get_embedding(b)
-        
+
         if emb_a is None or emb_b is None:
             return 0.0, "Cannot compare: missing embeddings"
-        
-        # 1. Semantic opposition detection
+
+        # 1. 语义对立检测
         opposition_score = self._semantic_opposition_score(emb_a, emb_b)
         if opposition_score > OPPOSITION_SCORE_THRESHOLD:
             log_odds_contradiction += opposition_score * 2
             explanations.append(f"Semantic opposition ({opposition_score:.2f})")
-        
-        # 2. Polarity inversion (for claims/themes)
+
+        # 2. 极性反转（用于声明/主题）
         polarity_conflict = self._check_polarity_conflict(a, b)
         if polarity_conflict > 0:
             log_odds_contradiction += polarity_conflict
             explanations.append("Polarity conflict detected")
-        
-        # 3. Temporal impossibility
+
+        # 3. 时间不可能性
         temporal_conflict = self._check_temporal_conflict(a, b)
         if temporal_conflict > 0:
             log_odds_contradiction += temporal_conflict
             explanations.append("Temporal inconsistency")
-        
-        # 4. Actor contradiction (same actor, incompatible states)
+
+        # 4. 行为者矛盾（同一行为者，不兼容的状态）
         actor_conflict = self._check_actor_conflict(a, b)
         if actor_conflict > 0:
             log_odds_contradiction += actor_conflict
             explanations.append("Actor state conflict")
-        
-        # Convert to probability
+
+        # 转换为概率
         p_contradiction = sigmoid(log_odds_contradiction)
         explanation = "; ".join(explanations) if explanations else "No contradiction detected"
-        
+
         return p_contradiction, explanation
     
     def _get_embedding(self, obj: MemoryElement) -> Optional[np.ndarray]:
-        """Extract embedding from various object types."""
+        """从各种对象类型提取嵌入。"""
         return get_embedding_from_object(obj)
-    
+
     def _semantic_opposition_score(
         self,
         emb_a: np.ndarray,
         emb_b: np.ndarray,
     ) -> float:
         """
-        Detect semantic opposition.
-        
-        Opposition is not just low similarity - it's active contradiction.
-        We look for vectors that point in "opposite" directions in certain subspaces.
+        检测语义对立。
+
+        对立不仅仅是低相似性 - 它是主动矛盾。
+        我们在某些子空间中寻找指向"相反"方向的向量。
         """
-        # Basic similarity
+        # 基本相似性
         sim = cosine_sim(emb_a, emb_b)
-        
-        # If highly similar, not contradicting
+
+        # 如果高度相似，则不矛盾
         if sim > HIGH_SIMILARITY_THRESHOLD:
             return 0.0
-        
-        # If anti-correlated (pointing opposite), stronger contradiction signal
+
+        # 如果反相关（指向相反），更强的矛盾信号
         if sim < ANTI_CORRELATION_THRESHOLD:
             return abs(sim)
-        
-        # Check learned opposition patterns
+
+        # 检查学习的对立模式
         for pos_pattern, neg_pattern in self.opposition_patterns:
             proj_a = np.dot(emb_a, pos_pattern)
             proj_b = np.dot(emb_b, neg_pattern)
-            
+
             if proj_a > 0.5 and proj_b > 0.5:
-                return 0.7  # Matches opposition pattern
-        
-        # Moderate similarity but different clusters
+                return 0.7  # 匹配对立模式
+
+        # 中等相似性但不同的簇
         if 0.2 < sim < 0.5:
             return 0.3 * (0.5 - sim)
-        
+
         return 0.0
     
     def _check_polarity_conflict(self, a: MemoryElement, b: MemoryElement) -> float:
-        """Check for polarity conflicts in claims/themes"""
-        # Extract polarity if available
+        """检查声明/主题中的极性冲突"""
+        # 提取极性（如果可用）
         polarity_a = getattr(a, 'polarity', None) or getattr(a, 'emotion_valence', 0)
         polarity_b = getattr(b, 'polarity', None) or getattr(b, 'emotion_valence', 0)
-        
+
         if isinstance(polarity_a, str):
             polarity_a = 1.0 if polarity_a == 'positive' else -1.0
         if isinstance(polarity_b, str):
             polarity_b = 1.0 if polarity_b == 'positive' else -1.0
-        
-        # Check subject/predicate match with opposite polarity
+
+        # 检查主语/谓语匹配且极性相反
         subject_a = getattr(a, 'subject', '') or ''
         subject_b = getattr(b, 'subject', '') or ''
         predicate_a = getattr(a, 'predicate', '') or ''
         predicate_b = getattr(b, 'predicate', '') or ''
-        
+
         if subject_a and subject_b:
-            # Same subject, same predicate, opposite polarity
+            # 相同主语，相同谓语，相反极性
             if subject_a.lower() == subject_b.lower():
                 if predicate_a.lower() == predicate_b.lower():
                     if polarity_a * polarity_b < 0:
                         return 1.5
-        
+
         return 0.0
     
     def _check_temporal_conflict(self, a: MemoryElement, b: MemoryElement) -> float:
-        """Check for temporal impossibilities"""
+        """检查时间不可能性"""
         ts_a = getattr(a, 'ts', None) or getattr(a, 'timestamp', None)
         ts_b = getattr(b, 'ts', None) or getattr(b, 'timestamp', None)
-        
+
         if ts_a is None or ts_b is None:
             return 0.0
-        
-        # Check for claims about the same time period with conflicts
-        # This would require more sophisticated temporal reasoning
-        # For now, return 0
+
+        # 检查关于同一时间段的声明是否存在冲突
+        # 这需要更复杂的时间推理
+        # 目前返回 0
         return 0.0
-    
+
     def _check_actor_conflict(self, a: MemoryElement, b: MemoryElement) -> float:
-        """Check if same actor has incompatible states"""
+        """检查同一行为者是否具有不兼容的状态"""
         actors_a = set(getattr(a, 'actors', []) or [])
         actors_b = set(getattr(b, 'actors', []) or [])
-        
+
         shared = actors_a & actors_b
         if not shared:
             return 0.0
-        
-        # If same actors and embeddings are very different, possible conflict
+
+        # 如果相同行为者且嵌入差异很大，可能存在冲突
         emb_a = self._get_embedding(a)
         emb_b = self._get_embedding(b)
-        
+
         if emb_a is not None and emb_b is not None:
             sim = cosine_sim(emb_a, emb_b)
             if sim < 0.3:
                 return 0.5 * len(shared) * (0.3 - sim)
-        
+
         return 0.0
-    
+
     def learn_opposition_pattern(
         self,
         positive_examples: List[np.ndarray],
         negative_examples: List[np.ndarray],
     ) -> None:
-        """Learn an opposition pattern from examples"""
+        """从示例学习对立模式"""
         if not positive_examples or not negative_examples:
             return
-        
+
         pos_mean = np.mean(positive_examples, axis=0)
         neg_mean = np.mean(negative_examples, axis=0)
-        
+
         pos_pattern = l2_normalize(pos_mean)
         neg_pattern = l2_normalize(neg_mean)
-        
+
         self.opposition_patterns.append((pos_pattern, neg_pattern))
 
 
 # -----------------------------------------------------------------------------
-# Coherence Scorer
+# 连贯性评分器
 # -----------------------------------------------------------------------------
 
 class CoherenceScorer:
     """
-    Compute overall coherence score for the memory system.
-    
-    Coherence is measured across multiple dimensions:
-    - Factual consistency
-    - Temporal consistency
-    - Causal consistency
-    - Thematic consistency
+    计算内存系统的整体连贯性分数。
+
+    连贯性在多个维度上测量：
+    - 事实一致性
+    - 时间一致性
+    - 因果一致性
+    - 主题一致性
     """
-    
+
     def __init__(
         self,
         metric: LowRankMetric,
@@ -426,7 +426,7 @@ class CoherenceScorer:
         self.metric = metric
         self.detector = detector
         self.rng = np.random.default_rng(seed)
-    
+
     def compute_coherence(
         self,
         graph: MemoryGraph,
@@ -435,42 +435,42 @@ class CoherenceScorer:
         themes: Dict[str, Theme],
         causal_beliefs: Optional[Dict[Tuple[str, str], CausalEdgeBelief]] = None,
     ) -> CoherenceReport:
-        """Compute full coherence report"""
+        """计算完整的连贯性报告"""
         conflicts = []
-        
-        # 1. Check factual coherence (plot-level contradictions)
+
+        # 1. 检查事实连贯性（情节级矛盾）
         factual_conflicts, factual_score = self._check_factual_coherence(plots)
         conflicts.extend(factual_conflicts)
-        
-        # 2. Check temporal coherence
+
+        # 2. 检查时间连贯性
         temporal_conflicts, temporal_score = self._check_temporal_coherence(plots, stories)
         conflicts.extend(temporal_conflicts)
-        
-        # 3. Check causal coherence
+
+        # 3. 检查因果连贯性
         if causal_beliefs:
             causal_conflicts, causal_score = self._check_causal_coherence(causal_beliefs)
             conflicts.extend(causal_conflicts)
         else:
             causal_score = 1.0
-        
-        # 4. Check thematic coherence
+
+        # 4. 检查主题连贯性
         thematic_conflicts, thematic_score = self._check_thematic_coherence(themes)
         conflicts.extend(thematic_conflicts)
-        
-        # 5. Find unfinished stories
+
+        # 5. 查找未完成的故事
         unfinished = [
             s.id for s in stories.values()
             if s.status == 'developing' and
             (now_ts() - s.updated_ts) > UNFINISHED_STORY_HOURS * 3600
         ]
-        
-        # 6. Find orphan plots
+
+        # 6. 查找孤立的情节
         orphans = [
             p.id for p in plots.values()
             if p.story_id is None and p.status == 'active'
         ]
-        
-        # Compute overall score (weighted geometric mean)
+
+        # 计算整体分数（加权几何平均）
         weights = [
             COHERENCE_WEIGHTS["factual"],
             COHERENCE_WEIGHTS["temporal"],
@@ -478,13 +478,13 @@ class CoherenceScorer:
             COHERENCE_WEIGHTS["thematic"],
         ]
         scores = [factual_score, temporal_score, causal_score, thematic_score]
-        
+
         log_score = sum(w * math.log(s + 1e-9) for w, s in zip(weights, scores))
         overall_score = math.exp(log_score)
-        
-        # Generate recommended actions
+
+        # 生成建议的行动
         recommendations = self._generate_recommendations(conflicts)
-        
+
         return CoherenceReport(
             overall_score=overall_score,
             conflicts=conflicts,
@@ -501,26 +501,26 @@ class CoherenceScorer:
         self,
         plots: Dict[str, Plot],
     ) -> Tuple[List[Conflict], float]:
-        """Check for factual contradictions between plots"""
+        """检查情节之间的事实矛盾"""
         conflicts = []
         total_pairs = 0
         contradiction_sum = 0.0
-        
+
         plot_list = list(plots.values())
-        
-        # Sample pairs for efficiency
+
+        # 为了效率对对进行采样
         max_pairs = min(MAX_COHERENCE_PAIRS, len(plot_list) * (len(plot_list) - 1) // 2)
-        
+
         for i, p1 in enumerate(plot_list):
             for p2 in plot_list[i+1:]:
                 if total_pairs >= max_pairs:
                     break
-                
+
                 total_pairs += 1
                 prob, explanation = self.detector.detect_contradiction(p1, p2)
                 contradiction_sum += prob
-                
-                if prob > 0.6:  # Soft threshold for reporting
+
+                if prob > 0.6:  # 报告的软阈值
                     conflicts.append(Conflict(
                         type=ConflictType.FACTUAL,
                         node_a=p1.id,
@@ -529,41 +529,41 @@ class CoherenceScorer:
                         confidence=0.7,
                         description=explanation,
                     ))
-        
-        # Score = 1 - average contradiction probability
+
+        # 分数 = 1 - 平均矛盾概率
         avg_contradiction = contradiction_sum / max(total_pairs, 1)
         score = 1.0 - avg_contradiction
-        
+
         return conflicts, score
-    
+
     def _check_temporal_coherence(
         self,
         plots: Dict[str, Plot],
         stories: Dict[str, StoryArc],
     ) -> Tuple[List[Conflict], float]:
-        """Check temporal consistency within stories"""
+        """检查故事内的时间一致性"""
         conflicts = []
         inconsistency_count = 0
         total_checks = 0
-        
+
         for story in stories.values():
             if len(story.plot_ids) < 2:
                 continue
-            
-            # Get plots in story
+
+            # 获取故事中的情节
             story_plots = [plots[pid] for pid in story.plot_ids if pid in plots]
             story_plots.sort(key=lambda p: p.ts)
-            
-            # Check if sequence makes sense
+
+            # 检查序列是否合理
             for i in range(len(story_plots) - 1):
                 total_checks += 1
-                
+
                 p1, p2 = story_plots[i], story_plots[i+1]
-                
-                # Check for unreasonable time gaps
+
+                # 检查不合理的时间间隙
                 gap = p2.ts - p1.ts
                 if gap < 0:
-                    # Time travel! Definite inconsistency
+                    # 时间旅行！明确的不一致
                     inconsistency_count += 1
                     conflicts.append(Conflict(
                         type=ConflictType.TEMPORAL,
@@ -573,7 +573,7 @@ class CoherenceScorer:
                         confidence=1.0,
                         description="Temporal ordering violation",
                     ))
-        
+
         score = 1.0 - (inconsistency_count / max(total_checks, 1))
         return conflicts, score
     
@@ -581,19 +581,19 @@ class CoherenceScorer:
         self,
         causal_beliefs: Dict[Tuple[str, str], CausalEdgeBelief],
     ) -> Tuple[List[Conflict], float]:
-        """Check causal graph for cycles and paradoxes"""
+        """检查因果图中的循环和悖论"""
         conflicts = []
-        
-        # Build causal DAG
+
+        # 构建因果有向无环图（DAG）
         dag = nx.DiGraph()
         for (src, tgt), belief in causal_beliefs.items():
             if belief.direction_belief() > 0.5:
                 dag.add_edge(src, tgt, weight=belief.effective_causal_weight())
-        
-        # Check for cycles
+
+        # 检查循环
         cycles = list(nx.simple_cycles(dag))
-        
-        for cycle in cycles[:10]:  # Limit reported cycles
+
+        for cycle in cycles[:10]:  # 限制报告的循环
             conflicts.append(Conflict(
                 type=ConflictType.CAUSAL,
                 node_a=cycle[0],
@@ -603,41 +603,41 @@ class CoherenceScorer:
                 description=f"Causal cycle detected: {' → '.join(cycle[:5])}...",
                 evidence=cycle,
             ))
-        
-        # Score based on cycle count
+
+        # 基于循环数的分数
         cycle_penalty = len(cycles) * 0.1
         score = max(0.0, 1.0 - cycle_penalty)
-        
+
         return conflicts, score
     
     def _check_thematic_coherence(
         self,
         themes: Dict[str, Theme],
     ) -> Tuple[List[Conflict], float]:
-        """Check for conflicting themes"""
+        """检查冲突的主题"""
         conflicts = []
         conflict_count = 0
         total_pairs = 0
-        
+
         theme_list = list(themes.values())
-        
+
         for i, t1 in enumerate(theme_list):
             for t2 in theme_list[i+1:]:
                 total_pairs += 1
-                
+
                 prob, explanation = self.detector.detect_contradiction(t1, t2)
-                
+
                 if prob > 0.5:
                     conflict_count += 1
-                    
-                    # Check if they share supporting stories
+
+                    # 检查它们是否共享支持的故事
                     shared_stories = set(t1.story_ids) & set(t2.story_ids)
-                    
+
                     if shared_stories:
-                        severity = prob * 1.2  # Higher severity if shared evidence
+                        severity = prob * 1.2  # 如果有共享证据，严重程度更高
                     else:
                         severity = prob * 0.8
-                    
+
                     conflicts.append(Conflict(
                         type=ConflictType.THEMATIC,
                         node_a=t1.id,
@@ -647,23 +647,23 @@ class CoherenceScorer:
                         description=f"Themes may conflict: {explanation}",
                         evidence=list(shared_stories),
                     ))
-        
+
         score = 1.0 - (conflict_count / max(total_pairs, 1))
         return conflicts, score
-    
+
     def _generate_recommendations(
         self,
         conflicts: List[Conflict],
     ) -> List[Resolution]:
-        """Generate resolution recommendations for conflicts"""
+        """为冲突生成解决方案建议"""
         recommendations = []
-        
-        # Sort by severity
+
+        # 按严重程度排序
         sorted_conflicts = sorted(conflicts, key=lambda c: c.severity, reverse=True)
-        
-        for conflict in sorted_conflicts[:5]:  # Top 5 recommendations
+
+        for conflict in sorted_conflicts[:5]:  # 前 5 个建议
             if conflict.type == ConflictType.FACTUAL:
-                # Recommend conditioning or weakening
+                # 建议条件化或削弱
                 recommendations.append(Resolution(
                     strategy="condition",
                     target_node=conflict.node_a,
@@ -672,9 +672,9 @@ class CoherenceScorer:
                     cost=0.1,
                     condition="Different contexts may apply",
                 ))
-            
+
             elif conflict.type == ConflictType.CAUSAL:
-                # Recommend removing weakest edge in cycle
+                # 建议移除循环中最弱的边
                 recommendations.append(Resolution(
                     strategy="remove",
                     target_node=conflict.node_a,
@@ -682,9 +682,9 @@ class CoherenceScorer:
                     expected_coherence_gain=conflict.severity * 0.8,
                     cost=0.2,
                 ))
-            
+
             elif conflict.type == ConflictType.THEMATIC:
-                # Recommend merging into conditional theme
+                # 建议合并为条件主题
                 recommendations.append(Resolution(
                     strategy="merge",
                     target_node=conflict.node_a,
@@ -692,29 +692,29 @@ class CoherenceScorer:
                     expected_coherence_gain=conflict.severity * 0.6,
                     cost=0.3,
                 ))
-        
+
         return recommendations
 
 
 # -----------------------------------------------------------------------------
-# Conflict Resolver
+# 冲突解决器
 # -----------------------------------------------------------------------------
 
 class ConflictResolver:
     """
-    Automatically resolve coherence conflicts.
-    
-    Strategies:
-    - Weaken: Reduce confidence in conflicting element
-    - Condition: Add conditions to make both true
-    - Merge: Combine into more general element
-    - Remove: Archive low-confidence element
+    自动解决连贯性冲突。
+
+    策略：
+    - Weaken：降低冲突元素的置信度
+    - Condition：添加条件使两者都为真
+    - Merge：合并为更一般的元素
+    - Remove：归档低置信度元素
     """
-    
+
     def __init__(self, metric: LowRankMetric, seed: int = 0):
         self.metric = metric
         self.rng = np.random.default_rng(seed)
-    
+
     def resolve(
         self,
         conflict: Conflict,
@@ -724,86 +724,85 @@ class ConflictResolver:
         themes: Dict[str, Theme],
     ) -> bool:
         """
-        Attempt to resolve a conflict.
-        Returns True if resolution was applied.
+        尝试解决冲突。
+        如果应用了解决方案，返回 True。
         """
         if not conflict.resolutions:
             return False
-        
-        # Pick best resolution (lowest cost that meets gain threshold)
+
+        # 选择最佳解决方案（成本最低且满足收益阈值）
         best = min(
             conflict.resolutions,
             key=lambda r: r.cost - r.expected_coherence_gain
         )
-        
+
         if best.expected_coherence_gain < 0.1:
-            return False  # Not worth it
-        
+            return False  # 不值得
+
         return self._apply_resolution(best, plots, stories, themes)
-    
+
     def _apply_resolution(
         self,
         resolution: Resolution,
-        plots: Dict[str, Plot],
         stories: Dict[str, StoryArc],
         themes: Dict[str, Theme],
     ) -> bool:
-        """Apply a specific resolution strategy"""
-        
+        """应用特定的解决策略"""
+
         if resolution.strategy == "weaken":
-            # Reduce confidence/evidence
+            # 降低置信度/证据
             if resolution.target_node in themes:
                 theme = themes[resolution.target_node]
-                theme.b += 1.0  # Increase negative evidence
+                theme.b += 1.0  # 增加负证据
                 return True
-        
+
         elif resolution.strategy == "condition":
-            # Add condition annotation
+            # 添加条件注释
             if resolution.target_node in themes:
                 theme = themes[resolution.target_node]
                 theme.description += f" (Condition: {resolution.condition})"
                 return True
-        
+
         elif resolution.strategy == "remove":
-            # Mark for archival (soft delete)
+            # 标记为归档（软删除）
             if resolution.target_node in plots:
                 plots[resolution.target_node].status = "archived"
                 return True
-        
+
         return False
 
 
 # -----------------------------------------------------------------------------
-# Coherence Guardian (Main Interface)
+# 连贯性守护者（主接口）
 # -----------------------------------------------------------------------------
 
 class CoherenceGuardian:
     """
-    Main interface for coherence maintenance with FUNCTIONAL CONTRADICTION MANAGEMENT.
-    
-    Key philosophy change:
-    - Not all contradictions need resolution
-    - Some contradictions provide flexibility (adaptive)
-    - Some contradictions indicate growth (developmental)
-    - Only action-blocking or identity-threatening contradictions must be resolved
-    
-    Integrates TensionManager for intelligent contradiction handling.
+    连贯性维护的主接口，具有功能性矛盾管理。
+
+    关键哲学变化：
+    - 并非所有矛盾都需要解决
+    - 某些矛盾提供灵活性（适应性）
+    - 某些矛盾表示增长（发展性）
+    - 只有阻止行动或威胁身份的矛盾必须解决
+
+    集成 TensionManager 进行智能矛盾处理。
     """
-    
+
     def __init__(self, metric: LowRankMetric, seed: int = 0):
         self.metric = metric
         self.detector = ContradictionDetector(metric, seed)
         self.scorer = CoherenceScorer(metric, self.detector, seed)
         self.resolver = ConflictResolver(metric, seed)
         self.belief_network = BeliefNetwork()
-        
-        # TensionManager for functional contradiction management
+
+        # 用于功能性矛盾管理的 TensionManager
         self.tension_manager = TensionManager(seed=seed)
-        
-        # KnowledgeClassifier for intelligent conflict resolution
-        # Not all contradictions need elimination - some should be preserved
+
+        # 用于智能冲突解决的 KnowledgeClassifier
+        # 并非所有矛盾都需要消除 - 某些应该保留
         self.knowledge_classifier = KnowledgeClassifier(seed=seed)
-    
+
     def full_check(
         self,
         graph: MemoryGraph,
@@ -812,11 +811,11 @@ class CoherenceGuardian:
         themes: Dict[str, Theme],
         causal_beliefs: Optional[Dict[Tuple[str, str], CausalEdgeBelief]] = None,
     ) -> CoherenceReport:
-        """Run full coherence check"""
+        """运行完整的连贯性检查"""
         return self.scorer.compute_coherence(
             graph, plots, stories, themes, causal_beliefs
         )
-    
+
     def full_check_with_tension_analysis(
         self,
         graph: MemoryGraph,
@@ -826,35 +825,35 @@ class CoherenceGuardian:
         causal_beliefs: Optional[Dict[Tuple[str, str], CausalEdgeBelief]] = None,
     ) -> Tuple[CoherenceReport, Dict[str, Any]]:
         """
-        Run full coherence check with tension analysis.
-        
-        Returns:
+        运行完整的连贯性检查并进行张力分析。
+
+        返回：
             (CoherenceReport, tension_analysis)
-            
-        The tension_analysis includes:
-        - conflicts_to_resolve: Conflicts that must be resolved
-        - conflicts_to_preserve: Conflicts that provide flexibility
-        - conflicts_to_accept: Conflicts that indicate growth
+
+        tension_analysis 包括：
+        - conflicts_to_resolve：必须解决的冲突
+        - conflicts_to_preserve：提供灵活性的冲突
+        - conflicts_to_accept：表示增长的冲突
         """
         report = self.scorer.compute_coherence(
             graph, plots, stories, themes, causal_beliefs
         )
-        
-        # Analyze each conflict through the tension lens
+
+        # 通过张力视角分析每个冲突
         conflicts_to_resolve = []
         conflicts_to_preserve = []
         conflicts_to_accept = []
         conflicts_to_defer = []
-        
+
         for conflict in report.conflicts:
-            # Convert Conflict to Tension for analysis
+            # 将 Conflict 转换为 Tension 进行分析
             tension = self._conflict_to_tension(conflict, plots, stories, themes)
             if tension is None:
                 continue
-            
-            # Classify and decide what to do
+
+            # 分类并决定做什么
             tension_type = self.tension_manager.classify_tension(tension)
-            
+
             if tension_type in [TensionType.ACTION_BLOCKING, TensionType.IDENTITY_THREATENING]:
                 conflicts_to_resolve.append({
                     "conflict": conflict,
@@ -879,7 +878,7 @@ class CoherenceGuardian:
                     "tension": tension,
                     "reason": "需要更多信息"
                 })
-        
+
         tension_analysis = {
             "conflicts_to_resolve": conflicts_to_resolve,
             "conflicts_to_preserve": conflicts_to_preserve,
@@ -893,9 +892,9 @@ class CoherenceGuardian:
                 "to_defer": len(conflicts_to_defer),
             }
         }
-        
+
         return report, tension_analysis
-    
+
     def _conflict_to_tension(
         self,
         conflict: Conflict,
@@ -903,27 +902,27 @@ class CoherenceGuardian:
         stories: Dict[str, StoryArc],
         themes: Dict[str, Theme],
     ) -> Optional[Tension]:
-        """Convert a Conflict to a Tension for analysis."""
-        # Get the elements involved
+        """将 Conflict 转换为 Tension 进行分析。"""
+        # 获取涉及的元素
         element_a = self._get_element(conflict.node_a, plots, stories, themes)
         element_b = self._get_element(conflict.node_b, plots, stories, themes)
-        
+
         if element_a is None or element_b is None:
             return None
-        
-        # Get embeddings
+
+        # 获取嵌入
         emb_a = self._get_embedding(element_a)
         emb_b = self._get_embedding(element_b)
-        
-        # Use TensionManager to detect and create tension
+
+        # 使用 TensionManager 检测并创建张力
         tension = self.tension_manager.detect_tension(
             {"id": conflict.node_a, "type": conflict.type.value, "text": conflict.description},
             {"id": conflict.node_b, "type": conflict.type.value, "text": ""},
             emb_a, emb_b
         )
-        
+
         if tension is None:
-            # Create tension from conflict
+            # 从冲突创建张力
             import uuid
             tension = Tension(
                 id=str(uuid.uuid4()),
@@ -935,9 +934,9 @@ class CoherenceGuardian:
                 severity=conflict.severity,
             )
             self.tension_manager.tensions[tension.id] = tension
-        
+
         return tension
-    
+
     def _get_element(
         self,
         node_id: str,
@@ -945,7 +944,7 @@ class CoherenceGuardian:
         stories: Dict[str, StoryArc],
         themes: Dict[str, Theme],
     ) -> Optional[MemoryElement]:
-        """Get element by ID from any collection."""
+        """按 ID 从任何集合中获取元素。"""
         if node_id in plots:
             return plots[node_id]
         if node_id in stories:
@@ -953,11 +952,11 @@ class CoherenceGuardian:
         if node_id in themes:
             return themes[node_id]
         return None
-    
+
     def _get_embedding(self, element: MemoryElement) -> Optional[np.ndarray]:
-        """Get embedding from element."""
+        """从元素获取嵌入。"""
         return get_embedding_from_object(element)
-    
+
     def auto_resolve(
         self,
         report: CoherenceReport,
@@ -968,28 +967,28 @@ class CoherenceGuardian:
         max_resolutions: int = 3,
     ) -> int:
         """
-        Automatically resolve top conflicts.
-        Returns number of successful resolutions.
+        自动解决顶部冲突。
+        返回成功解决的数量。
         """
         resolved = 0
-        
-        # Sort conflicts by severity
+
+        # 按严重程度排序冲突
         sorted_conflicts = sorted(
             report.conflicts,
             key=lambda c: c.severity * c.confidence,
             reverse=True
         )
-        
+
         for conflict in sorted_conflicts[:max_resolutions]:
-            # Generate resolutions if not present
+            # 如果不存在，生成解决方案
             if not conflict.resolutions:
                 conflict.resolutions = self._generate_resolutions(conflict)
-            
+
             if self.resolver.resolve(conflict, graph, plots, stories, themes):
                 resolved += 1
-        
+
         return resolved
-    
+
     def smart_resolve(
         self,
         report: CoherenceReport,
@@ -1000,32 +999,32 @@ class CoherenceGuardian:
         max_resolutions: int = 3,
     ) -> Dict[str, Any]:
         """
-        Smart conflict resolution using TensionManager.
-        
-        Only resolves conflicts that NEED resolution.
-        Preserves adaptive and developmental tensions.
-        
-        Returns summary of actions taken.
+        使用 TensionManager 进行智能冲突解决。
+
+        仅解决需要解决的冲突。
+        保留适应性和发展性张力。
+
+        返回采取的行动摘要。
         """
         _, tension_analysis = self.full_check_with_tension_analysis(
             graph, plots, stories, themes
         )
-        
+
         actions_taken = {
             "resolved": [],
             "preserved": [],
             "accepted": [],
         }
-        
-        # Only resolve action-blocking or identity-threatening
+
+        # 仅解决阻止行动或威胁身份的冲突
         for item in tension_analysis["conflicts_to_resolve"][:max_resolutions]:
             conflict = item["conflict"]
             tension = item["tension"]
-            
-            # Generate and apply resolution
+
+            # 生成并应用解决方案
             if not conflict.resolutions:
                 conflict.resolutions = self._generate_resolutions(conflict)
-            
+
             if self.resolver.resolve(conflict, graph, plots, stories, themes):
                 resolution = self.tension_manager.handle_tension(tension)
                 actions_taken["resolved"].append({
@@ -1034,8 +1033,8 @@ class CoherenceGuardian:
                     "action": resolution.action,
                     "rationale": resolution.rationale,
                 })
-        
-        # Mark adaptive tensions as preserved
+
+        # 将适应性张力标记为已保留
         for item in tension_analysis["conflicts_to_preserve"]:
             tension = item["tension"]
             resolution = self.tension_manager.handle_tension(tension)
@@ -1044,8 +1043,8 @@ class CoherenceGuardian:
                 "reason": item["reason"],
                 "action": resolution.action,
             })
-        
-        # Mark developmental tensions as accepted
+
+        # 将发展性张力标记为已接受
         for item in tension_analysis["conflicts_to_accept"]:
             tension = item["tension"]
             resolution = self.tension_manager.handle_tension(tension)
@@ -1054,17 +1053,17 @@ class CoherenceGuardian:
                 "reason": item["reason"],
                 "action": resolution.action,
             })
-        
+
         return actions_taken
-    
+
     def _generate_resolutions(self, conflict: Conflict) -> List[Resolution]:
-        """Generate resolution options for a conflict"""
+        """为冲突生成解决方案选项"""
         resolutions = []
-        
+
         if conflict.type == ConflictType.FACTUAL:
             resolutions.append(Resolution(
                 strategy="weaken",
-                target_node=conflict.node_b,  # Weaken the newer one
+                target_node=conflict.node_b,  # 削弱较新的
                 action_description=f"Reduce confidence in {conflict.node_b}",
                 expected_coherence_gain=conflict.severity * 0.5,
                 cost=0.2,
@@ -1077,7 +1076,7 @@ class CoherenceGuardian:
                 cost=0.1,
                 condition="May depend on context",
             ))
-        
+
         elif conflict.type == ConflictType.THEMATIC:
             resolutions.append(Resolution(
                 strategy="merge",
@@ -1086,7 +1085,7 @@ class CoherenceGuardian:
                 expected_coherence_gain=conflict.severity * 0.6,
                 cost=0.3,
             ))
-        
+
         elif conflict.type == ConflictType.CAUSAL:
             resolutions.append(Resolution(
                 strategy="remove",
@@ -1095,28 +1094,28 @@ class CoherenceGuardian:
                 expected_coherence_gain=conflict.severity * 0.8,
                 cost=0.15,
             ))
-        
+
         return resolutions
-    
+
     def update_belief_network(
         self,
         themes: Dict[str, Theme],
         causal_beliefs: Optional[Dict[Tuple[str, str], CausalEdgeBelief]] = None,
     ) -> Dict[str, float]:
         """
-        Update belief network with current themes and return propagated beliefs.
+        使用当前主题更新信念网络并返回传播的信念。
         """
         self.belief_network = BeliefNetwork()
-        
-        # Add theme beliefs
+
+        # 添加主题信念
         for theme in themes.values():
             self.belief_network.add_belief(
                 theme.id,
                 prior=theme.confidence(),
                 evidence_strength=len(theme.story_ids) * 0.1,
             )
-        
-        # Add causal dependencies
+
+        # 添加因果依赖
         if causal_beliefs:
             for (src, tgt), belief in causal_beliefs.items():
                 if src in themes and tgt in themes:
@@ -1126,50 +1125,50 @@ class CoherenceGuardian:
                         dependency_type=dep_type,
                         strength=belief.effective_causal_weight(),
                     )
-        
+
         return self.belief_network.propagate_beliefs()
-    
+
     def get_tension_summary(self) -> Dict[str, Any]:
-        """Get summary of all tracked tensions."""
+        """获取所有跟踪张力的摘要。"""
         return self.tension_manager.get_tension_summary()
-    
+
     def analyze_knowledge_conflict(
         self,
         plot_a: Plot,
         plot_b: Plot,
     ) -> ConflictAnalysis:
         """
-        Analyze a conflict between two plots using knowledge type classification.
-        
-        Key insight from first principles:
-        - Not all contradictions need elimination
-        - States update (newer replaces older)
-        - Static facts need correction (one is wrong)
-        - Traits can coexist (complementary facets)
-        - Values should be preserved (core to identity)
-        - Preferences evolve (track timeline)
-        - Behaviors change (patterns are malleable)
-        
-        Args:
-            plot_a: First plot in the conflict
-            plot_b: Second plot in the conflict
-            
-        Returns:
-            ConflictAnalysis with resolution strategy and rationale
+        使用知识类型分类分析两个情节之间的冲突。
+
+        第一原理的关键见解：
+        - 并非所有矛盾都需要消除
+        - 状态更新（较新的替换较旧的）
+        - 静态事实需要更正（其中一个是错误的）
+        - 特征可以共存（互补的方面）
+        - 价值观应该被保留（核心身份）
+        - 偏好演变（跟踪时间线）
+        - 行为改变（模式是可塑的）
+
+        参数：
+            plot_a：冲突中的第一个情节
+            plot_b：冲突中的第二个情节
+
+        返回：
+            ConflictAnalysis，包含解决策略和理由
         """
-        # Get or classify knowledge types
+        # 获取或分类知识类型
         type_a = self._get_plot_knowledge_type(plot_a)
         type_b = self._get_plot_knowledge_type(plot_b)
-        
-        # Determine time relation
-        if abs(plot_a.ts - plot_b.ts) < 3600:  # Within an hour
+
+        # 确定时间关系
+        if abs(plot_a.ts - plot_b.ts) < 3600:  # 一小时内
             time_relation = "concurrent"
         elif plot_a.ts < plot_b.ts:
             time_relation = "sequential"
         else:
-            time_relation = "sequential"  # b before a
-        
-        # Use knowledge classifier to resolve conflict
+            time_relation = "sequential"  # b 在 a 之前
+
+        # 使用知识分类器解决冲突
         return self.knowledge_classifier.resolve_conflict(
             type_a=type_a,
             type_b=type_b,
@@ -1179,11 +1178,11 @@ class CoherenceGuardian:
             embedding_a=plot_a.embedding,
             embedding_b=plot_b.embedding,
         )
-    
+
     def _get_plot_knowledge_type(self, plot: Plot) -> KnowledgeType:
-        """Get or classify the knowledge type of a plot."""
+        """获取或分类情节的知识类型。"""
         if plot.knowledge_type is not None:
-            # Use existing classification
+            # 使用现有分类
             type_map = {
                 "factual_state": KnowledgeType.FACTUAL_STATE,
                 "factual_static": KnowledgeType.FACTUAL_STATIC,
@@ -1194,32 +1193,32 @@ class CoherenceGuardian:
                 "unknown": KnowledgeType.UNKNOWN,
             }
             return type_map.get(plot.knowledge_type, KnowledgeType.UNKNOWN)
-        
-        # Classify if not already done
+
+        # 如果尚未完成，进行分类
         result = self.knowledge_classifier.classify(plot.text, embedding=plot.embedding)
         return result.knowledge_type
-    
+
     def check_complementary_traits(
         self,
         plot_a: Plot,
         plot_b: Plot,
     ) -> bool:
         """
-        Check if two plots contain complementary (not contradictory) traits.
-        
-        Example:
-        - "I am patient" and "I am efficient" → complementary (different contexts)
-        - "I am honest" and "I lie" → contradictory (cannot coexist)
-        
-        This implements the narrative psychology principle that healthy identity
-        contains functional tensions that activate in different situations.
-        
-        Args:
-            plot_a: First plot
-            plot_b: Second plot
-            
-        Returns:
-            True if the traits are complementary, False if contradictory
+        检查两个情节是否包含互补（而非矛盾）的特征。
+
+        示例：
+        - "我很耐心" 和 "我很高效" → 互补（不同的背景）
+        - "我诚实" 和 "我撒谎" → 矛盾（无法共存）
+
+        这实现了叙述心理学原则，即健康的身份
+        包含在不同情况下激活的功能性张力。
+
+        参数：
+            plot_a：第一个情节
+            plot_b：第二个情节
+
+        返回：
+            如果特征互补则为 True，如果矛盾则为 False
         """
         return self.knowledge_classifier.are_complementary_traits(
             text_a=plot_a.text,
@@ -1227,32 +1226,32 @@ class CoherenceGuardian:
             embedding_a=plot_a.embedding,
             embedding_b=plot_b.embedding,
         )
-    
+
     def get_conflict_resolution_recommendation(
         self,
         conflict: Conflict,
         plots: Dict[str, Plot],
     ) -> Dict[str, Any]:
         """
-        Get an intelligent resolution recommendation for a conflict.
-        
-        Uses knowledge type classification to determine the best strategy:
-        - UPDATE: For state changes (newer info replaces older)
-        - CORRECT: For static fact corrections (verify which is correct)
-        - PRESERVE_BOTH: For complementary traits/values (keep both)
-        - EVOLVE: For preference/behavior changes (track timeline)
-        
-        Args:
-            conflict: The detected conflict
-            plots: Dictionary of all plots
-            
-        Returns:
-            Dict with recommendation including strategy, rationale, and actions
+        获取冲突的智能解决建议。
+
+        使用知识类型分类来确定最佳策略：
+        - UPDATE：用于状态变化（较新的信息替换较旧的）
+        - CORRECT：用于静态事实更正（验证哪个是正确的）
+        - PRESERVE_BOTH：用于互补的特征/价值观（保留两者）
+        - EVOLVE：用于偏好/行为变化（跟踪时间线）
+
+        参数：
+            conflict：检测到的冲突
+            plots：所有情节的字典
+
+        返回：
+            包含策略、理由和行动的建议字典
         """
-        # Get the plots involved
+        # 获取涉及的情节
         plot_a = plots.get(conflict.node_a)
         plot_b = plots.get(conflict.node_b)
-        
+
         if plot_a is None or plot_b is None:
             return {
                 "strategy": "unknown",
@@ -1260,10 +1259,10 @@ class CoherenceGuardian:
                 "actions": ["Manual review required"],
                 "confidence": 0.0,
             }
-        
-        # Analyze using knowledge classifier
+
+        # 使用知识分类器进行分析
         analysis = self.analyze_knowledge_conflict(plot_a, plot_b)
-        
+
         return {
             "strategy": analysis.resolution.value,
             "rationale": analysis.rationale,

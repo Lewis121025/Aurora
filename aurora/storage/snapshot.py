@@ -13,11 +13,11 @@ class Snapshot:
 
 
 class SnapshotStore:
-    """Simple snapshot store using pickle.
+    """使用 pickle 的简单快照存储。
 
-    Security note:
-      - Only load snapshots you trust (pickle is unsafe for untrusted blobs).
-      - For untrusted environments, serialize to JSON and reconstruct.
+    安全提示：
+      - 仅加载您信任的快照（pickle 对不受信任的数据不安全）。
+      - 对于不受信任的环境，序列化为 JSON 并重新构造。
     """
 
     def __init__(self, dirpath: str):
@@ -34,7 +34,7 @@ class SnapshotStore:
         return path
 
     def latest(self) -> Optional[Tuple[int, Snapshot]]:
-        # pick highest seq
+        # 选择最高的序列号
         best_seq = None
         best_path = None
         for fn in os.listdir(self.dirpath):

@@ -1,8 +1,8 @@
 """
-AURORA Density Estimation
+AURORA 密度估计
 ==========================
 
-Online kernel density estimator for surprise computation.
+用于惊喜度计算的在线核密度估计器。
 """
 
 from __future__ import annotations
@@ -16,32 +16,31 @@ from aurora.algorithms.constants import DEFAULT_COLD_START_SURPRISE, DENSITY_MIN
 
 
 class OnlineKDE:
-    """Kernel density estimator in embedding space.
+    """嵌入空间中的核密度估计器。
 
-    Used to compute surprise = -log p(x) without any similarity thresholds.
+    用于计算惊喜度 = -log p(x)，无需任何相似度阈值。
 
-    This implements a reservoir-sampled KDE that maintains a bounded memory
-    footprint while providing density estimates for incoming embeddings.
+    这实现了一个水库采样的KDE，在保持有限内存占用的同时为传入的嵌入提供密度估计。
 
-    Attributes:
-        dim: Embedding dimension
-        reservoir: Maximum number of vectors to retain
-        k_sigma: Number of nearest neighbors for bandwidth estimation
+    属性:
+        dim: 嵌入维度
+        reservoir: 保留的最大向量数
+        k_sigma: 用于带宽估计的最近邻数
     """
 
     def __init__(self, dim: int, reservoir: int = 4096, k_sigma: int = 20, seed: int = 0):
-        """Initialize the online KDE.
+        """初始化在线KDE。
 
-        Args:
-            dim: Embedding dimension
-            reservoir: Maximum reservoir size for sampling
-            k_sigma: k-nearest neighbors for adaptive bandwidth (default: 20)
-            seed: Random seed for reservoir sampling
-        
-        Benchmark optimization:
-        - Lower k_sigma (20 vs 25) produces sharper surprise peaks
-        - This helps AR by making novel/important information more distinguishable
-        - Also helps CR by making contradictory information stand out more
+        参数:
+            dim: 嵌入维度
+            reservoir: 采样的最大水库大小
+            k_sigma: 用于自适应带宽的k最近邻（默认值：20）
+            seed: 水库采样的随机种子
+
+        基准优化:
+        - 较低的k_sigma（20 vs 25）产生更尖锐的惊喜峰值
+        - 这通过使新颖/重要信息更易区分来帮助AR
+        - 也通过使矛盾信息更突出来帮助CR
         """
         self.dim = dim
         self.reservoir = reservoir
@@ -51,30 +50,30 @@ class OnlineKDE:
         self._vecs: List[np.ndarray] = []
 
     def add(self, x: np.ndarray) -> None:
-        """Add a vector to the density estimate.
+        """将向量添加到密度估计中。
 
-        Uses reservoir sampling to maintain bounded memory.
+        使用水库采样来保持有限的内存。
 
-        Args:
-            x: Embedding vector to add
+        参数:
+            x: 要添加的嵌入向量
         """
         x = x.astype(np.float32)
         if len(self._vecs) < self.reservoir:
             self._vecs.append(x)
         else:
-            # Reservoir sampling (capacity-limited memory)
+            # 水库采样（容量限制的内存）
             j = int(self.rng.integers(0, len(self._vecs) + 1))
             if j < len(self._vecs):
                 self._vecs[j] = x
 
     def _sigma(self, x: np.ndarray) -> float:
-        """Compute adaptive bandwidth using k-nearest neighbors.
+        """使用k最近邻计算自适应带宽。
 
-        Args:
-            x: Query vector
+        参数:
+            x: 查询向量
 
-        Returns:
-            Bandwidth estimate (median distance to k nearest neighbors)
+        返回:
+            带宽估计（到k个最近邻的中位数距离）
         """
         if not self._vecs:
             return 1.0
@@ -85,13 +84,13 @@ class OnlineKDE:
         return med + 1e-6
 
     def log_density(self, x: np.ndarray) -> float:
-        """Compute log density at a point.
+        """计算一个点处的对数密度。
 
-        Args:
-            x: Query vector
+        参数:
+            x: 查询向量
 
-        Returns:
-            Log density estimate
+        返回:
+            对数密度估计
         """
         if not self._vecs:
             # Weak prior: very low density
@@ -106,26 +105,26 @@ class OnlineKDE:
         return math.log(p + 1e-12)
 
     def surprise(self, x: np.ndarray) -> float:
-        """Compute surprise (negative log density) at a point.
+        """计算一个点处的惊喜度（负对数密度）。
 
-        Cold start protection:
-        - When samples < DENSITY_MIN_SAMPLES, KDE estimates are unreliable
-        - Returns DEFAULT_COLD_START_SURPRISE to encourage early storage
-        - This prevents losing critical early information (names, preferences, etc.)
+        冷启动保护:
+        - 当样本数 < DENSITY_MIN_SAMPLES 时，KDE估计不可靠
+        - 返回 DEFAULT_COLD_START_SURPRISE 以鼓励早期存储
+        - 这防止丢失关键的早期信息（名称、偏好等）
 
-        Args:
-            x: Query vector
+        参数:
+            x: 查询向量
 
-        Returns:
-            Surprise value (higher = more surprising)
+        返回:
+            惊喜度值（越高 = 越令人惊讶）
         """
-        # Cold start protection: use default surprise when insufficient samples
+        # 冷启动保护：样本不足时使用默认惊喜度
         if len(self._vecs) < DENSITY_MIN_SAMPLES:
             return DEFAULT_COLD_START_SURPRISE
         return -self.log_density(x)
 
     def to_state_dict(self) -> Dict[str, Any]:
-        """Serialize to JSON-compatible dict."""
+        """序列化为JSON兼容的字典。"""
         return {
             "dim": self.dim,
             "reservoir": self.reservoir,
@@ -136,7 +135,7 @@ class OnlineKDE:
 
     @classmethod
     def from_state_dict(cls, d: Dict[str, Any]) -> "OnlineKDE":
-        """Reconstruct from state dict."""
+        """从状态字典重构。"""
         obj = cls(
             dim=d["dim"],
             reservoir=d["reservoir"],

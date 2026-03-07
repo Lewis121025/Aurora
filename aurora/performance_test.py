@@ -1,17 +1,17 @@
 """
-AURORA Performance Benchmarks
+AURORA 性能基准测试
 =============================
 
-Performance benchmark tests for critical operations.
+关键操作的性能基准测试。
 
-Tests cover:
-- Ingest throughput
-- Query latency
-- Evolution performance
-- Serialization speed
-- Memory usage
+测试覆盖:
+- 摄入吞吐量
+- 查询延迟
+- 演变性能
+- 序列化速度
+- 内存使用
 
-Run with: pytest tests/performance/ -v --benchmark
+运行方式: pytest tests/performance/ -v --benchmark
 """
 
 from __future__ import annotations
@@ -30,10 +30,10 @@ from aurora.utils.id_utils import det_id
 
 
 class TestIngestPerformance:
-    """Benchmarks for ingest performance."""
-    
+    """摄入性能的基准测试。"""
+
     def test_ingest_throughput(self):
-        """Test ingest throughput: target > 100 ops/s."""
+        """测试摄入吞吐量：目标 > 100 ops/s。"""
         config = MemoryConfig(dim=64, max_plots=2000)
         memory = AuroraMemory(cfg=config, seed=42)
         

@@ -1,14 +1,14 @@
 """
-AURORA End-to-End Integration Tests
+AURORA 端到端集成测试
 ===================================
 
-Full workflow integration tests that verify the complete memory lifecycle.
+验证完整内存生命周期的全工作流集成测试。
 
-Tests cover:
-- Complete ingest → query → evolve workflow
-- Multi-user/multi-session scenarios
-- State persistence and recovery
-- Memory pressure under load
+测试覆盖:
+- 完整的摄入 → 查询 → 演变工作流
+- 多用户/多会话场景
+- 状态持久化和恢复
+- 负载下的内存压力
 """
 
 from __future__ import annotations
@@ -24,10 +24,10 @@ from aurora.algorithms.models.config import MemoryConfig
 
 
 class TestCompleteWorkflow:
-    """Test complete memory workflow: ingest → query → evolve."""
-    
+    """测试完整的内存工作流：摄入 → 查询 → 演变。"""
+
     def test_basic_workflow(self):
-        """Test basic ingest → query → evolve workflow."""
+        """测试基本的摄入 → 查询 → 演变工作流。"""
         config = MemoryConfig(dim=64, max_plots=100)
         memory = AuroraMemory(cfg=config, seed=42)
         

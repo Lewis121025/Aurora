@@ -1,10 +1,10 @@
 """
-AURORA Retrieval
+AURORA 检索
 =================
 
-Field-based retrieval with attractor dynamics and query type awareness.
+基于字段的检索，具有吸引子动力学和查询类型感知。
 
-Time as First-Class Citizen: Temporal retrieval with anchor detection.
+时间作为一等公民：具有锚点检测的时间检索。
 """
 
 from aurora.algorithms.retrieval.field_retriever import (

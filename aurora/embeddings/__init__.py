@@ -1,23 +1,23 @@
 """
-AURORA Embedding Providers
+AURORA 嵌入提供者
 ==========================
 
-Available providers:
-- LocalSemanticEmbedding: Local semantic embedding using word vectors (recommended for testing)
-- HashEmbedding: Local deterministic testing (no API calls, random vectors)
-- BailianEmbedding: 阿里云百炼 production provider
-- ArkEmbedding: 火山方舟 provider
+可用的提供者：
+- LocalSemanticEmbedding: 使用词向量的本地语义嵌入（推荐用于测试）
+- HashEmbedding: 本地确定性测试（无API调用，随机向量）
+- BailianEmbedding: 阿里云百炼 生产提供者
+- ArkEmbedding: 火山方舟 提供者
 
-Usage:
-    # For testing with semantic similarity
+使用方法：
+    # 用于语义相似性测试
     from aurora.embeddings import LocalSemanticEmbedding
     embedder = LocalSemanticEmbedding(dim=384)
-    
-    # For legacy testing (random vectors, no semantic meaning)
+
+    # 用于遗留测试（随机向量，无语义含义）
     from aurora.embeddings import HashEmbedding
     embedder = HashEmbedding(dim=384)
-    
-    # For production (lazy import to avoid dependency issues)
+
+    # 用于生产环境（延迟导入以避免依赖问题）
     BailianEmbedding, _ = get_bailian_embedding()
     embedder = BailianEmbedding(api_key="...")
 """
@@ -34,12 +34,12 @@ __all__ = [
 
 
 def get_bailian_embedding():
-    """Get Bailian embedding provider (requires openai package)."""
+    """获取 Bailian 嵌入提供者（需要 openai 包）。"""
     from aurora.embeddings.bailian import BailianEmbedding, BailianEmbeddingWithFallback
     return BailianEmbedding, BailianEmbeddingWithFallback
 
 
 def get_ark_embedding():
-    """Get Ark embedding provider (requires volcengine SDK)."""
+    """获取 Ark 嵌入提供者（需要 volcengine SDK）。"""
     from aurora.embeddings.ark import ArkEmbedding, ArkEmbeddingWithFallback
     return ArkEmbedding, ArkEmbeddingWithFallback

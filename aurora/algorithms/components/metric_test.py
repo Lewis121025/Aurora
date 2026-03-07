@@ -1,4 +1,4 @@
-"""Tests for LowRankMetric learning."""
+"""LowRankMetric 学习的测试。"""
 
 import numpy as np
 import pytest
@@ -7,10 +7,10 @@ from aurora.algorithms.components.metric import LowRankMetric
 
 
 class TestLowRankMetric:
-    """Tests for LowRankMetric class."""
+    """LowRankMetric 类的测试。"""
 
     def test_initial_state(self):
-        """Test initial state of metric."""
+        """测试指标的初始状态。"""
         metric = LowRankMetric(dim=64, rank=16, seed=42)
         assert metric.dim == 64
         assert metric.rank == 16

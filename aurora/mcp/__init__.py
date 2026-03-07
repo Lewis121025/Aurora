@@ -1,19 +1,19 @@
 """
-Aurora MCP (Model Context Protocol) Server
+Aurora MCP（模型上下文协议）服务器
 ==========================================
 
-Provides MCP-compliant interface for AI assistants (Claude Desktop, Cursor, etc.)
-to interact with Aurora memory system.
+为 AI 助手（Claude Desktop、Cursor 等）提供 MCP 兼容接口
+与 Aurora 内存系统交互。
 
-Tools:
-- save_memory: Save a memory interaction
-- search_memory: Search memories by semantic similarity
-- get_narrative: Get self-narrative summary
-- check_coherence: Check memory coherence
+工具:
+- save_memory: 保存内存交互
+- search_memory: 按语义相似度搜索内存
+- get_narrative: 获取自叙述摘要
+- check_coherence: 检查内存一致性
 
-Resources:
-- aurora://memory/stats: Memory statistics
-- aurora://memory/narrative: Current self-narrative
+资源:
+- aurora://memory/stats: 内存统计
+- aurora://memory/narrative: 当前自叙述
 """
 
 from aurora.mcp.server import AuroraMCPServer, create_mcp_server

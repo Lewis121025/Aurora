@@ -1,9 +1,9 @@
 """
-AURORA FAISS Vector Index
+AURORA FAISS 向量索引
 =========================
 
-High-performance vector index using FAISS HNSW.
-Provides sub-millisecond retrieval for production use.
+使用 FAISS HNSW 的高性能向量索引。
+提供毫秒级以下的检索性能用于生产环境。
 """
 
 from __future__ import annotations
@@ -23,15 +23,15 @@ except ImportError:
 
 
 def _l2_normalize(v: np.ndarray) -> np.ndarray:
-    """Normalize vector to unit length for cosine similarity."""
+    """将向量归一化为单位长度用于余弦相似度计算。"""
     n = np.linalg.norm(v)
     return (v / n).astype(np.float32) if n > 1e-12 else v.astype(np.float32)
 
 
 class FAISSVectorIndex:
-    """FAISS HNSW vector index with kind filtering.
-    
-    Drop-in replacement for VectorIndex with ~100x faster search.
+    """FAISS HNSW 向量索引，支持类型过滤。
+
+    VectorIndex 的替代品，搜索速度快约 100 倍。
     """
     
     def __init__(
@@ -61,7 +61,7 @@ class FAISSVectorIndex:
         self._build_index()
     
     def _build_index(self) -> None:
-        """Build or rebuild FAISS index."""
+        """构建或重建 FAISS 索引。"""
         self._index = faiss.IndexHNSWFlat(self.dim, self.M, faiss.METRIC_INNER_PRODUCT)
         self._index.hnsw.efConstruction = self.ef_construction
         self._index.hnsw.efSearch = self.ef_search
@@ -136,7 +136,7 @@ class FAISSVectorIndex:
                 if 0 <= idx < len(self.ids)
             ]
         
-        # With kind filtering
+        # 带类型过滤的搜索
         kind_count = sum(1 for kd in self.kinds if kd == kind)
         if kind_count == 0:
             return []
@@ -156,10 +156,10 @@ class FAISSVectorIndex:
         return len(self.ids)
 
     def reset(self) -> None:
-        """Reset the index, releasing all memory.
-        
-        This clears all stored vectors and rebuilds an empty index.
-        Use when you need to free memory or start fresh.
+        """重置索引，释放所有内存。
+
+        清除所有存储的向量并重建空索引。
+        当需要释放内存或重新开始时使用。
         """
         self.ids.clear()
         self.vecs.clear()

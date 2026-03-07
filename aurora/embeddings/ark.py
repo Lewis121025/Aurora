@@ -1,9 +1,9 @@
 """
-火山方舟 (Volcengine Ark) Embedding Provider
+火山方舟 (Volcengine Ark) 嵌入提供者
 =============================================
 
-Production-ready embedding provider for AURORA memory system.
-Uses Doubao embedding model via volcengine SDK.
+AURORA 内存系统的生产就绪嵌入提供者。
+通过 volcengine SDK 使用 Doubao 嵌入模型。
 """
 
 from __future__ import annotations
@@ -20,13 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 class ArkEmbedding(EmbeddingProvider):
-    """火山方舟 embedding provider using Doubao embedding model.
-    
-    Features:
-    - High-quality Chinese and English embeddings
-    - Batch processing support
-    - Automatic retry with exponential backoff
-    - MRL (Matryoshka Representation Learning) dimension support
+    """使用 Doubao 嵌入模型的火山方舟 嵌入提供者。
+
+    特性：
+    - 高质量的中英文嵌入
+    - 批处理支持
+    - 自动重试和指数退避
+    - MRL（Matryoshka 表示学习）维度支持
     """
     
     def __init__(
@@ -34,7 +34,7 @@ class ArkEmbedding(EmbeddingProvider):
         api_key: str,
         model: str = "doubao-embedding-large-text-250515",
         max_retries: int = 3,
-        dimension: int = 1024,  # Doubao embedding dimension (supports 256, 512, 1024, 2048)
+        dimension: int = 1024,  # Doubao 嵌入维度（支持 256, 512, 1024, 2048）
         use_cache: bool = True,
         cache_size: int = 10000,
     ):
@@ -50,24 +50,24 @@ class ArkEmbedding(EmbeddingProvider):
         self._cache_hits = 0
         
     def _get_client(self):
-        """Lazy initialization of Ark client."""
+        """Ark 客户端的延迟初始化。"""
         if self._client is None:
             try:
                 from volcenginesdkarkruntime import Ark
                 self._client = Ark(api_key=self.api_key)
             except ImportError:
                 raise ImportError(
-                    "Please install volcengine SDK: pip install 'volcengine-python-sdk[ark]'"
+                    "请安装 volcengine SDK：pip install 'volcengine-python-sdk[ark]'"
                 )
         return self._client
     
     def _cache_key(self, text: str) -> str:
-        """Generate cache key from text."""
+        """从文本生成缓存键。"""
         import hashlib
         return hashlib.sha256(text.encode()).hexdigest()[:32]
     
     def _get_from_cache(self, text: str) -> Optional[List[float]]:
-        """Get embedding from cache if available."""
+        """如果可用，从缓存获取嵌入。"""
         if not self.use_cache or self._cache is None:
             return None
         key = self._cache_key(text)
@@ -77,12 +77,12 @@ class ArkEmbedding(EmbeddingProvider):
         return None
     
     def _add_to_cache(self, text: str, embedding: List[float]) -> None:
-        """Add embedding to cache."""
+        """将嵌入添加到缓存。"""
         if not self.use_cache or self._cache is None:
             return
-        # Simple LRU-like eviction: remove oldest entries when full
+        # 类似 LRU 的驱逐：当满时移除最旧的条目
         if len(self._cache) >= self._cache_size:
-            # Remove first 10% of entries
+            # 移除前 10% 的条目
             keys_to_remove = list(self._cache.keys())[:self._cache_size // 10]
             for key in keys_to_remove:
                 del self._cache[key]
@@ -90,22 +90,22 @@ class ArkEmbedding(EmbeddingProvider):
         self._cache[key] = embedding
     
     def embed(self, text: str) -> List[float]:
-        """Generate embedding for a single text.
-        
-        Args:
-            text: Input text to embed
-            
-        Returns:
-            List of floats representing the embedding vector
+        """为单个文本生成嵌入。
+
+        参数：
+            text: 要嵌入的输入文本
+
+        返回：
+            表示嵌入向量的浮点数列表
         """
-        # Check cache first
+        # 先检查缓存
         cached = self._get_from_cache(text)
         if cached is not None:
             return cached
-        
+
         self._total_requests += 1
         client = self._get_client()
-        
+
         last_error = None
         for attempt in range(self.max_retries):
             try:
@@ -114,19 +114,19 @@ class ArkEmbedding(EmbeddingProvider):
                     input=[text],
                     encoding_format="float",
                 )
-                
-                # Get embedding and truncate to specified dimension
+
+                # 获取嵌入并截断到指定维度
                 full_embedding = response.data[0].embedding
                 embedding = full_embedding[:self.dimension]
-                
-                # Normalize the embedding
+
+                # 归一化嵌入
                 norm = sum(x*x for x in embedding) ** 0.5
                 if norm > 0:
                     embedding = [x / norm for x in embedding]
-                
-                # Add to cache
+
+                # 添加到缓存
                 self._add_to_cache(text, embedding)
-                
+
                 return embedding
                 
             except Exception as e:
@@ -139,24 +139,24 @@ class ArkEmbedding(EmbeddingProvider):
         raise RuntimeError(f"All {self.max_retries} embedding attempts failed. Last error: {last_error}")
     
     def embed_batch(self, texts: Sequence[str]) -> List[List[float]]:
-        """Generate embeddings for multiple texts efficiently.
-        
-        Uses batch API when possible, with caching for repeated texts.
-        
-        Args:
-            texts: List of input texts
-            
-        Returns:
-            List of embedding vectors
+        """为多个文本高效生成嵌入。
+
+        尽可能使用批处理 API，对重复文本进行缓存。
+
+        参数：
+            texts: 输入文本列表
+
+        返回：
+            嵌入向量列表
         """
         if not texts:
             return []
-        
-        # Check cache for all texts
+
+        # 检查所有文本的缓存
         results = [None] * len(texts)
         texts_to_embed = []
         indices_to_embed = []
-        
+
         for i, text in enumerate(texts):
             cached = self._get_from_cache(text)
             if cached is not None:
@@ -164,19 +164,19 @@ class ArkEmbedding(EmbeddingProvider):
             else:
                 texts_to_embed.append(text)
                 indices_to_embed.append(i)
-        
-        # Embed remaining texts in batches
+
+        # 分批嵌入剩余文本
         if texts_to_embed:
             self._total_requests += 1
             client = self._get_client()
-            
-            # Ark API supports batch embedding (recommended batch size <= 4)
+
+            # Ark API 支持批处理嵌入（推荐批大小 <= 4）
             batch_size = 4
             for batch_start in range(0, len(texts_to_embed), batch_size):
                 batch_end = min(batch_start + batch_size, len(texts_to_embed))
                 batch_texts = texts_to_embed[batch_start:batch_end]
                 batch_indices = indices_to_embed[batch_start:batch_end]
-                
+
                 last_error = None
                 for attempt in range(self.max_retries):
                     try:
@@ -185,57 +185,57 @@ class ArkEmbedding(EmbeddingProvider):
                             input=batch_texts,
                             encoding_format="float",
                         )
-                        
+
                         for j, data in enumerate(response.data):
                             idx = batch_indices[j]
                             full_embedding = data.embedding
                             embedding = full_embedding[:self.dimension]
-                            
-                            # Normalize
+
+                            # 归一化
                             norm = sum(x*x for x in embedding) ** 0.5
                             if norm > 0:
                                 embedding = [x / norm for x in embedding]
-                            
+
                             results[idx] = embedding
                             self._add_to_cache(texts[idx], embedding)
-                        
+
                         break
-                        
+
                     except Exception as e:
                         last_error = e
-                        logger.warning(f"Batch embedding attempt {attempt + 1}/{self.max_retries} failed: {e}")
+                        logger.warning(f"批处理嵌入尝试 {attempt + 1}/{self.max_retries} 失败：{e}")
                         if attempt < self.max_retries - 1:
                             sleep_time = (2 ** attempt) * 0.3
                             time.sleep(sleep_time)
                 else:
-                    # All retries failed, fall back to individual embedding
-                    logger.warning(f"Batch embedding failed, falling back to individual: {last_error}")
+                    # 所有重试都失败，回退到单个嵌入
+                    logger.warning(f"批处理嵌入失败，回退到单个嵌入：{last_error}")
                     for j, text in enumerate(batch_texts):
                         idx = batch_indices[j]
                         try:
                             results[idx] = self.embed(text)
                         except Exception as e:
-                            logger.error(f"Individual embedding also failed: {e}")
-                            # Return zero vector as last resort
+                            logger.error(f"单个嵌入也失败了：{e}")
+                            # 作为最后手段返回零向量
                             results[idx] = [0.0] * self.dimension
-        
+
         return results
     
     def embed_numpy(self, text: str) -> np.ndarray:
-        """Generate embedding as numpy array.
-        
-        Convenient for AURORA's internal vector operations.
+        """生成 numpy 数组形式的嵌入。
+
+        便于 AURORA 的内部向量操作。
         """
         return np.array(self.embed(text), dtype=np.float32)
     
     def embed_batch_numpy(self, texts: Sequence[str]) -> np.ndarray:
-        """Generate batch embeddings as numpy array."""
+        """生成批量嵌入作为 numpy 数组。"""
         embeddings = self.embed_batch(texts)
         return np.array(embeddings, dtype=np.float32)
     
     @property
     def stats(self) -> dict:
-        """Return cache and request statistics."""
+        """返回缓存和请求统计信息。"""
         return {
             "total_requests": self._total_requests,
             "cache_hits": self._cache_hits,
@@ -244,13 +244,13 @@ class ArkEmbedding(EmbeddingProvider):
         }
     
     def clear_cache(self) -> None:
-        """Clear the embedding cache."""
+        """清除嵌入缓存。"""
         if self._cache is not None:
             self._cache.clear()
 
 
 class ArkEmbeddingWithFallback(EmbeddingProvider):
-    """Ark embedding with hash embedding fallback for graceful degradation."""
+    """Ark 嵌入，带哈希嵌入回退以实现优雅降级。"""
     
     def __init__(
         self,
@@ -270,7 +270,7 @@ class ArkEmbeddingWithFallback(EmbeddingProvider):
             except Exception as e:
                 logger.warning(f"Failed to initialize ArkEmbedding: {e}")
         
-        # Lazy import fallback
+        # 延迟导入回退
         from .hash import HashEmbedding
         self._fallback = HashEmbedding(dim=fallback_dim)
     
@@ -279,8 +279,8 @@ class ArkEmbeddingWithFallback(EmbeddingProvider):
             try:
                 return self._primary.embed(text)
             except Exception as e:
-                logger.warning(f"Primary embedding failed, using fallback: {e}")
-        
+                logger.warning(f"主嵌入失败，使用回退：{e}")
+
         return list(self._fallback.embed(text))
     
     def embed_batch(self, texts: Sequence[str]) -> List[List[float]]:
@@ -288,6 +288,6 @@ class ArkEmbeddingWithFallback(EmbeddingProvider):
             try:
                 return self._primary.embed_batch(texts)
             except Exception as e:
-                logger.warning(f"Primary batch embedding failed, using fallback: {e}")
-        
+                logger.warning(f"主批量嵌入失败，使用回退：{e}")
+
         return [list(self._fallback.embed(t)) for t in texts]

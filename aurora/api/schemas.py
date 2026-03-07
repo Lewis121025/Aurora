@@ -1,25 +1,25 @@
 """
-Aurora API Schemas (Versioned)
-==============================
+Aurora API 模式 (版本化)
+========================
 
-Provides versioned Pydantic models for API contracts.
+为API契约提供版本化的Pydantic模型。
 
-Version History:
-- v1: Initial stable API (current)
+版本历史:
+- v1: 初始稳定API (当前)
 
-Usage:
+用法:
     from aurora.api.schemas import IngestRequestV1, QueryResponseV1
-    
+
     request = IngestRequestV1(
         event_id="evt_123",
         user_id="user_456",
         ...
     )
 
-Schema versioning allows:
-- Backward compatible changes within a version
-- Multiple versions to coexist during migration
-- Clear API contracts between frontend/backend
+模式版本控制允许:
+- 版本内向后兼容的更改
+- 多个版本在迁移期间共存
+- 前端/后端之间的清晰API契约
 """
 
 from __future__ import annotations
@@ -36,28 +36,28 @@ from pydantic import BaseModel, Field, field_validator
 # =============================================================================
 
 class MemoryKind(str, Enum):
-    """Types of memory units."""
+    """记忆单元的类型。"""
     PLOT = "plot"
     STORY = "story"
     THEME = "theme"
 
 
 class PlotStatus(str, Enum):
-    """Plot lifecycle status."""
+    """情节生命周期状态。"""
     ACTIVE = "active"
     ABSORBED = "absorbed"
     ARCHIVED = "archived"
 
 
 class StoryStatus(str, Enum):
-    """Story lifecycle status."""
+    """故事生命周期状态。"""
     DEVELOPING = "developing"
     RESOLVED = "resolved"
     ABANDONED = "abandoned"
 
 
 class ThemeType(str, Enum):
-    """Types of themes."""
+    """主题的类型。"""
     PATTERN = "pattern"
     LESSON = "lesson"
     PREFERENCE = "preference"
@@ -71,48 +71,48 @@ class ThemeType(str, Enum):
 # =============================================================================
 
 class IngestRequestV1(BaseModel):
-    """V1 Ingest Request - Store a new interaction in memory."""
+    """V1 摄入请求 - 在记忆中存储新的交互。"""
     
     event_id: Optional[str] = Field(
         default=None,
-        description="Unique event identifier. Auto-generated if not provided.",
+        description="唯一的事件标识符。如果未提供则自动生成。",
         examples=["evt_abc123"],
     )
     user_id: str = Field(
         ...,
-        description="User identifier for multi-tenant isolation.",
+        description="用户标识符，用于多租户隔离。",
         examples=["user_456"],
     )
     session_id: str = Field(
         ...,
-        description="Session identifier for grouping related interactions.",
+        description="会话标识符，用于分组相关交互。",
         examples=["sess_789"],
     )
     user_message: str = Field(
         ...,
-        description="The user's message or input.",
+        description="用户的消息或输入。",
         min_length=1,
         examples=["How do I implement a memory system?"],
     )
     agent_message: str = Field(
         ...,
-        description="The agent's response or action taken.",
+        description="代理的响应或采取的行动。",
         min_length=1,
         examples=["You can use a narrative memory architecture..."],
     )
     actors: Optional[List[str]] = Field(
         default=None,
-        description="List of participants in the interaction.",
+        description="交互中的参与者列表。",
         examples=[["user", "agent"]],
     )
     context: Optional[str] = Field(
         default=None,
-        description="Additional context about the interaction.",
+        description="关于交互的附加上下文。",
         examples=["programming discussion"],
     )
     ts: Optional[float] = Field(
         default=None,
-        description="Unix timestamp of the interaction. Auto-set if not provided.",
+        description="交互的Unix时间戳。如果未提供则自动设置。",
     )
     
     class Config:
@@ -131,15 +131,15 @@ class IngestRequestV1(BaseModel):
 
 
 class QueryRequestV1(BaseModel):
-    """V1 Query Request - Search memories by semantic similarity."""
+    """V1 查询请求 - 按语义相似性搜索记忆。"""
     
     user_id: str = Field(
         ...,
-        description="User identifier for multi-tenant isolation.",
+        description="用户标识符，用于多租户隔离。",
     )
     text: str = Field(
         ...,
-        description="Natural language search query.",
+        description="自然语言搜索查询。",
         min_length=1,
         examples=["How do I avoid hard-coded thresholds?"],
     )
@@ -147,16 +147,16 @@ class QueryRequestV1(BaseModel):
         default=8,
         ge=1,
         le=50,
-        description="Number of results to return.",
+        description="要返回的结果数量。",
     )
     kinds: Optional[List[MemoryKind]] = Field(
         default=None,
-        description="Filter by memory types. None means all types.",
+        description="按记忆类型过滤。None表示所有类型。",
         examples=[["plot", "story"]],
     )
     include_metadata: bool = Field(
         default=False,
-        description="Include detailed metadata in response.",
+        description="在响应中包含详细元数据。",
     )
     
     class Config:
@@ -164,23 +164,23 @@ class QueryRequestV1(BaseModel):
 
 
 class FeedbackRequestV1(BaseModel):
-    """V1 Feedback Request - Provide feedback on retrieval quality."""
+    """V1 反馈请求 - 提供关于检索质量的反馈。"""
     
     user_id: str = Field(
         ...,
-        description="User identifier.",
+        description="用户标识符。",
     )
     query_text: str = Field(
         ...,
-        description="The original search query.",
+        description="原始搜索查询。",
     )
     chosen_id: str = Field(
         ...,
-        description="ID of the memory that was chosen/useful.",
+        description="被选择/有用的记忆的ID。",
     )
     success: bool = Field(
         ...,
-        description="Whether the retrieval was successful/helpful.",
+        description="检索是否成功/有帮助。",
     )
     
     class Config:
@@ -188,7 +188,7 @@ class FeedbackRequestV1(BaseModel):
 
 
 class EvolveRequestV1(BaseModel):
-    """V1 Evolve Request - Trigger memory evolution."""
+    """V1 演化请求 - 触发记忆演化。"""
     
     user_id: str = Field(
         ...,
@@ -200,19 +200,19 @@ class EvolveRequestV1(BaseModel):
 
 
 class CausalChainRequestV1(BaseModel):
-    """V1 Causal Chain Request - Get causal relationships."""
+    """V1 因果链请求 - 获取因果关系。"""
     
     user_id: str = Field(
         ...,
-        description="User identifier.",
+        description="用户标识符。",
     )
     node_id: str = Field(
         ...,
-        description="Node ID to trace causal chain from.",
+        description="要追踪因果链的节点ID。",
     )
     direction: Literal["ancestors", "descendants"] = Field(
         default="ancestors",
-        description="Direction to trace.",
+        description="追踪的方向。",
     )
     
     class Config:
@@ -224,39 +224,39 @@ class CausalChainRequestV1(BaseModel):
 # =============================================================================
 
 class IngestResponseV1(BaseModel):
-    """V1 Ingest Response - Result of storing an interaction."""
-    
+    """V1 摄入响应 - 存储交互的结果。"""
+
     event_id: str = Field(
         ...,
-        description="Event identifier (input or generated).",
+        description="事件标识符 (输入或生成)。",
     )
     plot_id: str = Field(
         ...,
-        description="ID of the created plot.",
+        description="创建的情节的ID。",
     )
     story_id: Optional[str] = Field(
         default=None,
-        description="ID of the assigned story, if encoded.",
+        description="分配的故事的ID (如果已编码)。",
     )
     encoded: bool = Field(
         ...,
-        description="Whether the plot was stored (gate decision).",
+        description="情节是否被存储 (门决策)。",
     )
     tension: float = Field(
         ...,
-        description="Narrative tension score.",
+        description="叙事张力分数。",
     )
     surprise: float = Field(
         ...,
-        description="Surprise score (information novelty).",
+        description="惊喜分数 (信息新颖性)。",
     )
     pred_error: float = Field(
         ...,
-        description="Prediction error vs story model.",
+        description="与故事模型的预测误差。",
     )
     redundancy: float = Field(
         ...,
-        description="Redundancy with existing plots.",
+        description="与现有情节的冗余度。",
     )
     
     class Config:
@@ -264,48 +264,48 @@ class IngestResponseV1(BaseModel):
 
 
 class QueryHitV1(BaseModel):
-    """V1 Query Hit - A single search result."""
-    
+    """V1 查询命中 - 单个搜索结果。"""
+
     id: str = Field(
         ...,
-        description="Memory unit ID.",
+        description="记忆单元ID。",
     )
     kind: MemoryKind = Field(
         ...,
-        description="Type of memory unit.",
+        description="记忆单元的类型。",
     )
     score: float = Field(
         ...,
-        description="Relevance score.",
+        description="相关性分数。",
     )
     snippet: str = Field(
         ...,
-        description="Text snippet or summary.",
+        description="文本片段或摘要。",
     )
     metadata: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Additional metadata if requested.",
+        description="如果请求则为附加元数据。",
     )
 
 
 class QueryResponseV1(BaseModel):
-    """V1 Query Response - Search results."""
-    
+    """V1 查询响应 - 搜索结果。"""
+
     query: str = Field(
         ...,
-        description="The original search query.",
+        description="原始搜索查询。",
     )
     attractor_path_len: int = Field(
         ...,
-        description="Length of attractor convergence path.",
+        description="吸引子收敛路径的长度。",
     )
     hits: List[QueryHitV1] = Field(
         ...,
-        description="List of matching memories.",
+        description="匹配的记忆列表。",
     )
     latency_ms: Optional[float] = Field(
         default=None,
-        description="Query latency in milliseconds.",
+        description="查询延迟 (毫秒)。",
     )
     
     class Config:
@@ -313,27 +313,27 @@ class QueryResponseV1(BaseModel):
 
 
 class CoherenceResponseV1(BaseModel):
-    """V1 Coherence Response - Memory coherence check results."""
-    
+    """V1 一致性响应 - 记忆一致性检查结果。"""
+
     overall_score: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="Overall coherence score (0-1).",
+        description="总体一致性分数 (0-1)。",
     )
     conflict_count: int = Field(
         ...,
         ge=0,
-        description="Number of detected conflicts.",
+        description="检测到的冲突数量。",
     )
     unfinished_story_count: int = Field(
         ...,
         ge=0,
-        description="Number of unresolved stories.",
+        description="未解决的故事数量。",
     )
     recommendations: List[str] = Field(
         ...,
-        description="Recommended actions to improve coherence.",
+        description="改进一致性的推荐行动。",
     )
     
     class Config:
@@ -341,45 +341,45 @@ class CoherenceResponseV1(BaseModel):
 
 
 class SelfNarrativeResponseV1(BaseModel):
-    """V1 Self Narrative Response - Agent's self-model."""
-    
+    """V1 自我叙事响应 - 代理的自我模型。"""
+
     identity_statement: str = Field(
         ...,
-        description="Short identity statement.",
+        description="简短的身份陈述。",
     )
     identity_narrative: str = Field(
         ...,
-        description="Detailed identity narrative.",
+        description="详细的身份叙事。",
     )
     capability_narrative: str = Field(
         ...,
-        description="Description of capabilities.",
+        description="能力描述。",
     )
     core_values: List[str] = Field(
         ...,
-        description="List of core values.",
+        description="核心价值观列表。",
     )
     coherence_score: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="Narrative coherence score.",
+        description="叙事一致性分数。",
     )
     capabilities: Dict[str, Dict[str, Any]] = Field(
         ...,
-        description="Capability beliefs with probabilities.",
+        description="具有概率的能力信念。",
     )
     relationships: Dict[str, Dict[str, Any]] = Field(
         ...,
-        description="Relationship beliefs.",
+        description="关系信念。",
     )
     unresolved_tensions: List[str] = Field(
         ...,
-        description="Current unresolved tensions.",
+        description="当前未解决的张力。",
     )
     full_narrative: str = Field(
         ...,
-        description="Complete narrative text.",
+        description="完整的叙事文本。",
     )
     
     class Config:
@@ -387,23 +387,23 @@ class SelfNarrativeResponseV1(BaseModel):
 
 
 class CausalChainItemV1(BaseModel):
-    """V1 Causal Chain Item - A node in the causal chain."""
-    
+    """V1 因果链项 - 因果链中的一个节点。"""
+
     node_id: str
     strength: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="Causal relationship strength.",
+        description="因果关系强度。",
     )
 
 
 class CausalChainResponseV1(BaseModel):
-    """V1 Causal Chain Response - Causal relationship chain."""
-    
+    """V1 因果链响应 - 因果关系链。"""
+
     chain: List[CausalChainItemV1] = Field(
         ...,
-        description="List of causally related nodes.",
+        description="因果相关节点的列表。",
     )
     
     class Config:
@@ -411,45 +411,45 @@ class CausalChainResponseV1(BaseModel):
 
 
 class MemoryStatsResponseV1(BaseModel):
-    """V1 Memory Stats Response - Memory system statistics."""
-    
+    """V1 记忆统计响应 - 记忆系统统计。"""
+
     plot_count: int = Field(
         ...,
         ge=0,
-        description="Number of stored plots.",
+        description="存储的情节数量。",
     )
     story_count: int = Field(
         ...,
         ge=0,
-        description="Number of stories.",
+        description="故事数量。",
     )
     theme_count: int = Field(
         ...,
         ge=0,
-        description="Number of themes.",
+        description="主题数量。",
     )
     coherence_score: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="Overall coherence score.",
+        description="总体一致性分数。",
     )
     self_narrative_coherence: float = Field(
         ...,
         ge=0.0,
         le=1.0,
-        description="Self-narrative coherence.",
+        description="自我叙事一致性。",
     )
     gate_pass_rate: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
-        description="Memory gate pass rate.",
+        description="记忆门通过率。",
     )
     cluster_entropy: Optional[float] = Field(
         default=None,
         ge=0.0,
-        description="Story cluster entropy.",
+        description="故事集群熵。",
     )
     
     class Config:
@@ -457,19 +457,19 @@ class MemoryStatsResponseV1(BaseModel):
 
 
 class ErrorResponseV1(BaseModel):
-    """V1 Error Response - Standard error format."""
-    
+    """V1 错误响应 - 标准错误格式。"""
+
     error: str = Field(
         ...,
-        description="Error type or code.",
+        description="错误类型或代码。",
     )
     message: str = Field(
         ...,
-        description="Human-readable error message.",
+        description="人类可读的错误消息。",
     )
     details: Optional[Dict[str, Any]] = Field(
         default=None,
-        description="Additional error details.",
+        description="附加错误详情。",
     )
     
     class Config:
@@ -477,23 +477,23 @@ class ErrorResponseV1(BaseModel):
 
 
 class HealthResponseV1(BaseModel):
-    """V1 Health Response - Service health check."""
-    
+    """V1 健康响应 - 服务健康检查。"""
+
     status: Literal["healthy", "degraded", "unhealthy"] = Field(
         ...,
-        description="Service status.",
+        description="服务状态。",
     )
     version: str = Field(
         ...,
-        description="Service version.",
+        description="服务版本。",
     )
     timestamp: float = Field(
         ...,
-        description="Check timestamp.",
+        description="检查时间戳。",
     )
     components: Optional[Dict[str, str]] = Field(
         default=None,
-        description="Component-level status.",
+        description="组件级别的状态。",
     )
     
     class Config:
@@ -501,10 +501,10 @@ class HealthResponseV1(BaseModel):
 
 
 # =============================================================================
-# Type Aliases for Convenience
+# 类型别名便利
 # =============================================================================
 
-# Current version aliases (update these when releasing new versions)
+# 当前版本别名 (发布新版本时更新这些)
 IngestRequest = IngestRequestV1
 IngestResponse = IngestResponseV1
 QueryRequest = QueryRequestV1
@@ -522,16 +522,16 @@ HealthResponse = HealthResponseV1
 
 
 # =============================================================================
-# Schema Version Info
+# 模式版本信息
 # =============================================================================
 
 SCHEMA_VERSION = "v1"
 SCHEMA_VERSIONS = ["v1"]
 
 def get_schema_version() -> str:
-    """Get current schema version."""
+    """获取当前模式版本。"""
     return SCHEMA_VERSION
 
 def list_schema_versions() -> List[str]:
-    """List all available schema versions."""
+    """列出所有可用的模式版本。"""
     return SCHEMA_VERSIONS.copy()

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List, Tuple
 
 
-# Very simple PII patterns (production should use a real detector)
+# 非常简单的 PII 模式（生产环境应使用真实检测器）
 _EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 _PHONE = re.compile(r"\b(\+?\d[\d\s\-().]{7,}\d)\b")
 _CREDIT = re.compile(r"\b(?:\d[ -]*?){13,19}\b")

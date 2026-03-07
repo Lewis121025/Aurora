@@ -1,16 +1,16 @@
 """
-Tests for AURORA Conflict Detection and Handling
+AURORA 冲突检测和处理的测试
 
-Tests the integration of CoherenceGuardian into the ingest flow,
-validating the first-principles approach to conflict resolution:
+测试 CoherenceGuardian 集成到摄入流中，
+验证冲突解决的第一原则方法：
 
-1. State facts (phone, address) → UPDATE (new supersedes old)
-2. Identity traits (patient, efficient) → PRESERVE_BOTH (adaptive flexibility)
-3. Static facts (birthday) → CORRECT if wrong
-4. Preferences → EVOLVE (track timeline)
+1. 状态事实（电话、地址）→ 更新（新的取代旧的）
+2. 身份特征（耐心、高效）→ 保留两者（适应灵活性）
+3. 静态事实（生日）→ 如果错误则更正
+4. 偏好 → 演变（追踪时间线）
 
-AURORA Philosophy: Not all contradictions need elimination.
-Healthy identity contains tensions that provide adaptability.
+AURORA 哲学：并非所有矛盾都需要消除。
+健康的身份包含提供适应性的张力。
 """
 
 import pytest

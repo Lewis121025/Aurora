@@ -17,9 +17,9 @@ class Document:
 
 
 class SQLiteDocStore:
-    """Simple document store for derived artifacts.
+    """用于派生工件的简单文档存储。
 
-    Table:
+    表：
       docs(id TEXT PRIMARY KEY, kind TEXT, user_id TEXT, ts REAL, body TEXT)
     """
 
@@ -65,15 +65,15 @@ class SQLiteDocStore:
             yield Document(id=str(_id), kind=str(k), user_id=str(uid), ts=float(ts), body=loads(body))
 
     def close(self) -> None:
-        """Explicitly close the database connection."""
+        """显式关闭数据库连接。"""
         if self._conn:
             self._conn.close()
             self._conn = None
 
     def __enter__(self) -> "SQLiteDocStore":
-        """Context manager entry."""
+        """上下文管理器入口。"""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit - ensures connection is closed."""
+        """上下文管理器退出 - 确保连接被关闭。"""
         self.close()

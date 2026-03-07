@@ -1,8 +1,8 @@
 """
-AURORA Metric Learning
+AURORA 度量学习
 =======================
 
-Low-rank Mahalanobis metric for adaptive similarity learning.
+用于自适应相似性学习的低秩Mahalanobis度量。
 """
 
 from __future__ import annotations
@@ -14,26 +14,24 @@ import numpy as np
 
 
 class LowRankMetric:
-    """Low-rank Mahalanobis metric: d(x,y)^2 = ||L(x-y)||^2.
+    """低秩Mahalanobis度量：d(x,y)^2 = ||L(x-y)||^2。
 
-    Interpretable as learning a task- and user-adapted "information geometry" metric
-    from retrieval feedback.
+    可解释为从检索反馈中学习任务和用户适应的"信息几何"度量。
 
-    The metric learns to map the embedding space such that relevant items
-    are close and irrelevant items are far apart.
+    该度量学习映射嵌入空间，使相关项接近，无关项远离。
 
-    Parameter stability:
-        - window_size: Sliding window for Adagrad accumulator reset.
-          Every `window_size` updates, the accumulator G is rescaled to prevent
-          the learning rate from decaying to near-zero over time.
-        - decay_factor: Applied to G during periodic recomputation (default 0.5).
+    参数稳定性:
+        - window_size：Adagrad累加器重置的滑动窗口。
+          每`window_size`次更新，累加器G被重新缩放以防止
+          学习速率随时间衰减到接近零。
+        - decay_factor：在周期性重新计算期间应用于G（默认0.5）。
 
-    Attributes:
-        dim: Input embedding dimension
-        rank: Rank of the metric (output dimension of L)
-        L: The low-rank projection matrix (rank x dim)
-        G: Adagrad accumulator for adaptive learning rates
-        t: Update counter
+    属性:
+        dim: 输入嵌入维度
+        rank: 度量的秩（L的输出维度）
+        L: 低秩投影矩阵（rank x dim）
+        G: 用于自适应学习速率的Adagrad累加器
+        t: 更新计数器
     """
 
     def __init__(
@@ -44,14 +42,14 @@ class LowRankMetric:
         window_size: int = 10000,
         decay_factor: float = 0.5,
     ):
-        """Initialize the low-rank metric.
+        """初始化低秩度量。
 
-        Args:
-            dim: Embedding dimension
-            rank: Rank of the learned metric
-            seed: Random seed for initialization
-            window_size: Adagrad accumulator reset window
-            decay_factor: Decay factor for accumulator rescaling
+        参数:
+            dim: 嵌入维度
+            rank: 学习度量的秩
+            seed: 初始化的随机种子
+            window_size: Adagrad累加器重置窗口
+            decay_factor: 累加器重新缩放的衰减因子
         """
         self.dim = dim
         self.rank = min(rank, dim)
@@ -63,36 +61,36 @@ class LowRankMetric:
         self.L = np.eye(dim, dtype=np.float32)[: self.rank].copy()
         self.L += (0.01 * rng.normal(size=self.L.shape)).astype(np.float32)
 
-        self.G = np.zeros_like(self.L)  # Adagrad accumulator
+        self.G = np.zeros_like(self.L)  # Adagrad累加器
         self.t = 0
 
-        # Statistics for monitoring
+        # 用于监控的统计
         self._total_loss = 0.0
         self._update_count = 0
 
     def d2(self, x: np.ndarray, y: np.ndarray) -> float:
-        """Compute squared distance in the learned metric.
+        """计算学习度量中的平方距离。
 
-        Args:
-            x: First embedding
-            y: Second embedding
+        参数:
+            x: 第一个嵌入
+            y: 第二个嵌入
 
-        Returns:
-            Squared distance d(x,y)^2 = ||L(x-y)||^2
+        返回:
+            平方距离 d(x,y)^2 = ||L(x-y)||^2
         """
         z = (x - y).astype(np.float32)
         p = self.L @ z
         return float(np.dot(p, p))
 
     def sim(self, x: np.ndarray, y: np.ndarray) -> float:
-        """Compute similarity in the learned metric.
+        """计算学习度量中的相似性。
 
-        Args:
-            x: First embedding
-            y: Second embedding
+        参数:
+            x: 第一个嵌入
+            y: 第二个嵌入
 
-        Returns:
-            Similarity in (0, 1], where 1 means identical
+        返回:
+            相似性在(0, 1]范围内，其中1表示相同
         """
         return 1.0 / (1.0 + self.d2(x, y))
 
@@ -103,24 +101,24 @@ class LowRankMetric:
         negative: np.ndarray,
         margin: float = 1.0,
     ) -> float:
-        """Online OASIS-like update with Adagrad.
+        """在线OASIS类更新，使用Adagrad。
 
-        Updates the metric to make anchor closer to positive and
-        farther from negative.
+        更新度量以使锚点更接近正样本并
+        远离负样本。
 
-        margin is not a threshold on similarity; it's a geometric separation unit.
+        margin不是相似性的阈值；它是几何分离单位。
 
-        Includes sliding window mechanism: periodically rescales the Adagrad
-        accumulator to prevent learning rate from vanishing.
+        包括滑动窗口机制：定期重新缩放Adagrad
+        累加器以防止学习速率消失。
 
-        Args:
-            anchor: Anchor embedding
-            positive: Positive (similar) embedding
-            negative: Negative (dissimilar) embedding
-            margin: Margin for triplet loss
+        参数:
+            anchor: 锚点嵌入
+            positive: 正（相似）嵌入
+            negative: 负（不相似）嵌入
+            margin: 三元组损失的边界
 
-        Returns:
-            Loss value (0 if constraint already satisfied)
+        返回:
+            损失值（如果约束已满足则为0）
         """
         self.t += 1
         ap = (anchor - positive).astype(np.float32)
@@ -135,37 +133,37 @@ class LowRankMetric:
 
         grad = 2.0 * (np.outer(Lap, ap) - np.outer(Lan, an)).astype(np.float32)
         self.G += grad * grad
-        # Self-tuning learning rate: decays with t automatically
+        # 自调整学习速率：随t自动衰减
         base = 1.0 / math.sqrt(self.t + 1.0)
         step = base * grad / (np.sqrt(self.G) + 1e-8)
         self.L -= step
 
-        # Track statistics
+        # 跟踪统计
         self._total_loss += loss
         self._update_count += 1
 
-        # Sliding window: periodically rescale G to maintain plasticity
-        # This prevents the Adagrad accumulator from growing unboundedly
-        # which would cause the learning rate to approach zero
+        # 滑动窗口：定期重新缩放G以保持可塑性
+        # 这防止Adagrad累加器无限增长
+        # 这会导致学习速率接近零
         if self.t > 0 and self.t % self.window_size == 0:
             self._rescale_accumulator()
 
         return float(loss)
 
     def _rescale_accumulator(self) -> None:
-        """Rescale the Adagrad accumulator to maintain learning capacity.
+        """重新缩放Adagrad累加器以保持学习能力。
 
-        This implements a "soft reset" that preserves learned structure
-        while preventing the accumulator from growing too large.
+        这实现了一个"软重置"，保留学习的结构
+        同时防止累加器变得太大。
         """
         self.G *= self.decay_factor
 
     def average_loss(self) -> float:
-        """Return average triplet loss over all updates."""
+        """返回所有更新的平均三元组损失。"""
         return self._total_loss / self._update_count if self._update_count > 0 else 0.0
 
     def to_state_dict(self) -> Dict[str, Any]:
-        """Serialize to JSON-compatible dict."""
+        """序列化为JSON兼容的字典。"""
         return {
             "dim": self.dim,
             "rank": self.rank,
@@ -181,7 +179,7 @@ class LowRankMetric:
 
     @classmethod
     def from_state_dict(cls, d: Dict[str, Any]) -> "LowRankMetric":
-        """Reconstruct from state dict."""
+        """从状态字典重构。"""
         obj = cls(
             dim=d["dim"],
             rank=d["rank"],

@@ -13,7 +13,7 @@ class Claim(BaseModel):
     object: str
     polarity: Literal["positive", "negative"] = "positive"
     certainty: float = Field(ge=0.0, le=1.0, default=0.7)
-    # optional qualifiers: time, condition, location
+    # 可选限定符：时间、条件、位置
     qualifiers: Dict[str, str] = Field(default_factory=dict)
 
 
@@ -23,13 +23,13 @@ class PlotExtraction(BaseModel):
     action: str
     context: str = ""
     outcome: str = ""
-    # narrative signals
+    # 叙述信号
     goal: str = ""
     obstacles: List[str] = Field(default_factory=list)
     decision: str = ""
     emotion_valence: float = Field(ge=-1.0, le=1.0, default=0.0)
     emotion_arousal: float = Field(ge=0.0, le=1.0, default=0.2)
-    # knowledge layer
+    # 知识层
     claims: List[Claim] = Field(default_factory=list)
 
 
@@ -74,165 +74,165 @@ class ContradictionJudgement(BaseModel):
 
 
 # -----------------------------------------------------------------------------
-# Causal Inference Schemas
+# 因果推理 Schema
 # -----------------------------------------------------------------------------
 
 class CausalRelation(BaseModel):
-    """Extracted causal relation between events"""
+    """事件之间的提取因果关系"""
     schema_version: str = SCHEMA_VERSION
     cause_id: str
     effect_id: str
-    
-    # Causal direction confidence (0-1)
+
+    # 因果方向置信度 (0-1)
     direction_confidence: float = Field(ge=0.0, le=1.0, default=0.5)
-    
-    # Causal strength (0-1)
+
+    # 因果强度 (0-1)
     strength: float = Field(ge=0.0, le=1.0, default=0.5)
-    
-    # Type of causal relation
+
+    # 因果关系类型
     relation_type: Literal["direct", "indirect", "enabling", "preventing"] = "direct"
-    
-    # Evidence for this relation
+
+    # 此关系的证据
     evidence: str = ""
-    
-    # Conditions under which this relation holds
+
+    # 此关系成立的条件
     conditions: List[str] = Field(default_factory=list)
-    
-    # Potential confounders
+
+    # 潜在的混淆因素
     confounders: List[str] = Field(default_factory=list)
 
 
 class CausalChainExtraction(BaseModel):
-    """Extract causal chain from a sequence of events"""
+    """从事件序列提取因果链"""
     schema_version: str = SCHEMA_VERSION
-    
-    # List of causal relations in the chain
+
+    # 链中的因果关系列表
     relations: List[CausalRelation] = Field(default_factory=list)
-    
-    # Root causes identified
+
+    # 识别的根本原因
     root_causes: List[str] = Field(default_factory=list)
-    
-    # Final effects identified
+
+    # 识别的最终效果
     final_effects: List[str] = Field(default_factory=list)
-    
-    # Overall chain confidence
+
+    # 整体链置信度
     chain_confidence: float = Field(ge=0.0, le=1.0, default=0.5)
 
 
 class CounterfactualQuery(BaseModel):
-    """Counterfactual reasoning query"""
+    """反事实推理查询"""
     schema_version: str = SCHEMA_VERSION
-    
-    # The factual situation
+
+    # 事实情况
     factual_description: str
-    
-    # The hypothetical change
+
+    # 假设的变化
     counterfactual_antecedent: str
-    
-    # What we want to know
+
+    # 我们想知道的
     query: str
-    
-    # Answer
+
+    # 答案
     counterfactual_consequent: str = ""
-    
-    # Confidence in the answer
+
+    # 答案的置信度
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
-    
-    # Reasoning chain
+
+    # 推理链
     reasoning: str = ""
 
 
 # -----------------------------------------------------------------------------
-# Self-Narrative Schemas
+# 自我叙述 Schema
 # -----------------------------------------------------------------------------
 
 class CapabilityAssessment(BaseModel):
-    """Assessment of a capability from interaction"""
+    """从交互中评估能力"""
     schema_version: str = SCHEMA_VERSION
-    
+
     capability_name: str
     description: str = ""
-    
-    # Evidence of capability (positive)
+
+    # 能力证据（正面）
     demonstrated: bool = False
     demonstration_evidence: str = ""
-    
-    # Evidence of limitation (negative)
+
+    # 限制证据（负面）
     limitation_found: bool = False
     limitation_evidence: str = ""
-    
-    # Context where this applies
+
+    # 此能力适用的上下文
     applicable_contexts: List[str] = Field(default_factory=list)
-    
-    # Confidence in assessment
+
+    # 评估的置信度
     confidence: float = Field(ge=0.0, le=1.0, default=0.5)
 
 
 class RelationshipAssessment(BaseModel):
-    """Assessment of relationship quality from interaction"""
+    """从交互中评估关系质量"""
     schema_version: str = SCHEMA_VERSION
-    
+
     entity_id: str
     entity_type: Literal["user", "system", "concept"] = "user"
-    
-    # Interaction quality
+
+    # 交互质量
     interaction_positive: bool = True
-    
-    # Trust signals
+
+    # 信任信号
     trust_signal: float = Field(ge=-1.0, le=1.0, default=0.0)
-    
-    # Learned preferences
+
+    # 学到的偏好
     preferences_observed: Dict[str, float] = Field(default_factory=dict)
-    
-    # Notes
+
+    # 备注
     notes: str = ""
 
 
 class IdentityReflection(BaseModel):
-    """Self-reflection on identity"""
+    """自我身份反思"""
     schema_version: str = SCHEMA_VERSION
-    
-    # Current identity summary
+
+    # 当前身份摘要
     identity_summary: str
-    
-    # Key capabilities
+
+    # 关键能力
     strong_capabilities: List[str] = Field(default_factory=list)
     developing_capabilities: List[str] = Field(default_factory=list)
-    
-    # Values demonstrated
+
+    # 展示的价值观
     values_demonstrated: List[str] = Field(default_factory=list)
-    
-    # Growth areas
+
+    # 成长领域
     growth_areas: List[str] = Field(default_factory=list)
-    
-    # Tensions or conflicts
+
+    # 紧张或冲突
     tensions: List[str] = Field(default_factory=list)
 
 
 # -----------------------------------------------------------------------------
-# Coherence Schemas
+# 一致性 Schema
 # -----------------------------------------------------------------------------
 
 class CoherenceCheck(BaseModel):
-    """Result of coherence check between two elements"""
+    """两个元素之间的一致性检查结果"""
     schema_version: str = SCHEMA_VERSION
-    
+
     element_a_id: str
     element_b_id: str
-    
-    # Type of potential conflict
+
+    # 潜在冲突的类型
     conflict_type: Optional[Literal["factual", "temporal", "causal", "thematic"]] = None
-    
-    # Is there a conflict?
+
+    # 是否存在冲突？
     has_conflict: bool = False
     conflict_severity: float = Field(ge=0.0, le=1.0, default=0.0)
-    
-    # Explanation
+
+    # 解释
     explanation: str = ""
-    
-    # Suggested resolution
+
+    # 建议的解决方案
     resolution_suggestion: str = ""
-    
-    # Can both be true under different conditions?
+
+    # 在不同条件下两者都能成立吗？
     contextually_compatible: bool = True
     compatibility_conditions: str = ""

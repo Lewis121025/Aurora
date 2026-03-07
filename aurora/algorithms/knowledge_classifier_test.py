@@ -1,11 +1,11 @@
 """
-Tests for AURORA Knowledge Type Classifier
+AURORA 知识类型分类器的测试
 ==========================================
 
-Tests the knowledge classification and conflict resolution based on first principles:
-- Not all contradictions need elimination
-- Different knowledge types require different handling strategies
-- Complementary traits should be preserved, not resolved
+测试基于第一原则的知识分类和冲突解决：
+- 并非所有矛盾都需要消除
+- 不同的知识类型需要不同的处理策略
+- 互补的特征应该被保留，而不是解决
 """
 
 import pytest
@@ -23,12 +23,12 @@ from aurora.algorithms.knowledge_classifier import (
 
 
 # =============================================================================
-# Fixtures
+# 夹具
 # =============================================================================
 
 @pytest.fixture
 def classifier():
-    """Create a knowledge classifier with fixed seed for reproducibility."""
+    """创建具有固定种子的知识分类器以实现可重复性。"""
     return KnowledgeClassifier(seed=42)
 
 

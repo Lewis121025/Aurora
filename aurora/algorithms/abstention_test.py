@@ -1,8 +1,8 @@
 """
-Tests for Abstention Detection
+弃权检测的测试
 ================================
 
-Test the abstention mechanism that rejects answering when confidence is low.
+测试当置信度低时拒绝回答的弃权机制。
 """
 
 import pytest
@@ -13,10 +13,10 @@ from aurora.algorithms.aurora_core import AuroraMemory
 
 
 class TestAbstentionDetector:
-    """Tests for AbstentionDetector class."""
-    
+    """AbstentionDetector 类的测试。"""
+
     def test_no_results_abstain(self):
-        """Test that empty results trigger abstention."""
+        """测试空结果触发弃权。"""
         detector = AbstentionDetector()
         result = detector.detect(
             query="What did we discuss?",

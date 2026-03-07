@@ -1,46 +1,46 @@
 """
-AURORA Memory System
+AURORA 记忆系统
 ====================
 
-A narrative-first memory system for AI agents.
+为 AI Agent 设计的叙事优先记忆系统。
 
-Philosophy:
-    - Memory is not about the past, but about identity
-    - The self is a necessary fiction
-    - Relationships define who we are
-    - Some contradictions should be preserved
+哲学理念：
+    - 记忆不是关于过去，而是关于身份
+    - 自我是必要的虚构
+    - 关系定义了我们是谁
+    - 某些矛盾应该被保留
 
-Quick Start:
+快速开始：
     from aurora import AuroraMemory, MemoryConfig
-    
+
     mem = AuroraMemory(cfg=MemoryConfig(), seed=42)
-    
-    # Ingest interactions
+
+    # 摄入交互
     plot = mem.ingest("User asked about memory systems")
-    
-    # Query with relationship context
+
+    # 使用关系上下文查询
     trace = mem.query("How does memory work?", asker_id="user_123")
-    
-    # Evolve (consolidate, reflect, grow)
+
+    # 演化（整合、反思、成长）
     mem.evolve()
 
-Modules:
-    algorithms - Core memory algorithms (AuroraMemory, TensionManager)
-    services   - Production services (IngestionService, QueryService)
-    storage    - Storage backends (StateStore, VectorStore)
-    embeddings - Embedding providers (HashEmbedding, BailianEmbedding)
-    llm        - LLM providers (MockLLM, ArkLLM)
-    api        - REST API (FastAPI)
-    mcp        - MCP Server (Model Context Protocol)
-    privacy    - PII redaction
+模块：
+    algorithms - 核心记忆算法（AuroraMemory, TensionManager）
+    services   - 生产服务（IngestionService, QueryService）
+    storage    - 存储后端（StateStore, VectorStore）
+    embeddings - 嵌入提供者（HashEmbedding, BailianEmbedding）
+    llm        - LLM 提供者（MockLLM, ArkLLM）
+    api        - REST API（FastAPI）
+    mcp        - MCP 服务器（Model Context Protocol）
+    privacy    - PII 脱敏
 """
 
 __version__ = "0.1.0"
 
-# Core algorithm - the heart of AURORA
+# 核心算法 - AURORA 的心脏
 from aurora.algorithms import AuroraMemory, TensionManager
 
-# Data models
+# 数据模型
 from aurora.algorithms.models import (
     Plot,
     StoryArc,
@@ -49,11 +49,11 @@ from aurora.algorithms.models import (
     RetrievalTrace,
 )
 
-# High-level integration
+# 高级集成
 from aurora.hub import AuroraHub
 from aurora.config import AuroraSettings
 
-# Exceptions
+# 异常
 from aurora.exceptions import (
     AuroraError,
     MemoryNotFoundError,
@@ -66,12 +66,12 @@ from aurora.exceptions import (
 )
 
 __all__ = [
-    # Version
+    # 版本
     "__version__",
-    # Core
+    # 核心
     "AuroraMemory",
     "TensionManager",
-    # Models
+    # 模型
     "Plot",
     "StoryArc",
     "Theme",
@@ -80,7 +80,7 @@ __all__ = [
     # Hub
     "AuroraHub",
     "AuroraSettings",
-    # Exceptions
+    # 异常
     "AuroraError",
     "MemoryNotFoundError",
     "ConfigurationError",

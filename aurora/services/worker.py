@@ -1,15 +1,15 @@
 """
-Ingest Worker (Background Processing)
+摄入 Worker (后台处理)
 =====================================
 
-Consumes messages from the ingestion queue and processes them:
-1. LLM Plot extraction
-2. Embedding computation
-3. Vector store updates
-4. State store updates
-5. Graph weaving
+从摄入队列消费消息并处理它们:
+1. LLM 情节提取
+2. 嵌入计算
+3. 向量存储更新
+4. 状态存储更新
+5. 图编织
 
-Supports horizontal scaling with multiple workers.
+支持多个 worker 的水平扩展。
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class ProcessResult:
-    """Result of processing an ingest request."""
+    """摄入请求的处理结果。"""
     event_id: str
     plot_id: str
     story_id: Optional[str]
@@ -40,15 +40,15 @@ class ProcessResult:
 
 
 class IngestWorker:
-    """Background worker for processing ingest requests.
-    
-    Consumes from message queue and processes:
-    1. Extract plot from interaction using LLM
-    2. Compute embedding
-    3. Apply memory algorithm (gate, CRP, etc.)
-    4. Write to vector store and state store
-    
-    Supports horizontal scaling - multiple workers can consume from the same queue.
+    """后台 worker 用于处理摄入请求。
+
+    从消息队列消费并处理:
+    1. 使用 LLM 从交互中提取情节
+    2. 计算嵌入
+    3. 应用内存算法 (gate、CRP 等)
+    4. 写入向量存储和状态存储
+
+    支持水平扩展 - 多个 worker 可以从同一队列消费。
     """
     
     def __init__(
@@ -63,18 +63,18 @@ class IngestWorker:
         batch_size: int = 10,
         poll_interval: float = 0.1,
     ):
-        """Initialize the worker.
-        
-        Args:
-            queue: Message queue to consume from
-            topic: Topic to subscribe to
-            llm_provider: LLM for plot extraction
-            embedding_provider: Embedding provider
-            vector_store: Vector store for writes
-            state_store: State store for algorithm state
-            memory: AuroraMemory instance (optional, for sync processing)
-            batch_size: Number of messages to process in batch
-            poll_interval: Seconds between queue polls
+        """初始化 worker。
+
+        参数:
+            queue: 要消费的消息队列
+            topic: 要订阅的主题
+            llm_provider: 用于情节提取的 LLM
+            embedding_provider: 嵌入提供者
+            vector_store: 用于写入的向量存储
+            state_store: 用于算法状态的状态存储
+            memory: AuroraMemory 实例 (可选，用于同步处理)
+            batch_size: 批量处理的消息数
+            poll_interval: 队列轮询之间的秒数
         """
         self.queue = queue
         self.topic = topic
@@ -85,49 +85,49 @@ class IngestWorker:
         self.memory = memory
         self.batch_size = batch_size
         self.poll_interval = poll_interval
-        
+
         self._running = False
         self._consumer = None
-        
-        # Statistics
+
+        # 统计信息
         self._processed_count = 0
         self._error_count = 0
         self._total_processing_time = 0.0
     
     async def start(self) -> None:
-        """Start the worker."""
+        """启动 worker。"""
         logger.info(f"Starting IngestWorker for topic: {self.topic}")
         self._running = True
         self._consumer = await self.queue.subscribe(self.topic)
-        
+
         while self._running:
             try:
                 await self._process_batch()
             except Exception as e:
                 logger.error(f"Worker error: {e}")
-                await asyncio.sleep(1.0)  # Back off on error
+                await asyncio.sleep(1.0)  # 出错时退避
     
     async def stop(self) -> None:
-        """Stop the worker gracefully."""
+        """优雅地停止 worker。"""
         logger.info("Stopping IngestWorker")
         self._running = False
         if hasattr(self._consumer, "close"):
             await self._consumer.close()
     
     async def _process_batch(self) -> int:
-        """Process a batch of messages. Returns count processed."""
+        """处理一批消息。返回处理的数量。"""
         processed = 0
-        
+
         for _ in range(self.batch_size):
             if not self._running:
                 break
-            
-            # Receive message
+
+            # 接收消息
             msg = await self._consumer.receive(timeout=self.poll_interval)
             if msg is None:
                 break
-            
-            # Process message
+
+            # 处理消息
             try:
                 result = await self._process_message(msg)
                 await self._consumer.ack(result.event_id)
@@ -136,39 +136,39 @@ class IngestWorker:
             except Exception as e:
                 logger.error(f"Failed to process message: {e}")
                 self._error_count += 1
-        
+
         return processed
     
     async def _process_message(self, msg: str) -> ProcessResult:
-        """Process a single message."""
+        """处理单个消息。"""
         start_time = time.time()
-        
-        # Parse request
+
+        # 解析请求
         from aurora.services.ingestion import IngestRequest
         request = IngestRequest.model_validate_json(msg)
-        
-        # Process using memory instance if available
+
+        # 使用内存实例处理 (如果可用)
         if self.memory is not None:
             result = await self._process_with_memory(request)
         else:
             result = await self._process_distributed(request)
-        
+
         result.processing_time_ms = (time.time() - start_time) * 1000
         self._total_processing_time += result.processing_time_ms
-        
+
         return result
     
     async def _process_with_memory(self, request) -> ProcessResult:
-        """Process using in-memory AuroraMemory."""
+        """使用内存中的 AuroraMemory 处理。"""
         from aurora.services.ingestion import IngestRequest
-        
+
         def _sync_process():
-            # Build interaction text
+            # 构建交互文本
             if self.llm is not None:
-                # Use LLM for extraction
+                # 使用 LLM 进行提取
                 from aurora.llm import prompts
                 from aurora.llm.schemas import PlotExtraction
-                
+
                 instruction = prompts.instruction("PlotExtraction")
                 user_prompt = prompts.render(
                     prompts.PLOT_EXTRACTION_USER,
@@ -177,7 +177,7 @@ class IngestWorker:
                     agent_message=request.agent_message,
                     context=request.context or "",
                 )
-                
+
                 try:
                     extraction = self.llm.complete_json(
                         system=prompts.PLOT_EXTRACTION_SYSTEM,
@@ -195,21 +195,21 @@ class IngestWorker:
             else:
                 outcome = ""
                 actors = request.actors or ["user", "agent"]
-            
+
             interaction_text = f"USER: {request.user_message}\nAGENT: {request.agent_message}"
             if outcome:
                 interaction_text += f"\nOUTCOME: {outcome}"
-            
-            # Ingest into memory
+
+            # 摄入到内存
             plot = self.memory.ingest(
                 interaction_text,
                 actors=actors,
                 context_text=request.context,
                 event_id=request.event_id,
             )
-            
+
             encoded = plot.id in self.memory.plots
-            
+
             return ProcessResult(
                 event_id=request.event_id,
                 plot_id=plot.id,
@@ -221,17 +221,17 @@ class IngestWorker:
                 redundancy=float(plot.redundancy),
                 processing_time_ms=0.0,
             )
-        
-        # Run in thread pool to not block event loop
+
+        # 在线程池中运行以不阻塞事件循环
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _sync_process)
     
     async def _process_distributed(self, request) -> ProcessResult:
-        """Process in distributed mode (vector store + state store)."""
-        # This is a placeholder for fully distributed processing
-        # where each component is accessed via network
-        
-        # For now, return an error indicating memory is required
+        """在分布式模式下处理 (向量存储 + 状态存储)。"""
+        # 这是完全分布式处理的占位符
+        # 其中每个组件通过网络访问
+
+        # 目前，返回一个错误，指示需要内存
         return ProcessResult(
             event_id=request.event_id,
             plot_id="",
@@ -246,7 +246,7 @@ class IngestWorker:
         )
     
     def stats(self) -> Dict[str, Any]:
-        """Return worker statistics."""
+        """返回 worker 统计信息。"""
         avg_time = self._total_processing_time / max(1, self._processed_count)
         return {
             "processed_count": self._processed_count,
@@ -257,18 +257,18 @@ class IngestWorker:
 
 
 class WorkerPool:
-    """Pool of workers for horizontal scaling."""
+    """用于水平扩展的 worker 池。"""
     
     def __init__(
         self,
         num_workers: int = 4,
         worker_factory=None,
     ):
-        """Initialize worker pool.
-        
-        Args:
-            num_workers: Number of workers to run
-            worker_factory: Callable that returns IngestWorker instances
+        """初始化 worker 池。
+
+        参数:
+            num_workers: 要运行的 worker 数量
+            worker_factory: 返回 IngestWorker 实例的可调用对象
         """
         self.num_workers = num_workers
         self.worker_factory = worker_factory
@@ -276,9 +276,9 @@ class WorkerPool:
         self._tasks: List[asyncio.Task] = []
     
     async def start(self) -> None:
-        """Start all workers."""
+        """启动所有 worker。"""
         logger.info(f"Starting worker pool with {self.num_workers} workers")
-        
+
         for i in range(self.num_workers):
             worker = self.worker_factory()
             self._workers.append(worker)
@@ -286,22 +286,22 @@ class WorkerPool:
             self._tasks.append(task)
     
     async def stop(self) -> None:
-        """Stop all workers gracefully."""
+        """优雅地停止所有 worker。"""
         logger.info("Stopping worker pool")
-        
-        # Signal all workers to stop
+
+        # 向所有 worker 发送停止信号
         for worker in self._workers:
             await worker.stop()
-        
-        # Wait for tasks to complete
+
+        # 等待任务完成
         if self._tasks:
             await asyncio.gather(*self._tasks, return_exceptions=True)
-        
+
         self._workers.clear()
         self._tasks.clear()
     
     def stats(self) -> Dict[str, Any]:
-        """Aggregate statistics from all workers."""
+        """从所有 worker 聚合统计信息。"""
         total_processed = sum(w._processed_count for w in self._workers)
         total_errors = sum(w._error_count for w in self._workers)
         total_time = sum(w._total_processing_time for w in self._workers)

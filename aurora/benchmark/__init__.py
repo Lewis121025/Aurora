@@ -1,20 +1,20 @@
 """
-AURORA Benchmark Module
+AURORA 基准测试模块
 =======================
 
-Benchmark adapters for evaluating AURORA memory system against academic benchmarks.
+用于针对学术基准评估 AURORA 内存系统的基准适配器。
 
-Supported Benchmarks:
-- MemoryAgentBench (2025.07): LLM Agent memory evaluation
-- LOCOMO (ACL 2024): Long context memory evaluation (planned)
+支持的基准:
+- MemoryAgentBench (2025.07): LLM 代理内存评估
+- LOCOMO (ACL 2024): 长上下文内存评估（计划中）
 
-Usage:
+使用方法:
     from aurora.benchmark import MemoryAgentBenchAdapter, BenchmarkCapability
     from aurora.algorithms.aurora_core import AuroraMemory
-    
+
     adapter = MemoryAgentBenchAdapter()
     memory = AuroraMemory()
-    
+
     results, metrics = adapter.run_benchmark_with_config(
         memory=memory,
         source="ai-hyz/MemoryAgentBench",
@@ -44,7 +44,7 @@ __all__ = [
 ]
 
 
-# Lazy imports for adapters
+# 适配器的延迟导入
 def __getattr__(name: str):
     if name == "MemoryAgentBenchAdapter":
         from aurora.benchmark.adapters.memoryagentbench import MemoryAgentBenchAdapter

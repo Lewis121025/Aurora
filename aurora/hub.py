@@ -10,15 +10,15 @@ from aurora.service import AuroraTenant
 
 
 class AuroraHub:
-    """Multi-tenant router with LRU eviction.
+    """具有 LRU 驱逐的多租户路由器。
 
-    Use case:
-      - one memory instance per user_id
-      - cap number of loaded tenants to avoid unbounded RAM
+    使用场景：
+      - 每个 user_id 一个内存实例
+      - 限制加载的租户数量以避免无限制的 RAM 占用
 
-    Eviction policy:
-      - when exceeding cap, evict least-recently-used tenant
-      - eviction triggers snapshot (tenant already snapshots periodically, but we can add forced snapshot)
+    驱逐策略：
+      - 超过上限时，驱逐最近最少使用的租户
+      - 驱逐触发快照（租户已定期快照，但我们可以添加强制快照）
     """
 
     def __init__(self, settings: AuroraSettings, llm: Optional[LLMProvider] = None):

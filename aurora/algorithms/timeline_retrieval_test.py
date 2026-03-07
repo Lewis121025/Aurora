@@ -1,10 +1,9 @@
-"""
-Tests for Timeline-Based Retrieval (First Principles: superseded ≠ deleted)
+"""基于时间线的检索测试（第一原则：被取代 ≠ 删除）
 
-These tests verify that AURORA correctly handles knowledge evolution:
-- Past facts are repositioned with temporal markers, not deleted
-- "I lived in Beijing" remains TRUE, just in the past tense
-- The retrieval layer provides information; the LLM layer decides
+这些测试验证 AURORA 正确处理知识演变：
+- 过去的事实用时间标记重新定位，而不是删除
+- "我住在北京"仍然是真的，只是在过去时态
+- 检索层提供信息；LLM 层决定
 """
 
 import pytest
@@ -17,10 +16,10 @@ from aurora.algorithms.models.trace import KnowledgeTimeline, TimelineGroup
 
 
 class TestUpdateChainTracing:
-    """Test the _get_update_chain method for tracing knowledge evolution."""
+    """测试 _get_update_chain 方法以追踪知识演变。"""
 
     def test_single_plot_returns_itself(self):
-        """A plot with no updates returns a chain of just itself."""
+        """没有更新的情节返回仅包含自身的链。"""
         mem = AuroraMemory(cfg=MemoryConfig(dim=64), seed=42)
         
         # Ingest a single plot

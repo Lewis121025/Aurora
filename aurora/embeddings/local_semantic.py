@@ -1,17 +1,17 @@
 """
-AURORA Local Semantic Embedding
+AURORA 本地语义嵌入
 ===============================
 
-Local semantic embedding using word vectors for basic similarity.
-Semantically similar texts produce similar vectors (unlike HashEmbedding).
+使用词向量进行基本相似性的本地语义嵌入。
+语义相似的文本会产生相似的向量（不同于 HashEmbedding）。
 
-Usage:
+使用方法：
     from aurora.embeddings import LocalSemanticEmbedding
-    
+
     embedder = LocalSemanticEmbedding(dim=384)
     vec1 = embedder.embed("我住在北京")
     vec2 = embedder.embed("我在北京生活")
-    # vec1 and vec2 will be similar since they share words
+    # vec1 和 vec2 会相似，因为它们共享词汇
 """
 
 from __future__ import annotations
@@ -42,11 +42,11 @@ class LocalSemanticEmbedding(EmbeddingProvider):
     """
     
     def __init__(self, dim: int = 384, seed: int = 0):
-        """Initialize the local semantic embedding.
-        
-        Args:
-            dim: Embedding dimension (default 384)
-            seed: Random seed for reproducibility
+        """初始化本地语义嵌入。
+
+        参数：
+            dim: 嵌入维度（默认 384）
+            seed: 用于可重复性的随机种子
         """
         self.dim = dim
         self.seed = seed
@@ -56,15 +56,15 @@ class LocalSemanticEmbedding(EmbeddingProvider):
         
     def _get_word_vector(self, word: str) -> np.ndarray:
         """获取词的固定投影向量（确定性）。
-        
+
         使用词的 MD5 哈希生成确定性随机向量。
         相同的词总是映射到相同的向量。
-        
-        Args:
-            word: The word to get vector for
-            
-        Returns:
-            Normalized word vector of shape (dim,)
+
+        参数：
+            word: 要获取向量的词
+
+        返回：
+            形状为 (dim,) 的归一化词向量
         """
         if word not in self._word_vectors:
             # 使用词的哈希 + seed 生成确定性向量
@@ -77,90 +77,90 @@ class LocalSemanticEmbedding(EmbeddingProvider):
     
     def _tokenize(self, text: str) -> List[str]:
         """简单分词，支持中英文。
-        
+
         英文：按空格分词，只保留字母
         中文：按字符分词（简单但有效）
-        
-        Args:
-            text: Input text to tokenize
-            
-        Returns:
-            List of tokens
+
+        参数：
+            text: 要分词的输入文本
+
+        返回：
+            词元列表
         """
         # 转小写
         text = text.lower()
         tokens = []
-        
+
         # 英文按单词分词
         english_words = re.findall(r'[a-z]+', text)
         tokens.extend(english_words)
-        
+
         # 中文按字符分词（对于简单语义相似度已足够）
         chinese_chars = re.findall(r'[\u4e00-\u9fff]', text)
         tokens.extend(chinese_chars)
-        
+
         # 数字也可能有意义
         numbers = re.findall(r'\d+', text)
         tokens.extend(numbers)
-        
+
         return tokens
     
     def embed(self, text: str) -> np.ndarray:
         """生成文本的语义向量。
-        
+
         使用词袋模型：将所有词向量取平均。
         共享词的文本会有相似的向量。
-        
-        Args:
-            text: Input text to embed
-            
-        Returns:
-            Normalized embedding vector of shape (dim,)
+
+        参数：
+            text: 要嵌入的输入文本
+
+        返回：
+            形状为 (dim,) 的归一化嵌入向量
         """
         tokens = self._tokenize(text)
-        
+
         if not tokens:
             # 空文本返回零向量
             return np.zeros(self.dim, dtype=np.float32)
-        
+
         # 词频统计（TF）
         word_counts: Dict[str, int] = {}
         for token in tokens:
             word_counts[token] = word_counts.get(token, 0) + 1
-        
+
         # 加权词向量平均
         total_count = sum(word_counts.values())
         embedding = np.zeros(self.dim, dtype=np.float32)
-        
+
         for word, count in word_counts.items():
             weight = count / total_count  # TF 权重
             embedding += weight * self._get_word_vector(word)
-        
+
         # L2 归一化
         return l2_normalize(embedding)
     
     def embed_batch(self, texts: List[str]) -> List[np.ndarray]:
-        """Embed multiple texts.
-        
-        Args:
-            texts: List of texts to embed
-            
-        Returns:
-            List of embedding vectors
+        """嵌入多个文本。
+
+        参数：
+            texts: 要嵌入的文本列表
+
+        返回：
+            嵌入向量列表
         """
         return [self.embed(t) for t in texts]
     
     def similarity(self, text1: str, text2: str) -> float:
         """计算两个文本的余弦相似度。
-        
+
         便捷方法，用于快速测试语义相似性。
-        
-        Args:
-            text1: First text
-            text2: Second text
-            
-        Returns:
-            Cosine similarity in range [-1, 1]
+
+        参数：
+            text1: 第一个文本
+            text2: 第二个文本
+
+        返回：
+            范围在 [-1, 1] 的余弦相似度
         """
         vec1 = self.embed(text1)
         vec2 = self.embed(text2)

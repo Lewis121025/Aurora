@@ -1,4 +1,4 @@
-"""Tests for ThompsonBernoulliGate bandit."""
+"""Thompson Bernoulli Gate bandit 的测试。"""
 
 import numpy as np
 import pytest
@@ -7,10 +7,10 @@ from aurora.algorithms.components.bandit import ThompsonBernoulliGate
 
 
 class TestThompsonBernoulliGate:
-    """Tests for ThompsonBernoulliGate class."""
+    """ThompsonBernoulliGate 类的测试。"""
 
     def test_initial_state(self):
-        """Test initial state of gate."""
+        """测试门的初始状态。"""
         gate = ThompsonBernoulliGate(feature_dim=6, seed=42, forgetting_factor=0.99)
         assert gate.d == 6
         assert gate._seed == 42

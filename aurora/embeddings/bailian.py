@@ -1,9 +1,9 @@
 """
-阿里云百炼 (Alibaba Cloud Bailian) Embedding Provider
+阿里云百炼 (Alibaba Cloud Bailian) 嵌入提供者
 =====================================================
 
-Production-ready embedding provider using Alibaba Cloud Bailian.
-Uses OpenAI-compatible API for text embeddings.
+使用阿里云百炼的生产就绪嵌入提供者。
+使用 OpenAI 兼容 API 进行文本嵌入。
 """
 
 from __future__ import annotations
@@ -20,13 +20,13 @@ logger = logging.getLogger(__name__)
 
 
 class BailianEmbedding(EmbeddingProvider):
-    """阿里云百炼 embedding provider.
-    
-    Features:
-    - High-quality Chinese and English embeddings
-    - OpenAI-compatible API
-    - Batch processing support
-    - Automatic retry with exponential backoff
+    """阿里云百炼 嵌入提供者。
+
+    特性：
+    - 高质量的中英文嵌入
+    - OpenAI 兼容 API
+    - 批处理支持
+    - 自动重试和指数退避
     """
     
     def __init__(
@@ -52,7 +52,7 @@ class BailianEmbedding(EmbeddingProvider):
         self._cache_hits = 0
         
     def _get_client(self):
-        """Lazy initialization of OpenAI client (Bailian uses OpenAI-compatible API)."""
+        """OpenAI 客户端的延迟初始化（百炼使用 OpenAI 兼容 API）。"""
         if self._client is None:
             try:
                 from openai import OpenAI
@@ -62,17 +62,17 @@ class BailianEmbedding(EmbeddingProvider):
                 )
             except ImportError:
                 raise ImportError(
-                    "Please install openai package: pip install openai"
+                    "请安装 openai 包：pip install openai"
                 )
         return self._client
     
     def _cache_key(self, text: str) -> str:
-        """Generate cache key from text."""
+        """从文本生成缓存键。"""
         import hashlib
         return hashlib.sha256(text.encode()).hexdigest()[:32]
     
     def _get_from_cache(self, text: str) -> Optional[List[float]]:
-        """Get embedding from cache if available."""
+        """如果可用，从缓存获取嵌入。"""
         if not self.use_cache or self._cache is None:
             return None
         key = self._cache_key(text)
@@ -82,7 +82,7 @@ class BailianEmbedding(EmbeddingProvider):
         return None
     
     def _add_to_cache(self, text: str, embedding: List[float]) -> None:
-        """Add embedding to cache."""
+        """将嵌入添加到缓存。"""
         if not self.use_cache or self._cache is None:
             return
         if len(self._cache) >= self._cache_size:
@@ -92,16 +92,16 @@ class BailianEmbedding(EmbeddingProvider):
         key = self._cache_key(text)
         self._cache[key] = embedding
     
-    # Bailian API has 8192 character limit, use 7500 for safety
+    # 百炼 API 有 8192 字符限制，使用 7500 以确保安全
     MAX_TEXT_LENGTH = 7500
     
     def embed(self, text: str) -> np.ndarray:
-        """Generate embedding for a single text.
-        
-        Returns:
-            np.ndarray of shape (dimension,) with float32 dtype, L2-normalized
+        """为单个文本生成嵌入。
+
+        返回：
+            形状为 (dimension,) 的 np.ndarray，dtype 为 float32，L2 归一化
         """
-        # Truncate text if too long (API limit: 8192 chars)
+        # 如果文本过长则截断（API 限制：8192 字符）
         if len(text) > self.MAX_TEXT_LENGTH:
             text = text[:self.MAX_TEXT_LENGTH]
         
@@ -121,14 +121,14 @@ class BailianEmbedding(EmbeddingProvider):
                     dimensions=self.dimension,
                 )
                 embedding = response.data[0].embedding
-                
-                # Convert to numpy and normalize
+
+                # 转换为 numpy 并归一化
                 emb_array = np.array(embedding, dtype=np.float32)
                 norm = np.linalg.norm(emb_array)
                 if norm > 0:
                     emb_array = emb_array / norm
-                
-                # Cache as list for storage efficiency
+
+                # 作为列表缓存以提高存储效率
                 self._add_to_cache(text, emb_array.tolist())
                 return emb_array
                 
@@ -142,20 +142,20 @@ class BailianEmbedding(EmbeddingProvider):
         raise RuntimeError(f"All {self.max_retries} embedding attempts failed. Last error: {last_error}")
     
     def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
-        """Generate embeddings for multiple texts.
-        
-        Returns:
-            List of np.ndarray embeddings, each of shape (dimension,) with float32 dtype
+        """为多个文本生成嵌入。
+
+        返回：
+            np.ndarray 嵌入列表，每个形状为 (dimension,)，dtype 为 float32
         """
         if not texts:
             return []
-        
+
         results: List[Optional[np.ndarray]] = [None] * len(texts)
         texts_to_embed = []
         indices_to_embed = []
-        
+
         for i, text in enumerate(texts):
-            # Truncate text if too long
+            # 如果文本过长则截断
             if len(text) > self.MAX_TEXT_LENGTH:
                 text = text[:self.MAX_TEXT_LENGTH]
             cached = self._get_from_cache(text)
@@ -205,16 +205,16 @@ class BailianEmbedding(EmbeddingProvider):
                         try:
                             results[idx] = self.embed(text)
                         except Exception as e:
-                            logger.debug(f"Embedding failed for text at index {idx}, using zero vector: {e}")
+                            logger.debug(f"文本索引 {idx} 的嵌入失败，使用零向量：{e}")
                             results[idx] = np.zeros(self.dimension, dtype=np.float32)
         
         return results
     
     def embed_batch_numpy(self, texts: Sequence[str]) -> np.ndarray:
-        """Generate batch embeddings as stacked numpy array.
-        
-        Returns:
-            np.ndarray of shape (len(texts), dimension) with float32 dtype
+        """生成批量嵌入作为堆叠的 numpy 数组。
+
+        返回：
+            形状为 (len(texts), dimension) 的 np.ndarray，dtype 为 float32
         """
         embeddings = self.embed_batch(texts)
         return np.stack(embeddings) if embeddings else np.array([], dtype=np.float32)
@@ -233,7 +233,7 @@ class BailianEmbedding(EmbeddingProvider):
 
 
 class BailianEmbeddingWithFallback(EmbeddingProvider):
-    """Bailian embedding with hash embedding fallback."""
+    """百炼嵌入，带哈希嵌入回退。"""
     
     def __init__(
         self,
@@ -257,27 +257,27 @@ class BailianEmbeddingWithFallback(EmbeddingProvider):
         self._fallback = HashEmbedding(dim=fallback_dim)
     
     def embed(self, text: str) -> np.ndarray:
-        """Generate embedding with fallback to hash embedding.
-        
-        Returns:
-            np.ndarray of shape (dimension,) with float32 dtype
+        """使用回退到哈希嵌入生成嵌入。
+
+        返回：
+            形状为 (dimension,) 的 np.ndarray，dtype 为 float32
         """
         if self._primary:
             try:
                 return self._primary.embed(text)
             except Exception as e:
-                logger.warning(f"Primary embedding failed, using fallback: {e}")
+                logger.warning(f"主嵌入失败，使用回退：{e}")
         return self._fallback.embed(text)
     
     def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
-        """Generate batch embeddings with fallback.
-        
-        Returns:
-            List of np.ndarray embeddings
+        """使用回退生成批量嵌入。
+
+        返回：
+            np.ndarray 嵌入列表
         """
         if self._primary:
             try:
                 return self._primary.embed_batch(texts)
             except Exception as e:
-                logger.warning(f"Primary batch embedding failed, using fallback: {e}")
+                logger.warning(f"主批量嵌入失败，使用回退：{e}")
         return [self._fallback.embed(t) for t in texts]

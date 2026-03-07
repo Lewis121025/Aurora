@@ -1,8 +1,8 @@
 """
-AURORA Bandit Components
+AURORA 强盗算法组件
 =========================
 
-Thompson sampling based decision making for stochastic encoding.
+基于Thompson采样的随机编码决策制定。
 """
 
 from __future__ import annotations
@@ -17,26 +17,23 @@ from aurora.utils.math_utils import sigmoid
 
 
 class ThompsonBernoulliGate:
-    """Stochastic encode policy with Thompson sampling.
+    """具有Thompson采样的随机编码策略。
 
-    We do not decide by "score > threshold". We sample a parameter vector w and
-    encode with probability sigmoid(w·x). The mapping is learned from delayed rewards.
+    我们不通过"分数 > 阈值"来决定。我们采样参数向量w并以概率sigmoid(w·x)编码。映射从延迟奖励中学习。
 
-    This implements a Bayesian approach to the encode/skip decision, allowing
-    the system to explore different encoding strategies while learning from
-    downstream task success.
+    这实现了对编码/跳过决策的贝叶斯方法，允许系统探索不同的编码策略，同时从下游任务成功中学习。
 
-    Parameter stability:
-        - forgetting_factor (lambda): Prevents precision from infinite accumulation.
-          prec = lambda * prec + grad * grad, where lambda=0.99 ensures ~1% decay per update.
-        - This keeps the system "plastic" and able to adapt to distribution shifts.
+    参数稳定性:
+        - forgetting_factor (lambda)：防止精度无限累积。
+          prec = lambda * prec + grad * grad，其中lambda=0.99确保每次更新约1%的衰减。
+        - 这使系统保持"可塑性"并能够适应分布变化。
 
-    Attributes:
-        d: Feature dimension
-        w_mean: Mean of the weight distribution
-        prec: Precision (inverse variance) of the weight distribution
-        grad2: RMSprop accumulator for adaptive learning
-        t: Update counter
+    属性:
+        d: 特征维度
+        w_mean: 权重分布的均值
+        prec: 权重分布的精度（逆方差）
+        grad2: 用于自适应学习的RMSprop累加器
+        t: 更新计数器
     """
 
     def __init__(
@@ -47,29 +44,29 @@ class ThompsonBernoulliGate:
         init_precision: float = 5e-2,
         min_store_prob: float = MIN_STORE_PROB,
     ):
-        """Initialize the Thompson sampling gate.
+        """初始化Thompson采样门。
 
-        Args:
-            feature_dim: Dimension of the feature vector
-            seed: Random seed
-            forgetting_factor: Decay factor for precision accumulation (0.98 = more plastic)
-            init_precision: Initial precision for weights (higher = less exploration)
-            min_store_prob: Minimum storage probability floor (default 0.3).
-                Even when Thompson sampling suggests low storage probability,
-                this floor ensures some baseline storage rate to prevent
-                losing too much information. Helps improve AR scores.
-        
-        Benchmark optimization:
-        - Higher init_precision (5e-2 vs 1e-2) reduces initial exploration,
-          leading to faster convergence on encoding policy
-        - Lower forgetting_factor (0.98 vs 0.99) allows faster adaptation
-          to distribution shifts, improving TTL and CR
-        - min_store_prob of 0.3 ensures ~70% storage rate target is achievable
+        参数:
+            feature_dim: 特征向量的维度
+            seed: 随机种子
+            forgetting_factor: 精度累积的衰减因子（0.98 = 更可塑）
+            init_precision: 权重的初始精度（越高 = 越少探索）
+            min_store_prob: 最小存储概率下限（默认0.3）。
+                即使Thompson采样建议低存储概率，
+                这个下限也确保某种基线存储速率以防止
+                丢失太多信息。有助于改进AR分数。
+
+        基准优化:
+        - 更高的init_precision（5e-2 vs 1e-2）减少初始探索，
+          导致编码策略更快收敛
+        - 更低的forgetting_factor（0.98 vs 0.99）允许更快适应
+          分布变化，改进TTL和CR
+        - min_store_prob为0.3确保~70%的存储速率目标是可达到的
         """
         self.d = feature_dim
         self._seed = seed
-        self.lambda_ = forgetting_factor  # Forgetting factor for precision
-        self.min_store_prob = min_store_prob  # Floor for storage probability
+        self.lambda_ = forgetting_factor  # 精度的遗忘因子
+        self.min_store_prob = min_store_prob  # 存储概率的下限
         self.rng = np.random.default_rng(seed)
 
         self.w_mean = np.zeros(self.d, dtype=np.float32)
@@ -78,48 +75,48 @@ class ThompsonBernoulliGate:
 
         self.t = 0
 
-        # Statistics tracking for monitoring
+        # 用于监控的统计跟踪
         self._encode_count = 0
         self._skip_count = 0
-        
-        # Store init params for serialization
+
+        # 存储初始参数以供序列化
         self._init_precision = init_precision
 
     def _sample_w(self) -> np.ndarray:
-        """Sample a weight vector from the posterior.
+        """从后验分布采样权重向量。
 
-        Returns:
-            Sampled weight vector
+        返回:
+            采样的权重向量
         """
         std = np.sqrt(1.0 / (self.prec + 1e-9))
         return self.w_mean + self.rng.normal(size=self.d).astype(np.float32) * std
 
     def prob(self, x: np.ndarray) -> float:
-        """Compute encoding probability for a feature vector.
+        """计算特征向量的编码概率。
 
-        The returned probability has a floor of min_store_prob to ensure
-        a baseline storage rate even for low-value features. This prevents
-        over-aggressive filtering that can hurt benchmark AR scores.
+        返回的概率有一个min_store_prob的下限，以确保
+        即使对于低价值特征也有基线存储速率。这防止
+        过度激进的过滤，可能会伤害基准AR分数。
 
-        Args:
-            x: Feature vector
+        参数:
+            x: 特征向量
 
-        Returns:
-            Probability of encoding (Thompson sampled, with min_store_prob floor)
+        返回:
+            编码概率（Thompson采样，带min_store_prob下限）
         """
         w = self._sample_w()
         raw_prob = sigmoid(float(np.dot(w, x)))
-        # Apply minimum storage probability floor
+        # 应用最小存储概率下限
         return max(raw_prob, self.min_store_prob)
 
     def decide(self, x: np.ndarray) -> bool:
-        """Make a stochastic encoding decision.
+        """做出随机编码决策。
 
-        Args:
-            x: Feature vector
+        参数:
+            x: 特征向量
 
-        Returns:
-            True if should encode, False if should skip
+        返回:
+            如果应该编码则为True，如果应该跳过则为False
         """
         result = bool(self.rng.random() < self.prob(x))
         if result:
@@ -129,37 +126,37 @@ class ThompsonBernoulliGate:
         return result
 
     def update(self, x: np.ndarray, reward: float) -> None:
-        """Bandit update: reward in [-1, 1] from downstream task success.
+        """强盗更新：来自下游任务成功的奖励在[-1, 1]范围内。
 
-        Uses forgetting factor to prevent precision from accumulating indefinitely,
-        which would cause variance to approach zero and freeze the policy.
+        使用遗忘因子防止精度无限累积，
+        这会导致方差接近零并冻结策略。
 
-        Args:
-            x: Feature vector that was used for the decision
-            reward: Reward signal from downstream task
+        参数:
+            x: 用于决策的特征向量
+            reward: 来自下游任务的奖励信号
         """
         self.t += 1
         y = 1.0 if reward > 0 else 0.0
         p = sigmoid(float(np.dot(self.w_mean, x)))
-        grad = (y - p) * x  # Ascent
+        grad = (y - p) * x  # 上升
 
-        # RMS with self-tuning step size
+        # 具有自调整步长的RMS
         self.grad2 = 0.99 * self.grad2 + 0.01 * (grad * grad)
         base = 1.0 / math.sqrt(self.t + 1.0)
         step = base * grad / (np.sqrt(self.grad2) + 1e-6)
         self.w_mean += step
 
-        # Apply forgetting factor to prevent precision from growing unboundedly
-        # This ensures the system remains "plastic" and can adapt to distribution shifts
+        # 应用遗忘因子防止精度无限增长
+        # 这确保系统保持"可塑性"并能够适应分布变化
         self.prec = self.lambda_ * self.prec + grad * grad
 
     def pass_rate(self) -> float:
-        """Return the gate pass rate (encode / total decisions)."""
+        """返回门的通过率（编码 / 总决策）。"""
         total = self._encode_count + self._skip_count
         return self._encode_count / total if total > 0 else 0.5
 
     def to_state_dict(self) -> Dict[str, Any]:
-        """Serialize to JSON-compatible dict."""
+        """序列化为JSON兼容的字典。"""
         return {
             "d": self.d,
             "seed": self._seed,
@@ -176,7 +173,7 @@ class ThompsonBernoulliGate:
 
     @classmethod
     def from_state_dict(cls, d: Dict[str, Any]) -> "ThompsonBernoulliGate":
-        """Reconstruct from state dict."""
+        """从状态字典重构。"""
         obj = cls(
             feature_dim=d["d"],
             seed=d.get("seed", 0),

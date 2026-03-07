@@ -18,9 +18,9 @@ class Event:
 
 
 class SQLiteEventLog:
-    """Append-only event log.
+    """仅追加事件日志。
 
-    Table schema:
+    表模式：
       events(seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, ts REAL, user_id TEXT, session_id TEXT, type TEXT, payload TEXT)
     """
 
@@ -78,15 +78,15 @@ class SQLiteEventLog:
             )
 
     def close(self) -> None:
-        """Explicitly close the database connection."""
+        """显式关闭数据库连接。"""
         if self._conn:
             self._conn.close()
             self._conn = None
 
     def __enter__(self) -> "SQLiteEventLog":
-        """Context manager entry."""
+        """上下文管理器入口。"""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit - ensures connection is closed."""
+        """上下文管理器退出 - 确保连接被关闭。"""
         self.close()

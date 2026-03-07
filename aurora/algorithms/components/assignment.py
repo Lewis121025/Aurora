@@ -1,9 +1,8 @@
 """
-AURORA Assignment Models
+AURORA 分配模型
 =========================
 
-Nonparametric hierarchical assignment using Chinese Restaurant Process (CRP)
-and probabilistic generative models.
+使用中餐厅过程（CRP）和概率生成模型的非参数分层分配。
 """
 
 from __future__ import annotations
@@ -21,37 +20,35 @@ from aurora.algorithms.components.metric import LowRankMetric
 
 
 class CRPAssigner:
-    """Generic CRP-like assigner for (item -> cluster) with probabilistic sampling.
+    """用于（项目 -> 集群）的通用CRP类分配器，具有概率采样。
 
-    Implements the Chinese Restaurant Process for nonparametric clustering,
-    where the number of clusters grows with the data but at a rate controlled
-    by the concentration parameter alpha.
+    为非参数聚类实现中餐厅过程，其中集群数量随数据增长但以浓度参数控制的速率增长。
 
-    Attributes:
-        alpha: CRP concentration parameter (higher = more new clusters)
+    属性:
+        alpha: CRP浓度参数（越高 = 越多新集群）
     """
 
     def __init__(self, alpha: float = 1.0, seed: int = 0):
-        """Initialize the CRP assigner.
+        """初始化CRP分配器。
 
-        Args:
-            alpha: Concentration parameter
-            seed: Random seed
+        参数:
+            alpha: 浓度参数
+            seed: 随机种子
         """
         self.alpha = alpha
         self._seed = seed
         self.rng = np.random.default_rng(seed)
 
     def sample(self, logps: Dict[str, float]) -> Tuple[Optional[str], Dict[str, float]]:
-        """Sample a cluster assignment using CRP.
+        """使用CRP采样集群分配。
 
-        Args:
-            logps: Log probabilities for existing clusters
+        参数:
+            logps: 现有集群的对数概率
 
-        Returns:
-            Tuple of (chosen cluster ID or None for new cluster, posterior probabilities)
+        返回:
+            元组（选择的集群ID或None表示新集群，后验概率）
         """
-        # Add new cluster option
+        # 添加新集群选项
         logs = dict(logps)
         logs["__new__"] = math.log(self.alpha)
         keys = list(logs.keys())
@@ -63,7 +60,7 @@ class CRPAssigner:
         return choice, post
 
     def to_state_dict(self) -> Dict[str, Any]:
-        """Serialize to JSON-compatible dict."""
+        """序列化为JSON兼容的字典。"""
         return {
             "alpha": self.alpha,
             "seed": self._seed,
@@ -71,52 +68,51 @@ class CRPAssigner:
 
     @classmethod
     def from_state_dict(cls, d: Dict[str, Any]) -> "CRPAssigner":
-        """Reconstruct from state dict."""
+        """从状态字典重构。"""
         return cls(alpha=d["alpha"], seed=d.get("seed", 0))
 
 
 class StoryModel:
-    """Likelihood model p(plot | story) with interpretable factors.
+    """似然模型 p(plot | story)，具有可解释的因子。
 
-    No fixed weights: all components are generative log-likelihood terms.
-    The model computes the probability of observing a plot given a story
-    based on semantic, temporal, and actor features.
+    无固定权重：所有组件都是生成对数似然项。
+    该模型基于语义、时间和演员特征计算给定故事观察到情节的概率。
 
-    Components:
-        - Semantic likelihood: Gaussian in metric space using story's dispersion
-        - Temporal likelihood: Exponential around learned typical gap
-        - Actor likelihood: Dirichlet-multinomial predictive
+    组件:
+        - 语义似然：使用故事的离散度在度量空间中的高斯分布
+        - 时间似然：围绕学习的典型间隙的指数分布
+        - 演员似然：Dirichlet-多项式预测
 
-    Attributes:
-        metric: The learned metric for semantic similarity
+    属性:
+        metric: 用于语义相似性的学习度量
     """
 
     def __init__(self, metric: LowRankMetric):
-        """Initialize the story model.
+        """初始化故事模型。
 
-        Args:
-            metric: Learned low-rank metric for semantic similarity
+        参数:
+            metric: 用于语义相似性的学习低秩度量
         """
         self.metric = metric
 
     def loglik(self, plot: Plot, story: StoryArc) -> float:
-        """Compute log likelihood of plot given story.
+        """计算给定故事的情节的对数似然。
 
-        Args:
-            plot: The plot to evaluate
-            story: The story to condition on
+        参数:
+            plot: 要评估的情节
+            story: 要条件化的故事
 
-        Returns:
-            Log likelihood value
+        返回:
+            对数似然值
         """
-        # Semantic likelihood: Gaussian in metric space using story's dispersion
+        # 语义似然：使用故事的离散度在度量空间中的高斯分布
         ll_sem = 0.0
         if story.centroid is not None:
             d2 = self.metric.d2(plot.embedding, story.centroid)
             var = max(story.dist_var(), 1e-3)
             ll_sem = -0.5 * d2 / var
 
-        # Temporal likelihood: exponential around learned typical gap
+        # 时间似然：围绕学习的典型间隙的指数分布
         ll_time = 0.0
         if story.plot_ids:
             gap = max(0.0, plot.ts - story.updated_ts)
@@ -124,7 +120,7 @@ class StoryModel:
             lam = 1.0 / max(tau, 1e-6)
             ll_time = math.log(lam + 1e-12) - lam * gap
 
-        # Actor likelihood: Dirichlet-multinomial predictive
+        # 演员似然：Dirichlet-多项式预测
         ll_actor = 0.0
         beta = 1.0
         total = sum(story.actor_counts.values())
@@ -136,35 +132,34 @@ class StoryModel:
 
 
 class ThemeModel:
-    """Likelihood model p(story | theme).
+    """似然模型 p(story | theme)。
 
-    Computes the probability of a story belonging to a theme based on
-    semantic similarity in the learned metric space.
+    基于学习的度量空间中的语义相似性计算故事属于主题的概率。
 
-    Attributes:
-        metric: The learned metric for semantic similarity
+    属性:
+        metric: 用于语义相似性的学习度量
     """
 
     def __init__(self, metric: LowRankMetric):
-        """Initialize the theme model.
+        """初始化主题模型。
 
-        Args:
-            metric: Learned low-rank metric for semantic similarity
+        参数:
+            metric: 用于语义相似性的学习低秩度量
         """
         self.metric = metric
 
     def loglik(self, story: StoryArc, theme: Theme) -> float:
-        """Compute log likelihood of story given theme.
+        """计算给定主题的故事的对数似然。
 
-        Args:
-            story: The story to evaluate
-            theme: The theme to condition on
+        参数:
+            story: 要评估的故事
+            theme: 要条件化的主题
 
-        Returns:
-            Log likelihood value
+        返回:
+            对数似然值
         """
         if theme.prototype is None or story.centroid is None:
             return 0.0
         d2 = self.metric.d2(story.centroid, theme.prototype)
-        # Theme dispersion is not stored; we use a robust default scale = 1
+        # 主题离散度未存储；我们使用稳健的默认尺度 = 1
         return -0.5 * d2

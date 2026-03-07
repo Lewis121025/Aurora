@@ -1,13 +1,13 @@
 """
-Ingestion Service (Write Path)
+摄入服务 (写入路径)
 ==============================
 
-Handles the write side of CQRS:
-- Validates incoming interaction requests
-- Publishes to message queue for async processing
-- Returns acknowledgment immediately
+处理 CQRS 的写入端:
+- 验证传入的交互请求
+- 发布到消息队列进行异步处理
+- 立即返回确认
 
-For synchronous processing (development/low-volume), can process inline.
+对于同步处理 (开发/低容量)，可以内联处理。
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 class IngestRequest(BaseModel):
-    """Request to ingest a new interaction."""
+    """摄入新交互的请求。"""
     event_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     user_id: str
     session_id: str
@@ -52,7 +52,7 @@ class IngestRequest(BaseModel):
 
 @dataclass
 class IngestAck:
-    """Acknowledgment for queued ingest request."""
+    """排队摄入请求的确认。"""
     event_id: str
     status: str  # "queued", "processing", "completed", "failed"
     queued_at: float = field(default_factory=time.time)
@@ -60,31 +60,31 @@ class IngestAck:
 
 
 class MessageQueue(Protocol):
-    """Protocol for message queue backends."""
-    
+    """消息队列后端的协议。"""
+
     async def publish(self, topic: str, message: str) -> None:
-        """Publish a message to a topic."""
+        """发布消息到主题。"""
         ...
-    
+
     async def subscribe(self, topic: str) -> "MessageConsumer":
-        """Subscribe to a topic."""
+        """订阅主题。"""
         ...
 
 
 class MessageConsumer(Protocol):
-    """Protocol for message consumers."""
-    
+    """消息消费者的协议。"""
+
     async def receive(self) -> Optional[str]:
-        """Receive next message, or None if empty."""
+        """接收下一条消息，如果为空则返回 None。"""
         ...
-    
+
     async def ack(self, message_id: str) -> None:
-        """Acknowledge message processing."""
+        """确认消息处理。"""
         ...
 
 
 class InMemoryQueue:
-    """In-memory message queue for development/testing."""
+    """用于开发/测试的内存消息队列。"""
     
     def __init__(self):
         self._queues: Dict[str, asyncio.Queue] = {}
@@ -104,7 +104,7 @@ class InMemoryQueue:
 
 
 class InMemoryConsumer:
-    """In-memory consumer for InMemoryQueue."""
+    """InMemoryQueue 的内存消费者。"""
     
     def __init__(self, queue: asyncio.Queue):
         self._queue = queue
@@ -116,14 +116,14 @@ class InMemoryConsumer:
             return None
     
     async def ack(self, message_id: str) -> None:
-        # In-memory queue doesn't need explicit acks
+        # 内存队列不需要显式确认
         pass
 
 
 class KafkaQueue:
-    """Kafka message queue for production.
-    
-    Requires aiokafka to be installed.
+    """Kafka 消息队列用于生产环境。
+
+    需要安装 aiokafka。
     """
     
     def __init__(
@@ -146,7 +146,7 @@ class KafkaQueue:
                 )
                 await self._producer.start()
             except ImportError:
-                raise ImportError("aiokafka is required for KafkaQueue. Install with: pip install aiokafka")
+                raise ImportError("aiokafka 是 KafkaQueue 必需的。安装方式: pip install aiokafka")
     
     async def publish(self, topic: str, message: str) -> None:
         await self._ensure_producer()
@@ -165,7 +165,7 @@ class KafkaQueue:
             await consumer.start()
             return KafkaConsumer(consumer)
         except ImportError:
-            raise ImportError("aiokafka is required for KafkaQueue. Install with: pip install aiokafka")
+            raise ImportError("aiokafka 是 KafkaQueue 必需的。安装方式: pip install aiokafka")
     
     async def close(self):
         if self._producer is not None:
@@ -174,7 +174,7 @@ class KafkaQueue:
 
 
 class KafkaConsumer:
-    """Kafka consumer wrapper."""
+    """Kafka 消费者包装器。"""
     
     def __init__(self, consumer):
         self._consumer = consumer
@@ -187,7 +187,7 @@ class KafkaConsumer:
             return None
     
     async def ack(self, message_id: str) -> None:
-        # Kafka auto-commits by default
+        # Kafka 默认自动提交
         pass
     
     async def close(self):
@@ -195,14 +195,14 @@ class KafkaConsumer:
 
 
 class IngestionService:
-    """Write service for CQRS architecture.
-    
-    Handles incoming interaction requests:
-    - Validates the request
-    - Publishes to message queue
-    - Returns acknowledgment immediately
-    
-    For development/testing, can process synchronously with sync_mode=True.
+    """CQRS 架构的写入服务。
+
+    处理传入的交互请求:
+    - 验证请求
+    - 发布到消息队列
+    - 立即返回确认
+
+    对于开发/测试，可以使用 sync_mode=True 进行同步处理。
     """
     
     INGEST_TOPIC = "aurora.ingest"
@@ -213,12 +213,12 @@ class IngestionService:
         sync_mode: bool = False,
         sync_processor: Optional[Any] = None,
     ):
-        """Initialize the ingestion service.
-        
-        Args:
-            queue: Message queue backend (default: InMemoryQueue)
-            sync_mode: If True, process synchronously without queue
-            sync_processor: Processor to use in sync mode (e.g., AuroraTenant)
+        """初始化摄入服务。
+
+        参数:
+            queue: 消息队列后端 (默认: InMemoryQueue)
+            sync_mode: 如果为 True，不使用队列进行同步处理
+            sync_processor: 在同步模式下使用的处理器 (例如: AuroraTenant)
         """
         self.queue = queue or InMemoryQueue()
         self.sync_mode = sync_mode
@@ -230,26 +230,26 @@ class IngestionService:
         self._sync_processed_count = 0
     
     async def ingest(self, request: IngestRequest) -> IngestAck:
-        """Ingest an interaction request.
-        
-        In async mode: Publishes to queue and returns immediately.
-        In sync mode: Processes inline and returns result.
+        """摄入交互请求。
+
+        在异步模式下: 发布到队列并立即返回。
+        在同步模式下: 内联处理并返回结果。
         """
         self._total_requests += 1
-        
-        # Ensure timestamp
+
+        # 确保时间戳
         if request.ts is None:
             request.ts = time.time()
-        
+
         if self.sync_mode and self.sync_processor is not None:
-            # Synchronous processing (development mode)
+            # 同步处理 (开发模式)
             return await self._process_sync(request)
         else:
-            # Async processing via queue
+            # 通过队列进行异步处理
             return await self._enqueue(request)
     
     async def _enqueue(self, request: IngestRequest) -> IngestAck:
-        """Publish request to message queue."""
+        """发布请求到消息队列。"""
         try:
             message = request.model_dump_json()
             await self.queue.publish(self.INGEST_TOPIC, message)
@@ -269,9 +269,9 @@ class IngestionService:
             )
     
     async def _process_sync(self, request: IngestRequest) -> IngestAck:
-        """Process request synchronously (for development/testing)."""
+        """同步处理请求 (用于开发/测试)。"""
         try:
-            # Call the sync processor (e.g., AuroraTenant.ingest_interaction)
+            # 调用同步处理器 (例如: AuroraTenant.ingest_interaction)
             result = self.sync_processor.ingest_interaction(
                 event_id=request.event_id,
                 session_id=request.session_id,
@@ -297,7 +297,7 @@ class IngestionService:
             )
     
     def stats(self) -> Dict[str, Any]:
-        """Return service statistics."""
+        """返回服务统计信息。"""
         return {
             "total_requests": self._total_requests,
             "queued_count": self._queued_count,
@@ -310,11 +310,11 @@ def create_queue(
     backend: str = "memory",
     **kwargs,
 ) -> MessageQueue:
-    """Factory function to create message queue.
-    
-    Args:
-        backend: "memory" or "kafka"
-        **kwargs: Backend-specific arguments
+    """创建消息队列的工厂函数。
+
+    参数:
+        backend: "memory" 或 "kafka"
+        **kwargs: 后端特定的参数
     """
     if backend == "memory":
         return InMemoryQueue()

@@ -1,4 +1,4 @@
-"""Tests for OnlineKDE density estimation."""
+"""OnlineKDE 密度估计的测试。"""
 
 import numpy as np
 import pytest
@@ -7,10 +7,10 @@ from aurora.algorithms.components.density import OnlineKDE
 
 
 class TestOnlineKDE:
-    """Tests for OnlineKDE class."""
+    """OnlineKDE 类的测试。"""
 
     def test_initial_state(self):
-        """Test initial state of KDE."""
+        """测试 KDE 的初始状态。"""
         kde = OnlineKDE(dim=64, reservoir=100, k_sigma=10, seed=42)
         assert kde.dim == 64
         assert kde.reservoir == 100

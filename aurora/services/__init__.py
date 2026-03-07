@@ -2,15 +2,15 @@
 Aurora Services Layer (CQRS Architecture)
 ==========================================
 
-Implements Command Query Responsibility Segregation:
-- IngestionService: Write path - accepts interactions, queues for processing
-- QueryService: Read path - direct queries against read-optimized stores
-- IngestWorker: Background processor - consumes queue, processes with LLM
+实现命令查询职责分离 (CQRS):
+- IngestionService: 写入路径 - 接受交互，排队处理
+- QueryService: 读取路径 - 直接查询读优化存储
+- IngestWorker: 后台处理器 - 消费队列，使用 LLM 处理
 
-Design goals:
-- Horizontal scaling: Multiple workers can process in parallel
-- Non-blocking writes: Return ACK immediately, process asynchronously
-- Read optimization: Queries bypass write path for low latency
+设计目标:
+- 水平扩展: 多个 worker 可以并行处理
+- 非阻塞写入: 立即返回 ACK，异步处理
+- 读取优化: 查询绕过写入路径以实现低延迟
 """
 
 from aurora.services.ingestion import (

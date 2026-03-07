@@ -1,9 +1,9 @@
 """
-AURORA Memory Graph
+AURORA 内存图
 ====================
 
-Typed node graph with probabilistic edge strengths.
-Includes PageRank caching for improved retrieval performance.
+具有概率边强度的类型化节点图。
+包括 PageRank 缓存以提高检索性能。
 """
 
 from __future__ import annotations
@@ -17,127 +17,126 @@ from aurora.algorithms.graph.edge_belief import EdgeBelief
 
 
 class MemoryGraph:
-    """Typed node graph with probabilistic edge strengths.
+    """具有概率边强度的类型化节点图。
 
-    Stores nodes with kind labels and payloads, connected by edges
-    with learnable belief strengths.
+    存储带有类型标签和有效负载的节点，通过具有可学习信念强度的边连接。
 
-    The graph represents relationships between plots, stories, and themes,
-    with edge strengths learned from retrieval feedback.
+    该图表示情节、故事和主题之间的关系，
+    边强度从检索反馈中学习。
 
-    Features:
-    - PageRank caching: Computed PageRank results are cached and only
-      invalidated when edges are updated, reducing latency by ~30%
-    - Automatic cache invalidation on edge modifications
+    功能特性：
+    - PageRank 缓存：计算的 PageRank 结果被缓存，仅在
+      边更新时失效，延迟降低约 30%
+    - 边修改时自动缓存失效
 
-    Attributes:
-        g: The underlying NetworkX directed graph
-        _pagerank_cache: Cache for PageRank computation results
-        _cache_valid: Flag indicating if cache is valid
+    属性：
+        g: 底层 NetworkX 有向图
+        _pagerank_cache: PageRank 计算结果的缓存
+        _cache_valid: 指示缓存是否有效的标志
     """
 
     def __init__(self):
-        """Initialize an empty memory graph."""
+        """初始化一个空的内存图。"""
         self.g = nx.DiGraph()
-        # PageRank cache: maps (personalization_hash, damping, max_iter) -> results
+        # PageRank 缓存：映射 (personalization_hash, damping, max_iter) -> 结果
         self._pagerank_cache: Dict[Tuple[str, float, int], Dict[str, float]] = {}
         self._cache_valid: bool = True
-        self._edge_version: int = 0  # Incremented on edge changes
+        self._edge_version: int = 0  # 边更改时递增
 
     def add_node(self, node_id: str, kind: str, payload: Any) -> None:
-        """Add a node to the graph.
+        """向图中添加一个节点。
 
-        Args:
-            node_id: Unique identifier for the node
-            kind: Node type (e.g., "plot", "story", "theme")
-            payload: The data object associated with this node
+        参数：
+            node_id: 节点的唯一标识符
+            kind: 节点类型（例如，"plot"、"story"、"theme"）
+            payload: 与此节点关联的数据对象
         """
         self.g.add_node(node_id, kind=kind, payload=payload)
 
     def kind(self, node_id: str) -> str:
-        """Get the kind of a node.
+        """获取节点的类型。
 
-        Args:
-            node_id: Node identifier
+        参数：
+            node_id: 节点标识符
 
-        Returns:
-            Node kind string
+        返回：
+            节点类型字符串
         """
         return self.g.nodes[node_id]["kind"]
 
     def payload(self, node_id: str) -> Any:
-        """Get the payload of a node.
+        """获取节点的有效负载。
 
-        Args:
-            node_id: Node identifier
+        参数：
+            node_id: 节点标识符
 
-        Returns:
-            The data object associated with this node
+        返回：
+            与此节点关联的数据对象
         """
         return self.g.nodes[node_id]["payload"]
 
     def ensure_edge(self, src: str, dst: str, edge_type: str) -> None:
-        """Ensure an edge exists between two nodes.
+        """确保两个节点之间存在边。
 
-        Creates the edge with a new EdgeBelief if it doesn't exist.
-        Invalidates PageRank cache when new edges are added.
+        如果边不存在，则使用新的 EdgeBelief 创建边。
+        添加新边时使 PageRank 缓存失效。
 
-        Args:
-            src: Source node ID
-            dst: Destination node ID
-            edge_type: Type of relationship
+        参数：
+            src: 源节点 ID
+            dst: 目标节点 ID
+            edge_type: 关系类型
         """
         if self.g.has_edge(src, dst):
             return
         self.g.add_edge(src, dst, belief=EdgeBelief(edge_type=edge_type))
         self._invalidate_cache()
-    
+
     # -------------------------------------------------------------------------
-    # PageRank Cache Management
+    # PageRank 缓存管理
     # -------------------------------------------------------------------------
-    
+
     def _invalidate_cache(self) -> None:
-        """Invalidate the PageRank cache (internal use)."""
+        """使 PageRank 缓存失效（内部使用）。"""
         self._edge_version += 1
         self._pagerank_cache.clear()
         self._cache_valid = False
-    
+
     def invalidate_cache(self) -> None:
-        """Manually invalidate the PageRank cache.
-        
-        Call this method when external changes affect graph structure
-        or edge weights that should invalidate cached PageRank results.
+        """手动使 PageRank 缓存失效。
+
+        当外部更改影响应使缓存的 PageRank 结果失效的图结构
+        或边权重时，调用此方法。
         """
         self._invalidate_cache()
-    
+
     def _hash_personalization(self, personalization: Dict[str, float]) -> str:
-        """Create a stable hash for personalization dict."""
-        # Sort items for deterministic ordering
+        """为个性化字典创建稳定哈希。"""
+        # 排序项以确保确定性顺序
         items = sorted(personalization.items())
-        # Create a string representation and hash it
+        # 创建字符串表示并对其进行哈希
         key_str = str(items)
         return hashlib.md5(key_str.encode()).hexdigest()[:16]
-    
+
     def get_cached_pagerank(
         self,
         personalization: Dict[str, float],
         damping: float = 0.85,
         max_iter: int = 50,
     ) -> Optional[Dict[str, float]]:
-        """Get cached PageRank result if available.
-        
-        Args:
-            personalization: Initial node weights
-            damping: PageRank damping factor
-            max_iter: Maximum iterations
-            
-        Returns:
-            Cached PageRank dict if available, None otherwise
+        """获取缓存的 PageRank 结果（如果可用）。
+
+        参数：
+            personalization: 初始节点权重
+            damping: PageRank 阻尼因子
+            max_iter: 最大迭代次数
+
+        返回：
+            如果可用，返回缓存的 PageRank 字典，否则返回 None
         """
         p_hash = self._hash_personalization(personalization)
         cache_key = (p_hash, damping, max_iter)
         return self._pagerank_cache.get(cache_key)
-    
+
     def set_cached_pagerank(
         self,
         personalization: Dict[str, float],
@@ -145,24 +144,24 @@ class MemoryGraph:
         max_iter: int,
         result: Dict[str, float],
     ) -> None:
-        """Store PageRank result in cache.
-        
-        Args:
-            personalization: Initial node weights used for computation
-            damping: PageRank damping factor
-            max_iter: Maximum iterations
-            result: Computed PageRank scores
+        """将 PageRank 结果存储在缓存中。
+
+        参数：
+            personalization: 用于计算的初始节点权重
+            damping: PageRank 阻尼因子
+            max_iter: 最大迭代次数
+            result: 计算的 PageRank 分数
         """
         p_hash = self._hash_personalization(personalization)
         cache_key = (p_hash, damping, max_iter)
         self._pagerank_cache[cache_key] = result
         self._cache_valid = True
-    
+
     def get_cache_stats(self) -> Dict[str, Any]:
-        """Get cache statistics for monitoring.
-        
-        Returns:
-            Dict with cache size, validity, and edge version
+        """获取缓存统计信息以进行监控。
+
+        返回：
+            包含缓存大小、有效性和边版本的字典
         """
         return {
             "cache_size": len(self._pagerank_cache),
@@ -171,34 +170,34 @@ class MemoryGraph:
         }
 
     def edge_belief(self, src: str, dst: str) -> EdgeBelief:
-        """Get the belief for an edge.
+        """获取边的信念。
 
-        Args:
-            src: Source node ID
-            dst: Destination node ID
+        参数：
+            src: 源节点 ID
+            dst: 目标节点 ID
 
-        Returns:
-            The EdgeBelief for this edge
+        返回：
+            此边的 EdgeBelief
         """
         return self.g.edges[src, dst]["belief"]
 
     def nodes_of_kind(self, kind: str) -> List[str]:
-        """Get all nodes of a specific kind.
+        """获取特定类型的所有节点。
 
-        Args:
-            kind: Node kind to filter by
+        参数：
+            kind: 要过滤的节点类型
 
-        Returns:
-            List of node IDs with the specified kind
+        返回：
+            具有指定类型的节点 ID 列表
         """
         return [n for n, d in self.g.nodes(data=True) if d.get("kind") == kind]
 
     def to_state_dict(self) -> Dict[str, Any]:
-        """Serialize graph structure to JSON-compatible dict.
+        """将图结构序列化为 JSON 兼容字典。
 
-        Note: Node payloads are NOT serialized here - they should be
-        serialized separately (plots, stories, themes dicts).
-        PageRank cache is not serialized (will be rebuilt on first query).
+        注意：节点有效负载不在此处序列化 - 应该
+        单独序列化（plots、stories、themes 字典）。
+        PageRank 缓存不被序列化（将在首次查询时重建）。
         """
         nodes = []
         for node_id, data in self.g.nodes(data=True):
@@ -224,14 +223,14 @@ class MemoryGraph:
 
     @classmethod
     def from_state_dict(cls, d: Dict[str, Any], payloads: Optional[Dict[str, Any]] = None) -> "MemoryGraph":
-        """Reconstruct graph from state dict.
+        """从状态字典重建图。
 
-        Args:
-            d: State dict with nodes and edges
-            payloads: Optional dict mapping node_id -> payload object
-        
-        Note:
-            PageRank cache is not restored (will be rebuilt on first query).
+        参数：
+            d: 包含节点和边的状态字典
+            payloads: 可选的字典，映射 node_id -> 有效负载对象
+
+        注意：
+            PageRank 缓存不被恢复（将在首次查询时重建）。
         """
         payloads = payloads or {}
         obj = cls()
@@ -246,9 +245,9 @@ class MemoryGraph:
             belief_data = edge.get("belief")
             belief = EdgeBelief.from_state_dict(belief_data) if belief_data else EdgeBelief(edge_type="unknown")
             obj.g.add_edge(edge["src"], edge["dst"], belief=belief)
-        
-        # Restore edge version (cache will be empty, which is correct)
+
+        # 恢复边版本（缓存将为空，这是正确的）
         obj._edge_version = d.get("edge_version", 0)
-        obj._cache_valid = False  # Force cache rebuild on first query
+        obj._cache_valid = False  # 强制在首次查询时重建缓存
 
         return obj

@@ -1,20 +1,20 @@
 """
-AURORA Benchmark Metrics
+AURORA 基准测试指标
 =========================
 
-Evaluation metrics for benchmark scoring.
+基准评分的评估指标。
 
-This module provides:
-    - exact_match: Exact string matching
-    - fuzzy_match: Fuzzy string matching with similarity threshold
-    - llm_judge_score: LLM-as-a-Judge scoring
-    - calculate_latency_stats: Latency statistics (p50, p95, p99)
-    - calculate_accuracy_by_capability: Per-capability accuracy breakdown
+本模块提供:
+    - exact_match: 精确字符串匹配
+    - fuzzy_match: 模糊字符串匹配，带相似度阈值
+    - llm_judge_score: LLM-as-a-Judge 评分
+    - calculate_latency_stats: 延迟统计 (p50, p95, p99)
+    - calculate_accuracy_by_capability: 按能力的准确率分解
 
-Metric Philosophy:
-    - Metrics should be composable and independent
-    - LLM-as-a-Judge is the gold standard for semantic evaluation
-    - Latency metrics use percentiles for robustness
+指标哲学:
+    - 指标应该是可组合和独立的
+    - LLM-as-a-Judge 是语义评估的黄金标准
+    - 延迟指标使用百分位数以确保稳健性
 """
 
 from __future__ import annotations
@@ -33,31 +33,31 @@ if TYPE_CHECKING:
 
 
 # -----------------------------------------------------------------------------
-# Protocol for LLM Provider
+# LLM 提供者协议
 # -----------------------------------------------------------------------------
 
 class LLMProviderProtocol(Protocol):
-    """Protocol for LLM providers used in LLM-as-a-Judge scoring."""
-    
+    """用于 LLM-as-a-Judge 评分的 LLM 提供者协议。"""
+
     def complete(self, prompt: str, **kwargs: Any) -> str:
-        """Generate completion for the given prompt."""
+        """为给定的提示生成完成。"""
         ...
 
 
 # -----------------------------------------------------------------------------
-# String Matching Metrics
+# 字符串匹配指标
 # -----------------------------------------------------------------------------
 
 """
-Enhanced Matching Functions with Tolerant Scoring
+增强的匹配函数，具有容错评分
 -------------------------------------------------
-These functions provide lenient matching for benchmark evaluation:
-- Synonym support (SF = San Francisco)
-- Number format normalization (28 = 28岁 = twenty-eight)
-- Date format normalization (March 15 = 3/15 = 3月15日)
+这些函数为基准评估提供宽松的匹配:
+- 同义词支持 (SF = San Francisco)
+- 数字格式规范化 (28 = 28岁 = twenty-eight)
+- 日期格式规范化 (March 15 = 3/15 = 3月15日)
 """
 
-# Common synonyms for tolerant matching
+# 用于容错匹配的常见同义词
 _COMMON_SYNONYMS = {
     "san francisco": ["sf", "san fran"],
     "new york": ["nyc", "ny", "new york city"],
@@ -67,7 +67,7 @@ _COMMON_SYNONYMS = {
     "no": ["nope", "nah", "incorrect", "false", "否", "不是"],
 }
 
-# Build reverse lookup
+# 构建反向查找
 _SYNONYM_LOOKUP = {}
 for canonical, variants in _COMMON_SYNONYMS.items():
     _SYNONYM_LOOKUP[canonical] = canonical
@@ -76,16 +76,16 @@ for canonical, variants in _COMMON_SYNONYMS.items():
 
 
 def _normalize_number(text: str) -> str:
-    """Normalize number expressions."""
+    """规范化数字表达式。"""
     result = text.lower()
-    # Remove age/unit suffixes
+    # 移除年龄/单位后缀
     result = re.sub(r'(\d+)\s*[岁年月日号天周个]', r'\1', result)
     result = re.sub(r'(\d+)\s*(?:years?\s*old|months?|days?)', r'\1', result)
     return result
 
 
 def _normalize_date(text: str) -> str:
-    """Normalize date expressions to M/D format."""
+    """将日期表达式规范化为 M/D 格式。"""
     result = text.lower()
     month_map = {
         "january": "1", "jan": "1", "february": "2", "feb": "2",
@@ -108,27 +108,27 @@ def _normalize_date(text: str) -> str:
 
 def exact_match(predicted: str, expected: str) -> float:
     """
-    Compute exact match score with enhanced tolerance.
-    
-    Performs case-insensitive comparison with:
-    - Synonym support (SF = San Francisco)
-    - Number normalization (28 = 28岁)
-    - Date normalization (March 15 = 3/15)
-    
+    计算具有增强容错的精确匹配分数。
+
+    执行不区分大小写的比较，包括:
+    - 同义词支持 (SF = San Francisco)
+    - 数字规范化 (28 = 28岁)
+    - 日期规范化 (March 15 = 3/15)
+
     Args:
-        predicted: Model's predicted answer
-        expected: Expected/ground truth answer
-    
+        predicted: 模型的预测答案
+        expected: 预期/真实答案
+
     Returns:
-        1.0 if strings match (including synonym match), 0.0 otherwise
-    
+        如果字符串匹配（包括同义词匹配），返回 1.0，否则返回 0.0
+
     Example:
         >>> exact_match("San Francisco", "san francisco")
         1.0
         >>> exact_match("SF", "San Francisco")
-        1.0  # Now matches via synonym!
+        1.0  # 现在通过同义词匹配!
         >>> exact_match("28岁", "28")
-        1.0  # Now matches via number normalization!
+        1.0  # 现在通过数字规范化匹配!
     """
     if not predicted or not expected:
         return 0.0
@@ -167,27 +167,27 @@ def exact_match(predicted: str, expected: str) -> float:
 def fuzzy_match(
     predicted: str,
     expected: str,
-    threshold: float = 0.7,  # Lowered from 0.8 for more tolerance
+    threshold: float = 0.7,  # 从 0.8 降低以提高容错性
 ) -> float:
     """
-    Compute fuzzy match score using sequence matching.
-    
-    Uses Python's SequenceMatcher to compute similarity ratio.
-    Now gives partial credit below threshold.
-    
+    使用序列匹配计算模糊匹配分数。
+
+    使用 Python 的 SequenceMatcher 计算相似度比率。
+    现在在阈值以下给予部分分数。
+
     Args:
-        predicted: Model's predicted answer
-        expected: Expected/ground truth answer
-        threshold: Minimum similarity for full match (default 0.7)
-    
+        predicted: 模型的预测答案
+        expected: 预期/真实答案
+        threshold: 完全匹配的最小相似度（默认 0.7）
+
     Returns:
-        Similarity ratio if >= threshold, partial credit otherwise
-    
+        如果 >= 阈值，返回相似度比率，否则返回部分分数
+
     Example:
         >>> fuzzy_match("San Francisco, CA", "San Francisco")
-        0.81  # Full credit, above threshold
+        0.81  # 完全分数，高于阈值
         >>> fuzzy_match("New York", "San Francisco")
-        0.27  # Partial credit based on similarity
+        0.27  # 基于相似度的部分分数
     """
     if not predicted or not expected:
         return 0.0
@@ -213,25 +213,25 @@ def fuzzy_match(
 
 def contains_match(predicted: str, expected: str) -> float:
     """
-    Check if expected answer is contained within predicted answer.
-    
-    Now includes:
-    - Direct containment check
-    - Synonym containment check
-    - Keyword overlap scoring
-    
+    检查预期答案是否包含在预测答案中。
+
+    现在包括:
+    - 直接包含检查
+    - 同义词包含检查
+    - 关键词重叠评分
+
     Args:
-        predicted: Model's predicted answer
-        expected: Expected/ground truth answer
-    
+        predicted: 模型的预测答案
+        expected: 预期/真实答案
+
     Returns:
-        Score in [0.0, 1.0] based on containment quality
-    
+        基于包含质量的 [0.0, 1.0] 范围内的分数
+
     Example:
         >>> contains_match("The user lives in San Francisco, California.", "San Francisco")
         1.0
         >>> contains_match("The user lives in SF.", "San Francisco")
-        0.95  # Synonym match
+        0.95  # 同义词匹配
     """
     if not predicted or not expected:
         return 0.0
@@ -270,21 +270,21 @@ def contains_match(predicted: str, expected: str) -> float:
 
 def token_f1(predicted: str, expected: str) -> float:
     """
-    Compute token-level F1 score between predicted and expected.
-    
-    Tokenizes by splitting on whitespace and punctuation.
-    Commonly used in QA evaluation (e.g., SQuAD).
-    
+    计算预测和预期之间的令牌级 F1 分数。
+
+    通过在空格和标点符号上分割来标记化。
+    常用于 QA 评估（例如 SQuAD）。
+
     Args:
-        predicted: Model's predicted answer
-        expected: Expected/ground truth answer
-    
+        predicted: 模型的预测答案
+        expected: 预期/真实答案
+
     Returns:
-        F1 score in [0.0, 1.0]
-    
+        [0.0, 1.0] 范围内的 F1 分数
+
     Example:
         >>> token_f1("San Francisco Bay Area", "San Francisco")
-        0.8  # 2/2.5 (precision-recall harmonic mean)
+        0.8  # 2/2.5 (精确率-召回率调和平均值)
     """
     if not predicted or not expected:
         return 0.0
@@ -310,30 +310,30 @@ def token_f1(predicted: str, expected: str) -> float:
 
 
 # -----------------------------------------------------------------------------
-# LLM-as-a-Judge Scoring
+# LLM-as-a-Judge 评分
 # -----------------------------------------------------------------------------
 
-# Default prompt template for LLM-as-a-Judge
-LLM_JUDGE_PROMPT_TEMPLATE = """You are evaluating the quality of a memory system's response.
+# LLM-as-a-Judge 的默认提示模板
+LLM_JUDGE_PROMPT_TEMPLATE = """你正在评估内存系统响应的质量。
 
-Query: {query}
-Expected Answer: {expected}
-Model's Answer: {predicted}
+查询: {query}
+预期答案: {expected}
+模型答案: {predicted}
 
-Evaluate how well the model's answer addresses the query compared to the expected answer.
-Consider:
-1. Factual correctness
-2. Completeness of information
-3. Relevance to the query
+评估模型的答案与预期答案相比对查询的解决程度。
+考虑:
+1. 事实正确性
+2. 信息完整性
+3. 与查询的相关性
 
-Provide a score from 0 to 10, where:
-- 0-2: Completely wrong or irrelevant
-- 3-4: Partially correct but missing key information
-- 5-6: Mostly correct with minor issues
-- 7-8: Correct with good completeness
-- 9-10: Excellent, matches or exceeds expected answer
+提供 0 到 10 的分数，其中:
+- 0-2: 完全错误或无关
+- 3-4: 部分正确但缺少关键信息
+- 5-6: 大部分正确，有轻微问题
+- 7-8: 正确且信息完整
+- 9-10: 优秀，匹配或超过预期答案
 
-Output ONLY a single integer score (0-10), nothing else."""
+仅输出单个整数分数 (0-10)，不输出其他内容。"""
 
 
 def llm_judge_score(
@@ -345,25 +345,25 @@ def llm_judge_score(
     max_retries: int = 3,
 ) -> float:
     """
-    Use LLM-as-a-Judge for semantic evaluation.
-    
-    Sends the predicted and expected answers to an LLM for evaluation.
-    The LLM returns a score from 0-10, which is normalized to [0, 1].
-    
+    使用 LLM-as-a-Judge 进行语义评估。
+
+    将预测和预期答案发送给 LLM 进行评估。
+    LLM 返回 0-10 的分数，该分数被规范化为 [0, 1]。
+
     Args:
-        predicted: Model's predicted answer
-        expected: Expected/ground truth answer
-        query: The original query
-        llm_provider: LLM provider instance (must have complete() method)
-        prompt_template: Custom prompt template (optional)
-        max_retries: Number of retries on parsing failure
-    
+        predicted: 模型的预测答案
+        expected: 预期/真实答案
+        query: 原始查询
+        llm_provider: LLM 提供者实例（必须有 complete() 方法）
+        prompt_template: 自定义提示模板（可选）
+        max_retries: 解析失败时的重试次数
+
     Returns:
-        Normalized score in [0.0, 1.0]
-    
+        [0.0, 1.0] 范围内的规范化分数
+
     Raises:
-        ValueError: If LLM response cannot be parsed after retries
-    
+        ValueError: 如果 LLM 响应在重试后无法解析
+
     Example:
         score = llm_judge_score(
             predicted="The user enjoys hiking in the mountains",
@@ -412,18 +412,18 @@ def llm_judge_score_batch(
     prompt_template: Optional[str] = None,
 ) -> List[float]:
     """
-    Batch evaluation using LLM-as-a-Judge.
-    
-    More efficient for large datasets as it can potentially
-    batch requests to the LLM provider.
-    
+    使用 LLM-as-a-Judge 进行批量评估。
+
+    对于大型数据集更高效，因为它可以潜在地
+    批量请求到 LLM 提供者。
+
     Args:
-        instances: List of (predicted, expected, query) tuples
-        llm_provider: LLM provider instance
-        prompt_template: Custom prompt template (optional)
-    
+        instances: (predicted, expected, query) 元组列表
+        llm_provider: LLM 提供者实例
+        prompt_template: 自定义提示模板（可选）
+
     Returns:
-        List of normalized scores in [0.0, 1.0]
+        [0.0, 1.0] 范围内的规范化分数列表
     """
     scores = []
     for predicted, expected, query in instances:
@@ -443,30 +443,30 @@ def llm_judge_score_batch(
 
 
 # -----------------------------------------------------------------------------
-# Latency Statistics
+# 延迟统计
 # -----------------------------------------------------------------------------
 
 def calculate_latency_stats(latencies: List[float]) -> Dict[str, float]:
     """
-    Calculate latency statistics from a list of latency measurements.
-    
-    Computes common percentile metrics for performance analysis.
-    
+    从延迟测量列表计算延迟统计。
+
+    计算用于性能分析的常见百分位数指标。
+
     Args:
-        latencies: List of latency values in milliseconds
-    
+        latencies: 以毫秒为单位的延迟值列表
+
     Returns:
-        Dict containing:
-            - "mean_ms": Mean latency
-            - "std_ms": Standard deviation
-            - "min_ms": Minimum latency
-            - "max_ms": Maximum latency
-            - "p50_ms": 50th percentile (median)
-            - "p90_ms": 90th percentile
-            - "p95_ms": 95th percentile
-            - "p99_ms": 99th percentile
-            - "count": Number of samples
-    
+        包含以下内容的字典:
+            - "mean_ms": 平均延迟
+            - "std_ms": 标准差
+            - "min_ms": 最小延迟
+            - "max_ms": 最大延迟
+            - "p50_ms": 50 百分位数（中位数）
+            - "p90_ms": 90 百分位数
+            - "p95_ms": 95 百分位数
+            - "p99_ms": 99 百分位数
+            - "count": 样本数
+
     Example:
         >>> stats = calculate_latency_stats([10.5, 15.2, 12.3, 50.1, 11.8])
         >>> print(f"p95: {stats['p95_ms']:.1f}ms")
@@ -501,29 +501,29 @@ def calculate_latency_stats(latencies: List[float]) -> Dict[str, float]:
 
 
 # -----------------------------------------------------------------------------
-# Accuracy by Capability
+# 按能力的准确率
 # -----------------------------------------------------------------------------
 
 def calculate_accuracy_by_capability(
     results: List["BenchmarkResult"],
 ) -> Dict[str, float]:
     """
-    Calculate accuracy metrics broken down by capability dimension.
-    
-    Groups results by their capability and computes mean accuracy
-    for each group, plus overall accuracy.
-    
+    计算按能力维度分解的准确率指标。
+
+    按能力对结果进行分组，并为每个组计算平均准确率，
+    加上总体准确率。
+
     Args:
-        results: List of BenchmarkResult objects
-    
+        results: BenchmarkResult 对象列表
+
     Returns:
-        Dict containing:
-            - "accuracy": Overall accuracy
-            - "accuracy_<capability>": Per-capability accuracy
-            - "count_<capability>": Per-capability sample count
-    
+        包含以下内容的字典:
+            - "accuracy": 总体准确率
+            - "accuracy_<capability>": 按能力的准确率
+            - "count_<capability>": 按能力的样本数
+
     Example:
-        >>> results = [...]  # List of BenchmarkResult
+        >>> results = [...]  # BenchmarkResult 列表
         >>> metrics = calculate_accuracy_by_capability(results)
         >>> print(f"Overall: {metrics['accuracy']:.2%}")
         >>> print(f"Retrieval: {metrics['accuracy_accurate_retrieval']:.2%}")
@@ -562,18 +562,18 @@ def calculate_token_efficiency(
     results: List["BenchmarkResult"],
 ) -> Dict[str, float]:
     """
-    Calculate token efficiency metrics.
-    
-    Requires results to have "tokens_used" in metadata.
-    
+    计算令牌效率指标。
+
+    要求结果在元数据中有 "tokens_used"。
+
     Args:
-        results: List of BenchmarkResult objects
-    
+        results: BenchmarkResult 对象列表
+
     Returns:
-        Dict containing:
-            - "mean_tokens": Mean tokens per query
-            - "tokens_per_correct": Tokens per correct answer
-            - "total_tokens": Total tokens used
+        包含以下内容的字典:
+            - "mean_tokens": 每个查询的平均令牌数
+            - "tokens_per_correct": 每个正确答案的令牌数
+            - "total_tokens": 使用的总令牌数
     """
     total_tokens = 0
     correct_tokens = 0
@@ -595,7 +595,7 @@ def calculate_token_efficiency(
 
 
 # -----------------------------------------------------------------------------
-# Composite Scoring
+# 复合评分
 # -----------------------------------------------------------------------------
 
 def composite_score(
@@ -606,28 +606,28 @@ def composite_score(
     llm_provider: Optional[LLMProviderProtocol] = None,
 ) -> float:
     """
-    Compute a weighted composite score from multiple metrics.
-    
-    Combines exact match, fuzzy match, containment, and token F1.
-    If an LLM provider is available, includes LLM-as-a-Judge score.
-    
+    从多个指标计算加权复合分数。
+
+    结合精确匹配、模糊匹配、包含和令牌 F1。
+    如果有 LLM 提供者，包括 LLM-as-a-Judge 分数。
+
     Args:
-        predicted: Model's predicted answer
-        expected: Expected/ground truth answer
-        query: The original query
-        weights: Optional weight dict for each metric
-        llm_provider: Optional LLM provider for semantic evaluation
-    
+        predicted: 模型的预测答案
+        expected: 预期/真实答案
+        query: 原始查询
+        weights: 每个指标的可选权重字典
+        llm_provider: 用于语义评估的可选 LLM 提供者
+
     Returns:
-        Weighted composite score in [0.0, 1.0]
-    
-    Default Weights (without LLM):
+        [0.0, 1.0] 范围内的加权复合分数
+
+    默认权重（不使用 LLM）:
         - exact_match: 0.3
         - fuzzy_match: 0.3
         - contains_match: 0.2
         - token_f1: 0.2
-    
-    Default Weights (with LLM):
+
+    默认权重（使用 LLM）:
         - llm_judge: 0.5
         - exact_match: 0.15
         - fuzzy_match: 0.15

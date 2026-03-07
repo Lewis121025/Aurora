@@ -28,7 +28,7 @@ from aurora.api.schemas import (
 try:
     from fastapi import FastAPI, HTTPException
 except Exception as e:  # pragma: no cover
-    raise RuntimeError("FastAPI is not installed. Install with: pip install -e '.[api]'") from e
+    raise RuntimeError("FastAPI未安装。使用以下命令安装: pip install -e '.[api]'") from e
 
 
 settings = AuroraSettings(data_dir=os.environ.get("AURORA_DATA_DIR", "./data"))
@@ -39,6 +39,7 @@ app = FastAPI(title="AURORA Memory API", version="0.1.0")
 
 @app.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:
+    """健康检查端点"""
     return HealthResponse(
         status="healthy",
         version="0.1.0",
@@ -48,8 +49,9 @@ def healthz() -> HealthResponse:
 
 @app.post("/v1/memory/ingest", response_model=IngestResponse)
 def ingest(req: IngestRequest) -> IngestResponse:
+    """摄入新的交互到记忆中"""
     t = hub.tenant(req.user_id)
-    # Generate event_id if not provided
+    # 如果未提供则生成event_id
     event_id = req.event_id or f"evt_{int(time.time() * 1000)}"
     r = t.ingest_interaction(
         event_id=event_id,
@@ -65,6 +67,7 @@ def ingest(req: IngestRequest) -> IngestResponse:
 
 @app.post("/v1/memory/query", response_model=QueryResponse)
 def query(req: QueryRequest) -> QueryResponse:
+    """按语义相似性查询记忆"""
     t = hub.tenant(req.user_id)
     r = t.query(text=req.text, k=req.k)
     return QueryResponse(
@@ -76,19 +79,20 @@ def query(req: QueryRequest) -> QueryResponse:
 
 @app.post("/v1/memory/feedback")
 def feedback(req: FeedbackRequest) -> Dict[str, Any]:
+    """提供关于检索质量的反馈"""
     t = hub.tenant(req.user_id)
     t.feedback(query_text=req.query_text, chosen_id=req.chosen_id, success=req.success)
     return {"ok": True}
 
 
 # -----------------------------------------------------------------------------
-# Extended APIs: Coherence, Self-Narrative, Causal
+# 扩展API: 一致性、自我叙事、因果
 # -----------------------------------------------------------------------------
 
 
 @app.get("/v1/memory/coherence/{user_id}", response_model=CoherenceResponse)
 def check_coherence(user_id: str) -> CoherenceResponse:
-    """Check memory coherence for a user"""
+    """检查用户的记忆一致性"""
     t = hub.tenant(user_id)
     result = t.check_coherence()
     return CoherenceResponse(
@@ -101,7 +105,7 @@ def check_coherence(user_id: str) -> CoherenceResponse:
 
 @app.get("/v1/memory/self-narrative/{user_id}", response_model=SelfNarrativeResponse)
 def get_self_narrative(user_id: str) -> SelfNarrativeResponse:
-    """Get self-narrative for a user's agent"""
+    """获取用户代理的自我叙事"""
     t = hub.tenant(user_id)
     data = t.get_self_narrative()
     return SelfNarrativeResponse(**data)
@@ -109,7 +113,7 @@ def get_self_narrative(user_id: str) -> SelfNarrativeResponse:
 
 @app.post("/v1/memory/causal-chain", response_model=CausalChainResponse)
 def get_causal_chain(req: CausalChainRequest) -> CausalChainResponse:
-    """Get causal chain for a node"""
+    """获取节点的因果链"""
     t = hub.tenant(req.user_id)
     chain = t.get_causal_chain(req.node_id, req.direction)
     return CausalChainResponse(
@@ -119,7 +123,7 @@ def get_causal_chain(req: CausalChainRequest) -> CausalChainResponse:
 
 @app.post("/v1/memory/evolve")
 def evolve(req: EvolveRequest) -> Dict[str, Any]:
-    """Trigger evolution for a user's memory"""
+    """触发用户记忆的演化"""
     t = hub.tenant(req.user_id)
     t.evolve()
     return {
@@ -131,11 +135,11 @@ def evolve(req: EvolveRequest) -> Dict[str, Any]:
 
 @app.get("/v1/memory/stats/{user_id}", response_model=MemoryStatsResponse)
 def get_stats(user_id: str) -> MemoryStatsResponse:
-    """Get memory statistics for a user"""
+    """获取用户的记忆统计"""
     t = hub.tenant(user_id)
     coherence = t.check_coherence()
     narrative = t.get_self_narrative()
-    
+
     return MemoryStatsResponse(
         plot_count=len(t.mem.plots),
         story_count=len(t.mem.stories),

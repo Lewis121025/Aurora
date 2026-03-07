@@ -1,14 +1,14 @@
 """
-AURORA Hub Tests
+AURORA 中心测试
 ================
 
-Tests for the AuroraHub multi-tenant routing module.
+AuroraHub 多租户路由模块的测试。
 
-Tests cover:
-- Hub initialization with various settings
-- Tenant creation and caching
-- LRU eviction when exceeding capacity
-- Multi-tenant data isolation
+测试覆盖:
+- 使用各种设置的中心初始化
+- 租户创建和缓存
+- 超过容量时的 LRU 驱逐
+- 多租户数据隔离
 """
 
 from __future__ import annotations
@@ -25,12 +25,12 @@ from aurora.service import AuroraTenant
 
 
 # =============================================================================
-# Test Fixtures
+# 测试夹具
 # =============================================================================
 
 @pytest.fixture
 def hub_settings(temp_data_dir: Path) -> AuroraSettings:
-    """Create settings for hub testing with minimal tenant cap."""
+    """为中心测试创建设置，租户容量最小。"""
     return AuroraSettings(
         data_dir=str(temp_data_dir),
         tenant_max_loaded=3,  # Small cap for testing eviction

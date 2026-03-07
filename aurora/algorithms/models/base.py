@@ -1,12 +1,12 @@
 """
-AURORA Model Base Classes
+AURORA 模型基类
 =========================
 
-Base classes and mixins for all AURORA data models.
+所有 AURORA 数据模型的基类和混入类。
 
-Provides:
-- SerializableMixin: Unified serialization interface for all models
-- TimestampedMixin: Automatic timestamp management
+提供：
+- SerializableMixin: 所有模型的统一序列化接口
+- TimestampedMixin: 自动时间戳管理
 """
 
 from __future__ import annotations
@@ -23,59 +23,59 @@ T = TypeVar("T")
 
 class SerializableMixin(ABC):
     """
-    Mixin providing unified serialization interface for dataclasses.
-    
-    All AURORA models should implement these methods consistently:
-    - to_state_dict(): Convert to JSON-compatible dict
-    - from_state_dict(): Reconstruct from state dict
-    
-    This ensures consistent serialization across all model types,
-    enabling reliable persistence and state transfer.
+    为数据类提供统一序列化接口的混入类。
+
+    所有 AURORA 模型应该一致地实现这些方法：
+    - to_state_dict(): 转换为 JSON 兼容的字典
+    - from_state_dict(): 从状态字典重构
+
+    这确保了所有模型类型的序列化一致性，
+    实现了可靠的持久化和状态转移。
     """
     
     @abstractmethod
     def to_state_dict(self) -> Dict[str, Any]:
         """
-        Serialize the model to a JSON-compatible dictionary.
-        
-        Implementation notes:
-        - np.ndarray should be converted to list via .tolist()
-        - Nested SerializableMixin objects should call their to_state_dict()
-        - Optional fields that are None should be included as None
-        
-        Returns:
-            JSON-compatible dictionary representing the model state
+        将模型序列化为 JSON 兼容的字典。
+
+        实现说明：
+        - np.ndarray 应通过 .tolist() 转换为列表
+        - 嵌套的 SerializableMixin 对象应调用其 to_state_dict()
+        - 为 None 的可选字段应包含为 None
+
+        返回：
+            表示模型状态的 JSON 兼容字典
         """
         pass
-    
+
     @classmethod
     @abstractmethod
     def from_state_dict(cls: Type[T], d: Dict[str, Any]) -> T:
         """
-        Reconstruct a model instance from a state dictionary.
-        
-        Implementation notes:
-        - Lists should be converted to np.ndarray where appropriate
-        - Nested objects should be reconstructed via their from_state_dict()
-        - Missing keys should use sensible defaults
-        
-        Args:
-            d: State dictionary from to_state_dict()
-            
-        Returns:
-            Reconstructed model instance
+        从状态字典重构模型实例。
+
+        实现说明：
+        - 列表应在适当时转换为 np.ndarray
+        - 嵌套对象应通过其 from_state_dict() 重构
+        - 缺失的键应使用合理的默认值
+
+        参数：
+            d: 来自 to_state_dict() 的状态字典
+
+        返回：
+            重构的模型实例
         """
         pass
 
 
 def serialize_value(value: Any) -> Any:
     """
-    Helper to serialize a single value to JSON-compatible format.
-    
-    Handles:
-    - np.ndarray -> list
-    - SerializableMixin -> dict
-    - Basic types -> as-is
+    将单个值序列化为 JSON 兼容格式的辅助函数。
+
+    处理：
+    - np.ndarray -> 列表
+    - SerializableMixin -> 字典
+    - 基本类型 -> 原样返回
     """
     if isinstance(value, np.ndarray):
         return value.tolist()
@@ -91,20 +91,20 @@ def serialize_value(value: Any) -> Any:
 
 def auto_serialize(obj: Any) -> Dict[str, Any]:
     """
-    Automatically serialize a dataclass to a dict.
-    
-    Uses reflection to serialize all fields.
-    Override specific fields by implementing custom to_state_dict().
-    
-    Args:
-        obj: A dataclass instance
-        
-    Returns:
-        JSON-compatible dictionary
+    自动将数据类序列化为字典。
+
+    使用反射来序列化所有字段。
+    通过实现自定义 to_state_dict() 来覆盖特定字段。
+
+    参数：
+        obj: 数据类实例
+
+    返回：
+        JSON 兼容的字典
     """
     if not is_dataclass(obj):
         raise TypeError(f"auto_serialize requires a dataclass, got {type(obj)}")
-    
+
     result = {}
     for f in fields(obj):
         value = getattr(obj, f.name)

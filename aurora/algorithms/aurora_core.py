@@ -1,17 +1,17 @@
 """
-AURORA Memory Core
+AURORA 内存核心
 ==================
 
-Main entry point: AuroraMemory class.
+主入口点：AuroraMemory 类。
 
-Design: zero hard-coded thresholds. All decisions via Bayesian/stochastic policies.
+设计：零硬编码阈值。所有决策通过贝叶斯/随机策略进行。
 
-Architecture:
-- Core class inherits from specialized mixins for different concerns
-- relationship.py: Relationship identification and identity assessment
-- pressure.py: Growth-oriented pressure management
-- evolution.py: Evolution, reflection, and meaning reframe
-- serialization.py: State serialization/deserialization
+架构：
+- 核心类从不同关注点的专用 mixin 继承
+- relationship.py：关系识别和身份评估
+- pressure.py：面向增长的压力管理
+- evolution.py：演化、反思和意义重构
+- serialization.py：状态序列化/反序列化
 """
 
 from __future__ import annotations
@@ -114,20 +114,20 @@ logger = logging.getLogger(__name__)
 
 
 class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, SerializationMixin):
-    """AURORA Memory: emergent narrative memory from first principles.
+    """AURORA 内存：从第一原理产生的叙事性内存。
 
-    Key APIs:
-        ingest(interaction_text, actors, context_text) -> Plot (may or may not be stored)
+    关键 API：
+        ingest(interaction_text, actors, context_text) -> Plot（可能存储也可能不存储）
         query(text, k) -> RetrievalTrace
-        feedback_retrieval(query_text, chosen_id, success) -> update beliefs
-        evolve() -> consolidate plots->stories->themes, manage pressure, update statuses
-    
-    Architecture:
-        This class uses mixins to separate concerns:
-        - RelationshipMixin: Relationship identification and identity assessment
-        - PressureMixin: Growth-oriented pressure management
-        - EvolutionMixin: Evolution, reflection, and meaning reframe
-        - SerializationMixin: State serialization/deserialization
+        feedback_retrieval(query_text, chosen_id, success) -> 更新信念
+        evolve() -> 整合 plots->stories->themes，管理压力，更新状态
+
+    架构：
+        此类使用 mixin 来分离关注点：
+        - RelationshipMixin：关系识别和身份评估
+        - PressureMixin：面向增长的压力管理
+        - EvolutionMixin：演化、反思和意义重构
+        - SerializationMixin：状态序列化/反序列化
     """
 
     def __init__(
@@ -137,46 +137,46 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         embedder=None,
         benchmark_mode: bool = False,
     ):
-        """Initialize the AURORA Memory system.
+        """初始化 AURORA 内存系统。
 
-        Creates a new memory instance with learnable components, memory stores,
-        and nonparametric assignment models. All random operations are seeded
-        for reproducibility.
+        创建一个新的内存实例，包含可学习的组件、内存存储
+        和非参数分配模型。所有随机操作都被种子化
+        以确保可重复性。
 
-        Args:
-            cfg: Memory configuration controlling embedding dimension, capacity
-                limits, CRP concentration priors, and retrieval preferences.
-                Defaults to MemoryConfig() with standard settings.
-            seed: Random seed for reproducibility. All stochastic decisions
-                (Thompson sampling, CRP assignment, pressure management) use
-                this seed. Defaults to 0.
-            embedder: Optional embedding provider. If None, uses HashEmbedding
-                (for testing only). For production, provide a real embedder
-                like BailianEmbedding or ArkEmbedding.
-            benchmark_mode: If True, forces storage of ALL plots bypassing VOI
-                gating. This is essential for benchmarks like LongMemEval where
-                every turn may contain critical information. Default: False.
+        参数：
+            cfg：内存配置，控制嵌入维度、容量
+                限制、CRP 浓度先验和检索偏好。
+                默认为 MemoryConfig()，使用标准设置。
+            seed：用于可重复性的随机种子。所有随机决策
+                （Thompson 采样、CRP 分配、压力管理）使用
+                此种子。默认为 0。
+            embedder：可选的嵌入提供者。如果为 None，使用 HashEmbedding
+                （仅用于测试）。对于生产环境，提供真实的嵌入器
+                如 BailianEmbedding 或 ArkEmbedding。
+            benchmark_mode：如果为 True，强制存储所有 plot，绕过 VOI
+                门控。这对于 LongMemEval 等基准测试至关重要，其中
+                每个回合可能包含关键信息。默认值：False。
 
-        Example:
+        示例：
             >>> from aurora.algorithms.aurora_core import AuroraMemory
             >>> from aurora.algorithms.models.config import MemoryConfig
-            >>> # Default configuration
+            >>> # 默认配置
             >>> mem = AuroraMemory(seed=42)
-            >>> # Custom configuration with real embedder
+            >>> # 使用真实嵌入器的自定义配置
             >>> from aurora.embeddings.bailian import BailianEmbedding
             >>> embedder = BailianEmbedding(api_key="...", dimension=1024)
             >>> cfg = MemoryConfig(dim=1024, max_plots=1000, metric_rank=32)
             >>> mem = AuroraMemory(cfg=cfg, seed=42, embedder=embedder)
-            >>> # Benchmark mode for evaluation
+            >>> # 用于评估的基准模式
             >>> mem = AuroraMemory(cfg=cfg, seed=42, embedder=embedder, benchmark_mode=True)
 
-        Note:
-            The memory system uses several learnable components:
-            - HashEmbedding: Deterministic embedding for reproducibility (default)
-            - OnlineKDE: Density estimation for surprise computation
-            - LowRankMetric: Learned similarity metric
-            - ThompsonBernoulliGate: Encoding decision via Thompson sampling
-            - CRPAssigner: Chinese Restaurant Process for story/theme clustering
+        注意：
+            内存系统使用多个可学习的组件：
+            - HashEmbedding：用于可重复性的确定性嵌入（默认）
+            - OnlineKDE：用于惊奇计算的密度估计
+            - LowRankMetric：学习的相似度度量
+            - ThompsonBernoulliGate：通过 Thompson 采样的编码决策
+            - CRPAssigner：用于 story/theme 聚类的中餐厅过程
         """
         self.cfg = cfg
         self._seed = seed
@@ -204,7 +204,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         self.stories: Dict[str, StoryArc] = {}
         self.themes: Dict[str, Theme] = {}
 
-        # Nonparametric assignment
+        # 非参数分配
         self.crp_story = CRPAssigner(alpha=cfg.story_alpha, seed=seed)
         self.story_model = StoryModel(metric=self.metric)
         self.crp_theme = CRPAssigner(alpha=cfg.theme_alpha, seed=seed + 1)
@@ -212,51 +212,51 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
 
         self.retriever = FieldRetriever(metric=self.metric, vindex=self.vindex, graph=self.graph)
 
-        # Bookkeeping for delayed credit assignment (auto-bounded deque)
+        # 用于延迟信用分配的簿记（自动有界双端队列）
         self._recent_encoded_plot_ids: Deque[str] = deque(maxlen=RECENT_ENCODED_PLOTS_WINDOW)
-        
-        # Relationship-centric additions
+
+        # 关系中心的添加
         self._relationship_story_index: Dict[str, str] = {}  # relationship_entity -> story_id
         self._identity_dimensions: Dict[str, float] = {}  # dimension_name -> strength
-        
-        # Temporal index for time-first retrieval (Time as First-Class Citizen)
-        # Maps day_bucket (int) -> list of plot_ids created on that day
-        # Day bucket = timestamp // 86400 (seconds per day)
+
+        # 用于时间优先检索的时间索引（时间作为一等公民）
+        # 将 day_bucket (int) 映射到在该天创建的 plot_ids 列表
+        # Day bucket = timestamp // 86400（每天的秒数）
         self._temporal_index: Dict[int, List[str]] = {}
-        self._temporal_index_min_bucket: int = 0  # Track earliest bucket for span queries
-        self._temporal_index_max_bucket: int = 0  # Track latest bucket for span queries
-        
-        # Knowledge type classifier for intelligent conflict resolution
-        # Distinguishes: FACTUAL_STATE, FACTUAL_STATIC, IDENTITY_TRAIT, IDENTITY_VALUE, PREFERENCE, BEHAVIOR_PATTERN
+        self._temporal_index_min_bucket: int = 0  # 跟踪跨度查询的最早 bucket
+        self._temporal_index_max_bucket: int = 0  # 跟踪跨度查询的最新 bucket
+
+        # 用于智能冲突解决的知识类型分类器
+        # 区分：FACTUAL_STATE、FACTUAL_STATIC、IDENTITY_TRAIT、IDENTITY_VALUE、PREFERENCE、BEHAVIOR_PATTERN
         self.knowledge_classifier = KnowledgeClassifier(seed=seed)
-        
-        # Coherence guardian for conflict detection and resolution during ingest
-        # Integrates with TensionManager for functional contradiction management
+
+        # 用于在摄入期间进行冲突检测和解决的一致性守护者
+        # 与 TensionManager 集成以进行功能性矛盾管理
         self.coherence_guardian = CoherenceGuardian(metric=self.metric, seed=seed)
-        
-        # Abstention detector for rejecting low-confidence queries
+
+        # 用于拒绝低置信度查询的弃权检测器
         self.abstention_detector = AbstentionDetector()
-        
-        # Entity-attribute tracker for knowledge update detection (Phase 3)
-        # Tracks entity-attribute changes over time to improve update detection
-        # even when semantic similarity is low (e.g., "28 min" vs "25:50")
+
+        # 用于知识更新检测的实体属性跟踪器（第 3 阶段）
+        # 跟踪实体属性随时间的变化，以改进更新检测
+        # 即使语义相似性较低（例如，"28 分钟"vs"25:50"）
         self.entity_tracker = EntityTracker(seed=seed)
-        
-        # Fact extractor for multi-session recall enhancement (Phase 5)
-        # Extracts key facts (quantities, actions, locations, times, preferences)
-        # to provide structured anchors that complement semantic embeddings
+
+        # 用于多会话回忆增强的事实提取器（第 5 阶段）
+        # 提取关键事实（数量、行动、位置、时间、偏好）
+        # 以提供补充语义嵌入的结构化锚点
         self.fact_extractor = FactExtractor()
 
     # -------------------------------------------------------------------------
-    # HashEmbedding Warning
+    # HashEmbedding 警告
     # -------------------------------------------------------------------------
 
     def _warn_if_hash_embedding(self) -> None:
-        """Warn if using HashEmbedding - retrieval will be essentially random.
-        
-        HashEmbedding produces pseudo-random vectors based on text hash,
-        which means semantically similar texts will NOT have similar embeddings.
-        This makes retrieval quality random and defeats the purpose of the memory system.
+        """如果使用 HashEmbedding，则发出警告 - 检索将基本上是随机的。
+
+        HashEmbedding 基于文本哈希生成伪随机向量，
+        这意味着语义相似的文本将不会有相似的嵌入。
+        这使得检索质量随机，违反了内存系统的目的。
         """
         if isinstance(self.embedder, HashEmbedding):
             warning_msg = """
@@ -281,21 +281,21 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
             logger.warning(warning_msg)
-    
+
     def is_using_hash_embedding(self) -> bool:
-        """Check if the memory system is using HashEmbedding.
-        
-        Returns:
-            True if using HashEmbedding (random embeddings), False otherwise.
+        """检查内存系统是否使用 HashEmbedding。
+
+        返回：
+            如果使用 HashEmbedding（随机嵌入），则为 True，否则为 False。
         """
         return isinstance(self.embedder, HashEmbedding)
 
     # -------------------------------------------------------------------------
-    # Vector index creation
+    # 向量索引创建
     # -------------------------------------------------------------------------
 
     def _create_vector_index(self, cfg: MemoryConfig) -> VectorIndex:
-        """Create vector index based on configuration."""
+        """根据配置创建向量索引。"""
         use_faiss = cfg.vector_backend == "faiss" or (cfg.vector_backend == "auto" and FAISS_AVAILABLE)
         if use_faiss:
             if not FAISS_AVAILABLE:
@@ -309,47 +309,47 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         return VectorIndex(dim=cfg.dim)
 
     # -------------------------------------------------------------------------
-    # Temporal Index Management (Time as First-Class Citizen)
+    # 时间索引管理（时间作为一等公民）
     # -------------------------------------------------------------------------
 
     def _get_day_bucket(self, ts: float) -> int:
-        """Convert timestamp to day bucket for temporal indexing.
-        
-        Args:
-            ts: Unix timestamp
-            
-        Returns:
-            Day bucket (days since epoch)
+        """将时间戳转换为用于时间索引的日期 bucket。
+
+        参数：
+            ts：Unix 时间戳
+
+        返回：
+            日期 bucket（自纪元以来的天数）
         """
-        return int(ts // 86400)  # 86400 seconds per day
+        return int(ts // 86400)  # 每天 86400 秒
 
     def _add_to_temporal_index(self, plot: Plot) -> None:
-        """Add a plot to the temporal index.
-        
-        Time as First-Class Citizen: Temporal indexing enables fast
-        time-based queries without full scans.
-        
-        Args:
-            plot: The plot to add to the temporal index
+        """将 plot 添加到时间索引。
+
+        时间作为一等公民：时间索引支持快速
+        基于时间的查询，无需全扫描。
+
+        参数：
+            plot：要添加到时间索引的 plot
         """
         day_bucket = self._get_day_bucket(plot.ts)
-        
+
         if day_bucket not in self._temporal_index:
             self._temporal_index[day_bucket] = []
-        
+
         self._temporal_index[day_bucket].append(plot.id)
-        
-        # Update min/max buckets for span queries
+
+        # 更新用于跨度查询的最小/最大 bucket
         if not self._temporal_index_min_bucket or day_bucket < self._temporal_index_min_bucket:
             self._temporal_index_min_bucket = day_bucket
         if not self._temporal_index_max_bucket or day_bucket > self._temporal_index_max_bucket:
             self._temporal_index_max_bucket = day_bucket
 
     def _remove_from_temporal_index(self, plot: Plot) -> None:
-        """Remove a plot from the temporal index.
-        
-        Args:
-            plot: The plot to remove
+        """从时间索引中移除 plot。
+
+        参数：
+            plot：要移除的 plot
         """
         day_bucket = self._get_day_bucket(plot.ts)
         if day_bucket in self._temporal_index:
@@ -358,26 +358,26 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 if not self._temporal_index[day_bucket]:
                     del self._temporal_index[day_bucket]
             except ValueError:
-                pass  # Plot not in index
+                pass  # Plot 不在索引中
 
     def get_plots_in_time_range(
-        self, 
-        start_ts: Optional[float] = None, 
+        self,
+        start_ts: Optional[float] = None,
         end_ts: Optional[float] = None,
         limit: int = 100
     ) -> List[str]:
-        """Get plot IDs within a time range.
-        
-        Time as First-Class Citizen: Efficient time-range queries for
-        temporal retrieval.
-        
-        Args:
-            start_ts: Start timestamp (inclusive). None means earliest.
-            end_ts: End timestamp (inclusive). None means latest.
-            limit: Maximum number of plot IDs to return.
-            
-        Returns:
-            List of plot IDs in the time range, sorted by timestamp.
+        """获取时间范围内的 plot ID。
+
+        时间作为一等公民：用于
+        时间检索的高效时间范围查询。
+
+        参数：
+            start_ts：开始时间戳（包含）。None 表示最早。
+            end_ts：结束时间戳（包含）。None 表示最新。
+            limit：要返回的最大 plot ID 数。
+
+        返回：
+            时间范围内的 plot ID 列表，按时间戳排序。
         """
         if not self._temporal_index:
             return []
@@ -414,23 +414,23 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         return [pid for _, pid in plot_ids_with_ts[:limit]]
 
     def get_recent_plots(self, n: int = 10) -> List[str]:
-        """Get the N most recent plot IDs.
-        
-        Time as First-Class Citizen: Fast access to recent memories.
-        
-        Args:
-            n: Number of recent plots to return.
-            
-        Returns:
-            List of plot IDs, most recent first.
+        """获取 N 个最近的 plot ID。
+
+        时间作为一等公民：快速访问最近的记忆。
+
+        参数：
+            n：要返回的最近 plot 数。
+
+        返回：
+            plot ID 列表，最近的在前。
         """
         if not self._temporal_index:
             return []
-        
-        # Start from most recent bucket and work backwards
+
+        # 从最新的 bucket 开始向后工作
         plot_ids: List[Tuple[float, str]] = []
         bucket = self._temporal_index_max_bucket
-        
+
         while bucket >= self._temporal_index_min_bucket and len(plot_ids) < n * 2:
             if bucket in self._temporal_index:
                 for pid in self._temporal_index[bucket]:
@@ -438,29 +438,29 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                     if plot:
                         plot_ids.append((plot.ts, pid))
             bucket -= 1
-        
-        # Sort by timestamp descending and return top n
+
+        # 按时间戳降序排序并返回前 n 个
         plot_ids.sort(key=lambda x: -x[0])
         return [pid for _, pid in plot_ids[:n]]
 
     def get_earliest_plots(self, n: int = 10) -> List[str]:
-        """Get the N earliest plot IDs.
-        
-        Time as First-Class Citizen: Fast access to earliest memories.
-        
-        Args:
-            n: Number of earliest plots to return.
-            
-        Returns:
-            List of plot IDs, earliest first.
+        """获取 N 个最早的 plot ID。
+
+        时间作为一等公民：快速访问最早的记忆。
+
+        参数：
+            n：要返回的最早 plot 数。
+
+        返回：
+            plot ID 列表，最早的在前。
         """
         if not self._temporal_index:
             return []
-        
-        # Start from earliest bucket and work forwards
+
+        # 从最早的 bucket 开始向前工作
         plot_ids: List[Tuple[float, str]] = []
         bucket = self._temporal_index_min_bucket
-        
+
         while bucket <= self._temporal_index_max_bucket and len(plot_ids) < n * 2:
             if bucket in self._temporal_index:
                 for pid in self._temporal_index[bucket]:
@@ -468,24 +468,24 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                     if plot:
                         plot_ids.append((plot.ts, pid))
             bucket += 1
-        
-        # Sort by timestamp ascending and return top n
+
+        # 按时间戳升序排序并返回前 n 个
         plot_ids.sort(key=lambda x: x[0])
         return [pid for _, pid in plot_ids[:n]]
 
     def get_temporal_statistics(self) -> Dict[str, Any]:
-        """Get statistics about the temporal distribution of memories.
-        
-        Time as First-Class Citizen: Understanding the temporal distribution
-        helps users understand their memory landscape.
-        
-        Returns:
-            Dict with temporal statistics including:
-            - total_days: Number of days with memories
-            - earliest_ts: Earliest memory timestamp
-            - latest_ts: Latest memory timestamp
-            - avg_plots_per_day: Average plots per day
-            - most_active_day: Day with most interactions
+        """获取关于记忆时间分布的统计信息。
+
+        时间作为一等公民：理解时间分布
+        帮助用户理解他们的记忆景观。
+
+        返回：
+            包含时间统计信息的字典，包括：
+            - total_days：有记忆的天数
+            - earliest_ts：最早的记忆时间戳
+            - latest_ts：最新的记忆时间戳
+            - avg_plots_per_day：每天平均 plot 数
+            - most_active_day：交互最多的日期
         """
         if not self._temporal_index:
             return {
@@ -522,13 +522,13 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         }
 
     # -------------------------------------------------------------------------
-    # Common utility methods (extracted from repeated patterns)
+    # 常见实用方法（从重复模式中提取）
     # -------------------------------------------------------------------------
 
     def _update_centroid_online(
         self, current: Optional[np.ndarray], new_emb: np.ndarray, count: int
     ) -> np.ndarray:
-        """Update centroid/prototype using online mean algorithm."""
+        """使用在线平均算法更新质心/原型。"""
         if current is None:
             return new_emb.copy()
         return l2_normalize(current * ((count - 1) / count) + new_emb / count)
@@ -536,41 +536,41 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     def _create_bidirectional_edge(
         self, from_id: str, to_id: str, forward_type: str, backward_type: str
     ) -> None:
-        """Create bidirectional edges in the memory graph."""
+        """在内存图中创建双向边。"""
         self.graph.ensure_edge(from_id, to_id, forward_type)
         self.graph.ensure_edge(to_id, from_id, backward_type)
 
     # -------------------------------------------------------------------------
-    # VOI feature computation
+    # VOI 特征计算
     # -------------------------------------------------------------------------
 
     def _compute_redundancy(
         self, emb: np.ndarray, text: str, ts: float
     ) -> Tuple[float, str, Optional[str]]:
-        """Compute redundancy with existing memories, distinguishing update from redundancy.
-        
-        First Principles:
-        - Redundancy = information gain is zero (identical information repeated)
-        - Update = same entity's state change over time (carries temporal information gain)
-        - Reinforcement = short-term repetition confirming same info (some value, not new)
-        
-        In narrative psychology, re-narration repositions old info as "past self",
-        not deleting it but recontextualizing.
-        
-        Args:
-            emb: Embedding vector of new interaction
-            text: Text of new interaction (for update signal detection)
-            ts: Timestamp of new interaction
-            
-        Returns:
-            Tuple of (redundancy_score, redundancy_type, most_similar_plot_id):
-            - "novel": brand new information, redundancy = 0
-            - "update": knowledge update, redundancy = 0 (force store)
-            - "reinforcement": reinforcement, redundancy = 0.5 * similarity
-            - "pure_redundant": pure redundancy, redundancy = similarity
+        """计算与现有记忆的冗余度，区分更新和冗余。
+
+        第一原理：
+        - 冗余 = 信息增益为零（相同信息重复）
+        - 更新 = 同一实体的状态随时间变化（携带时间信息增益）
+        - 强化 = 短期重复确认相同信息（有一定价值，不是新的）
+
+        在叙事心理学中，重新叙述将旧信息重新定位为"过去的自我"，
+        不是删除它，而是重新语境化。
+
+        参数：
+            emb：新交互的嵌入向量
+            text：新交互的文本（用于更新信号检测）
+            ts：新交互的时间戳
+
+        返回：
+            (redundancy_score, redundancy_type, most_similar_plot_id) 的元组：
+            - "novel"：全新信息，冗余度 = 0
+            - "update"：知识更新，冗余度 = 0（强制存储）
+            - "reinforcement"：强化，冗余度 = 0.5 * 相似度
+            - "pure_redundant"：纯冗余，冗余度 = 相似度
         """
-        # Benchmark mode: disable redundancy filtering to ensure all plots are stored
-        # Every turn may contain critical information for evaluation
+        # 基准模式：禁用冗余过滤以确保存储所有 plot
+        # 每个回合可能包含用于评估的关键信息
         if self.benchmark_mode:
             return 0.0, "novel", None
         
@@ -601,156 +601,156 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 if old_ea.plot_id == most_similar_id and conf > 0.5:
                     entity_update = (old_ea.entity, old_ea.attribute, old_ea.value, conf)
                     break
-        
+
         if entity_update is not None:
             entity, attr, old_value, entity_conf = entity_update
-            # Entity-attribute match detected: treat as update even if similarity is low
+            # 检测到实体属性匹配：即使相似度较低也视为更新
             logger.debug(
-                f"Entity-attribute update detected: {entity}::{attr} "
-                f"({old_value} -> new value), confidence={entity_conf:.2f}"
+                f"检测到实体属性更新：{entity}::{attr} "
+                f"({old_value} -> 新值)，置信度={entity_conf:.2f}"
             )
-            # Use entity tracker confidence to boost update detection
-            # Even with low semantic similarity, entity alignment indicates update
+            # 使用实体跟踪器置信度来提升更新检测
+            # 即使语义相似度较低，实体对齐也表示更新
             if entity_conf > 0.5:
                 return 0.0, "update", most_similar_id
-        
-        # Low similarity -> novel content (unless entity tracker found a match)
+
+        # 低相似度 -> 新颖内容（除非实体跟踪器找到匹配）
         if max_sim < UPDATE_MODERATE_SIMILARITY_THRESHOLD:
             return 0.0, "novel", None
-        
-        # High similarity -> need to distinguish update vs redundancy
+
+        # 高相似度 -> 需要区分更新 vs 冗余
         if max_sim >= UPDATE_HIGH_SIMILARITY_THRESHOLD and most_similar_plot is not None:
-            # Check for update signals
+            # 检查更新信号
             update_signals = self._detect_update_signals(
                 text, most_similar_plot.text, ts, most_similar_plot.ts
             )
-            
+
             if update_signals["is_update"]:
-                # This is an update, force store with zero redundancy
+                # 这是一个更新，强制存储，冗余度为零
                 return 0.0, "update", most_similar_id
-            
-            # Check if it's a reinforcement (short time gap, same info)
+
+            # 检查是否是强化（短时间间隔，相同信息）
             time_gap = abs(ts - most_similar_plot.ts)
             if time_gap < REINFORCEMENT_TIME_WINDOW:
-                # Short time gap + high similarity = reinforcement
+                # 短时间间隔 + 高相似度 = 强化
                 return 0.5 * max_sim, "reinforcement", most_similar_id
-            
-            # Long time gap + high similarity + no update signals = pure redundancy
+
+            # 长时间间隔 + 高相似度 + 无更新信号 = 纯冗余
             return max_sim, "pure_redundant", most_similar_id
-        
-        # Moderate similarity -> could be reinforcement or loosely related
+
+        # 中等相似度 -> 可能是强化或松散相关
         if most_similar_plot is not None:
             time_gap = abs(ts - most_similar_plot.ts)
             if time_gap < REINFORCEMENT_TIME_WINDOW:
                 return 0.3 * max_sim, "reinforcement", most_similar_id
-        
-        # Default: treat as novel with slight redundancy penalty
+
+        # 默认：视为新颖，有轻微冗余惩罚
         return 0.3 * max_sim, "novel", None
 
     def _detect_update_signals(
         self, new_text: str, old_text: str, new_ts: float, old_ts: float
     ) -> Dict[str, Any]:
-        """Detect whether new_text represents an update to old_text.
-        
-        First Principles:
-        1. Temporal indicators: words suggesting state change over time
-        2. Time gap: significant gap + high similarity suggests update
-        3. Numeric changes: same context but different numbers = update
-        
-        Args:
-            new_text: Text of new interaction
-            old_text: Text of existing similar interaction
-            new_ts: Timestamp of new interaction
-            old_ts: Timestamp of existing interaction
-            
-        Returns:
-            Dict with:
-            - is_update: bool - whether this is classified as an update
-            - update_type: Optional[str] - "state_change", "correction", "refinement"
-            - confidence: float - confidence in the classification
-            - signals: List[str] - detected signal types
+        """检测 new_text 是否代表对 old_text 的更新。
+
+        第一原理：
+        1. 时间指示符：表示随时间状态变化的词语
+        2. 时间间隔：显著间隔 + 高相似度表示更新
+        3. 数值变化：相同上下文但不同数字 = 更新
+
+        参数：
+            new_text：新交互的文本
+            old_text：现有相似交互的文本
+            new_ts：新交互的时间戳
+            old_ts：现有交互的时间戳
+
+        返回：
+            包含以下内容的字典：
+            - is_update：bool - 是否分类为更新
+            - update_type：Optional[str] - "state_change"、"correction"、"refinement"
+            - confidence：float - 分类的置信度
+            - signals：List[str] - 检测到的信号类型
         """
         signals: List[str] = []
         update_type: Optional[str] = None
         confidence = 0.0
-        
+
         new_lower = new_text.lower()
         old_lower = old_text.lower()
-        
-        # Signal 1: Temporal/state change keywords in new text
+
+        # 信号 1：新文本中的时间/状态变化关键词
         keyword_count = sum(1 for kw in UPDATE_KEYWORDS if kw in new_lower)
         if keyword_count > 0:
             signals.append("update_keywords")
             confidence += min(0.3 * keyword_count, 0.6)
-            
-            # Determine update type from keywords
+
+            # 从关键词确定更新类型
             correction_indicators = {"其实", "实际上", "纠正", "更正", "actually", "correction"}
             if any(ind in new_lower for ind in correction_indicators):
                 update_type = "correction"
             else:
                 update_type = "state_change"
-        
-        # Signal 2: Time gap analysis
+
+        # 信号 2：时间间隔分析
         time_gap = new_ts - old_ts
         if time_gap > UPDATE_TIME_GAP_THRESHOLD:
             signals.append("time_gap")
-            # Longer gap increases confidence that semantic similarity indicates update
-            gap_factor = min(time_gap / (24 * 3600), 1.0)  # Max at 1 day
+            # 更长的间隔增加了语义相似度表示更新的置信度
+            gap_factor = min(time_gap / (24 * 3600), 1.0)  # 在 1 天时最大
             confidence += 0.2 * gap_factor
-        
-        # Signal 3: Entity-attribute alignment (Phase 3 enhancement)
-        # Check if EntityTracker detects same entity-attribute with different value
-        # This is more reliable than pure numeric matching
+
+        # 信号 3：实体属性对齐（第 3 阶段增强）
+        # 检查 EntityTracker 是否检测到具有不同值的相同实体属性
+        # 这比纯数值匹配更可靠
         entity_update = self.entity_tracker.check_entity_update(new_text, "", new_ts)
         if entity_update is not None:
             entity, attr, old_value, entity_conf = entity_update
             signals.append("entity_attribute_alignment")
-            # Higher confidence for entity-attribute matches
+            # 实体属性匹配的置信度更高
             confidence += min(0.4 * entity_conf, 0.5)
             if update_type is None:
                 update_type = "state_change"
             logger.debug(
-                f"Entity-attribute alignment: {entity}::{attr} "
-                f"changed from {old_value} (confidence={entity_conf:.2f})"
+                f"实体属性对齐：{entity}::{attr} "
+                f"从 {old_value} 改变（置信度={entity_conf:.2f}）"
             )
-        
-        # Signal 4: Numeric value changes (fallback if entity tracker didn't catch it)
+
+        # 信号 4：数值变化（如果实体跟踪器没有捕获，则回退）
         import re
         new_numbers = set(re.findall(r'\b\d+(?:\.\d+)?\b', new_text))
         old_numbers = set(re.findall(r'\b\d+(?:\.\d+)?\b', old_text))
-        
-        # If there are numbers in both texts and they differ, likely an update
+
+        # 如果两个文本中都有数字且它们不同，可能是更新
         if new_numbers and old_numbers and new_numbers != old_numbers:
-            # Check if any number change indicators present
+            # 检查是否存在任何数值变化指示符
             has_change_indicator = any(ind in new_text for ind in NUMERIC_CHANGE_INDICATORS)
             if has_change_indicator or len(new_numbers.symmetric_difference(old_numbers)) > 0:
                 signals.append("numeric_change")
-                confidence += 0.2  # Reduced weight since entity tracker is more reliable
+                confidence += 0.2  # 权重降低，因为实体跟踪器更可靠
                 if update_type is None:
                     update_type = "state_change"
-        
-        # Signal 5: Explicit negation of old information
+
+        # 信号 5：对旧信息的明确否定
         negation_patterns = [
             "不再", "不是", "没有", "不用", "no longer", "not anymore", "don't", "doesn't"
         ]
         if any(neg in new_lower for neg in negation_patterns):
-            # Check if negation relates to content in old text
+            # 检查否定是否与旧文本中的内容相关
             signals.append("negation")
             confidence += 0.25
             if update_type is None:
                 update_type = "state_change"
-        
-        # Signal 6: Refinement patterns (adding detail to existing info)
+
+        # 信号 6：细化模式（向现有信息添加详细信息）
         refinement_patterns = ["具体来说", "详细地", "补充", "更准确", "specifically", "to be precise", "additionally"]
         if any(ref in new_lower for ref in refinement_patterns):
             signals.append("refinement")
             confidence += 0.2
             if update_type is None:
                 update_type = "refinement"
-        
-        # Determine final classification
+
+        # 确定最终分类
         is_update = confidence >= 0.3 and len(signals) >= 1
-        
+
         return {
             "is_update": is_update,
             "update_type": update_type if is_update else None,
@@ -759,11 +759,11 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         }
 
     def _compute_goal_relevance(self, emb: np.ndarray, context_emb: Optional[np.ndarray]) -> float:
-        """Compute relevance to current goal/context."""
+        """计算与当前目标/上下文的相关性。"""
         return cosine_sim(emb, context_emb) if context_emb is not None else 0.0
 
     def _compute_pred_error(self, emb: np.ndarray) -> float:
-        """Compute predictive error vs best-matching story centroid."""
+        """计算与最佳匹配的 story 质心的预测误差。"""
         best_sim = -1.0
         for story in self.stories.values():
             if story.centroid is None:
@@ -774,7 +774,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         return 1.0 if best_sim < 0 else 1.0 - best_sim
 
     def _compute_voi_features(self, plot: Plot) -> np.ndarray:
-        """Compute value-of-information features for encoding decision."""
+        """计算用于编码决策的信息价值特征。"""
         return np.array([
             plot.surprise,
             plot.pred_error,
@@ -786,21 +786,21 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
 
     def _compute_knowledge_type_weight(self, plot: Plot) -> float:
         """
-        Compute storage weight based on knowledge type.
-        
-        Different knowledge types have different importance for storage:
-        - Identity values (0.95): Most important - core to who I am
-        - Static facts (0.9): Very important - immutable truths
-        - Identity traits (0.8): Important - personality aspects
-        - State facts (0.7): Moderate - can be updated
-        - Preferences (0.6): Lower - can evolve
-        - Behaviors (0.5): Lowest - patterns change
-        
-        Returns a weight that can boost storage probability for important knowledge.
+        根据知识类型计算存储权重。
+
+        不同的知识类型对存储的重要性不同：
+        - 身份价值观 (0.95)：最重要 - 我是谁的核心
+        - 静态事实 (0.9)：非常重要 - 不可变的真理
+        - 身份特征 (0.8)：重要 - 个性方面
+        - 状态事实 (0.7)：中等 - 可以更新
+        - 偏好 (0.6)：较低 - 可以演变
+        - 行为 (0.5)：最低 - 模式会改变
+
+        返回一个权重，可以提升重要知识的存储概率。
         """
         if plot.knowledge_type is None:
-            return 0.6  # Default for unclassified
-        
+            return 0.6  # 未分类的默认值
+
         type_weights = {
             "identity_value": KNOWLEDGE_TYPE_WEIGHT_VALUE,
             "factual_static": KNOWLEDGE_TYPE_WEIGHT_STATIC,
@@ -810,17 +810,17 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             "behavior": KNOWLEDGE_TYPE_WEIGHT_BEHAVIOR,
             "unknown": 0.6,
         }
-        
+
         base_weight = type_weights.get(plot.knowledge_type, 0.6)
-        
-        # Modulate by classification confidence
-        # High confidence → full weight, low confidence → dampened weight
+
+        # 按分类置信度调制
+        # 高置信度 → 完整权重，低置信度 → 减弱权重
         confidence_factor = 0.5 + 0.5 * plot.knowledge_confidence
-        
+
         return base_weight * confidence_factor
 
     # -------------------------------------------------------------------------
-    # Ingest: Main entry point for new interactions
+    # 摄入：新交互的主入口点
     # -------------------------------------------------------------------------
 
     def ingest(
@@ -830,91 +830,91 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         context_text: Optional[str] = None,
         event_id: Optional[str] = None,
     ) -> Plot:
-        """Ingest an interaction/event with relationship-centric processing.
+        """使用关系中心处理摄入交互/事件。
 
-        This method follows the identity-first paradigm:
-        1) Identify the relationship entity from actors
-        2) Assess identity relevance (not just information value)
-        3) Extract relational context ("who I am in this relationship")
-        4) Extract identity impact ("how this affects who I am")
-        5) Store organized by relationship (probabilistic decision)
+        此方法遵循身份优先范式：
+        1) 从参与者识别关系实体
+        2) 评估身份相关性（不仅仅是信息价值）
+        3) 提取关系背景（"我在这段关系中是谁"）
+        4) 提取身份影响（"这如何影响我是谁"）
+        5) 按关系存储（概率决策）
 
-        The storage decision combines identity relevance (60%) with traditional
-        value-of-information signals (40%) including surprise, prediction error,
-        redundancy, and goal relevance.
+        存储决策结合身份相关性 (60%) 和传统
+        信息价值信号 (40%)，包括惊奇、预测误差、
+        冗余和目标相关性。
 
-        Args:
-            interaction_text: The raw interaction text to process. Must be
-                non-empty after stripping whitespace.
-            actors: Sequence of actor identifiers involved in the interaction.
-                Defaults to ("user", "agent") if not provided.
-            context_text: Optional context string for computing goal relevance.
-                When provided, the system computes cosine similarity between
-                the interaction and context embeddings.
-            event_id: Optional deterministic event ID for reproducible plot ID
-                generation. If None, a UUID is generated. Useful for testing
-                and replay scenarios.
+        参数：
+            interaction_text：要处理的原始交互文本。必须
+                在去除空格后非空。
+            actors：交互中涉及的参与者标识符序列。
+                如果未提供，默认为 ("user", "agent")。
+            context_text：用于计算目标相关性的可选上下文字符串。
+                提供时，系统计算交互和上下文嵌入之间的
+                余弦相似度。
+            event_id：用于可重复 plot ID 生成的可选确定性事件 ID。
+                如果为 None，生成 UUID。对于测试
+                和重放场景很有用。
 
-        Returns:
-            The created Plot object. Note that the plot may or may not be
-            stored based on the probabilistic VOI decision. Check
-            `plot.id in mem.plots` to verify storage.
+        返回：
+            创建的 Plot 对象。注意 plot 可能会或可能不会
+            根据概率 VOI 决策被存储。检查
+            `plot.id in mem.plots` 以验证存储。
 
-        Raises:
-            ValidationError: If interaction_text is empty or whitespace-only.
+        抛出：
+            ValidationError：如果 interaction_text 为空或仅包含空格。
 
-        Example:
+        示例：
             >>> mem = AuroraMemory(seed=42)
-            >>> # Basic ingestion
+            >>> # 基本摄入
             >>> plot = mem.ingest("用户：帮我写排序算法")
             >>> print(plot.id)
-            >>> # With custom actors and context
+            >>> # 使用自定义参与者和上下文
             >>> plot = mem.ingest(
             ...     "Alice：你好！Bob：很高兴认识你。",
             ...     actors=["Alice", "Bob"],
             ...     context_text="社交对话"
             ... )
-            >>> # Deterministic ID for testing
+            >>> # 用于测试的确定性 ID
             >>> plot = mem.ingest(
             ...     "测试交互",
             ...     event_id="test-event-001"
             ... )
-            >>> assert plot.id == "plot-test-event-001"  # deterministic ID
+            >>> assert plot.id == "plot-test-event-001"  # 确定性 ID
         """
         if not interaction_text or not interaction_text.strip():
-            raise ValidationError("interaction_text cannot be empty")
+            raise ValidationError("interaction_text 不能为空")
         actors = tuple(actors) if actors else ("user", "agent")
         emb = self.embedder.embed(interaction_text)
 
-        # Prepare plot with relationship-centric processing
+        # 使用关系中心处理准备 plot
         plot = self._prepare_plot(interaction_text, actors, emb, event_id)
 
-        # Update global density regardless of storage decision (calibration)
+        # 无论存储决策如何，更新全局密度（校准）
         self.kde.add(emb)
 
-        # Compute traditional signals
+        # 计算传统信号
         context_emb = self.embedder.embed(context_text) if context_text else None
         self._compute_plot_signals(plot, emb, context_emb)
 
-        # Make storage decision
+        # 做出存储决策
         encode = self._compute_storage_decision(plot)
 
         if encode:
             self._store_plot(plot)
             self._recent_encoded_plot_ids.append(plot.id)
-            
-            # Update entity tracker for knowledge update detection
+
+            # 更新实体跟踪器以进行知识更新检测
             self.entity_tracker.update(interaction_text, plot.id, plot.ts)
-            
+
             logger.debug(
-                f"Encoded plot {plot.id}, combined_prob={plot._storage_prob:.3f}"
+                f"编码 plot {plot.id}，combined_prob={plot._storage_prob:.3f}"
             )
         else:
             logger.debug(
-                f"Dropped plot, combined_prob={plot._storage_prob:.3f}"
+                f"丢弃 plot，combined_prob={plot._storage_prob:.3f}"
             )
 
-        # Pressure management
+        # 压力管理
         self._pressure_manage()
         return plot
 
@@ -924,82 +924,82 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         progress_callback: Optional[callable] = None,
         batch_size: int = 25,
     ) -> List[Plot]:
-        """Batch ingest multiple interactions with optimized embedding.
+        """使用优化的嵌入批量摄入多个交互。
 
-        This method provides significant speedup for bulk imports by:
-        1. Batching embedding API calls (reducing N calls to N/batch_size calls)
-        2. Processing VOI gating and conflict detection per-plot (preserving semantics)
+        此方法通过以下方式为批量导入提供显著加速：
+        1. 批处理嵌入 API 调用（将 N 个调用减少到 N/batch_size 个调用）
+        2. 按 plot 处理 VOI 门控和冲突检测（保留语义）
 
-        The method is semantically equivalent to calling ingest() for each interaction,
-        but with O(N/batch_size) embedding API calls instead of O(N).
+        此方法在语义上等同于为每个交互调用 ingest()，
+        但嵌入 API 调用为 O(N/batch_size) 而不是 O(N)。
 
-        Args:
-            interactions: Sequence of interaction dicts, each containing:
-                - "text" (required): The interaction text to process
-                - "actors" (optional): Sequence of actor identifiers, defaults to ("user", "agent")
-                - "context_text" (optional): Context string for goal relevance computation
-                - "event_id" (optional): Deterministic event ID for reproducible plot IDs
-                - "date" (optional): Date string to prepend to text (e.g., "2023/01/08 (Sun) 12:49").
-                    When provided, the text becomes "[{date}] {text}" for both embedding and storage.
-                    This enables time-based reasoning in retrieval.
-            progress_callback: Optional callback function called after each plot is processed.
-                Signature: callback(current: int, total: int, plot: Plot) -> None
-                Useful for monitoring progress during large imports.
-            batch_size: Maximum number of texts to embed in one API call.
-                Alibaba Bailian API supports up to 25 texts per batch. Default: 25.
+        参数：
+            interactions：交互字典序列，每个包含：
+                - "text"（必需）：要处理的交互文本
+                - "actors"（可选）：参与者标识符序列，默认为 ("user", "agent")
+                - "context_text"（可选）：用于目标相关性计算的上下文字符串
+                - "event_id"（可选）：用于可重复 plot ID 的确定性事件 ID
+                - "date"（可选）：要前置到文本的日期字符串（例如，"2023/01/08 (Sun) 12:49"）。
+                    提供时，文本变为 "[{date}] {text}" 用于嵌入和存储。
+                    这在检索中启用基于时间的推理。
+            progress_callback：可选回调函数，在处理每个 plot 后调用。
+                签名：callback(current: int, total: int, plot: Plot) -> None
+                对于监控大型导入期间的进度很有用。
+            batch_size：一个 API 调用中要嵌入的最大文本数。
+                阿里巴巴百炼 API 每批支持最多 25 个文本。默认值：25。
 
-        Returns:
-            List of created Plot objects (in same order as input).
-            Each plot may or may not be stored based on VOI gating.
-            Check `plot.id in mem.plots` to verify storage.
+        返回：
+            创建的 Plot 对象列表（与输入顺序相同）。
+            每个 plot 可能会或可能不会根据 VOI 门控被存储。
+            检查 `plot.id in mem.plots` 以验证存储。
 
-        Raises:
-            ValidationError: If any interaction text is empty or whitespace-only.
+        抛出：
+            ValidationError：如果任何交互文本为空或仅包含空格。
 
-        Example:
+        示例：
             >>> mem = AuroraMemory(seed=42, embedder=embedder, benchmark_mode=True)
-            >>> # Prepare batch of interactions
+            >>> # 准备交互批次
             >>> interactions = [
             ...     {"text": "User: Hi, I'm Alice", "actors": ["user", "agent"]},
             ...     {"text": "User: I live in Beijing", "context_text": "personal_info"},
             ...     {"text": "User: My favorite color is blue"},
             ... ]
-            >>> # Ingest with progress monitoring
+            >>> # 使用进度监控摄入
             >>> def on_progress(current, total, plot):
-            ...     print(f"Processed {current}/{total}: {plot.id[:8]}...")
+            ...     print(f"已处理 {current}/{total}：{plot.id[:8]}...")
             >>> plots = mem.ingest_batch(interactions, progress_callback=on_progress)
-            >>> print(f"Ingested {len(plots)} plots, {len(mem.plots)} stored")
+            >>> print(f"摄入 {len(plots)} 个 plot，{len(mem.plots)} 个已存储")
             >>>
-            >>> # With date field for time-aware indexing (LongMemEval scenario)
+            >>> # 使用日期字段进行时间感知索引（LongMemEval 场景）
             >>> interactions_with_dates = [
             ...     {"text": "User: Hello", "date": "2023/01/08 (Sun) 12:04"},
             ...     {"text": "User: I went hiking yesterday", "date": "2023/01/09 (Mon) 09:30"},
             ... ]
             >>> plots = mem.ingest_batch(interactions_with_dates)
-            >>> # Texts are stored as "[2023/01/08 (Sun) 12:04] User: Hello" etc.
+            >>> # 文本存储为 "[2023/01/08 (Sun) 12:04] User: Hello" 等。
 
-        Performance:
-            For 500 interactions with 0.5s per embedding API call:
-            - Serial ingest(): 500 * 0.5s = 250s
-            - Batch ingest_batch(): (500/25) * 0.5s = 10s (25x speedup)
+        性能：
+            对于 500 个交互，每个嵌入 API 调用 0.5 秒：
+            - 串行 ingest()：500 * 0.5s = 250s
+            - 批处理 ingest_batch()：(500/25) * 0.5s = 10s（25 倍加速）
         """
         if not interactions:
             return []
 
-        # Validate all inputs first (fail fast)
+        # 首先验证所有输入（快速失败）
         for i, item in enumerate(interactions):
             text = item.get("text", "")
             if not text or not text.strip():
-                raise ValidationError(f"interaction[{i}].text cannot be empty")
+                raise ValidationError(f"interaction[{i}].text 不能为空")
 
         total = len(interactions)
-        logger.info(f"Starting batch ingest of {total} interactions (batch_size={batch_size})")
+        logger.info(f"开始批量摄入 {total} 个交互（batch_size={batch_size}）")
 
         # =====================================================================
-        # Phase 1: Batch embed all texts
+        # 第 1 阶段：批量嵌入所有文本
         # =====================================================================
-        # Collect all texts that need embedding
-        # If date is provided, prepend it to the text for time-aware indexing
+        # 收集所有需要嵌入的文本
+        # 如果提供了日期，将其前置到文本以进行时间感知索引
         def _prepare_text_with_date(item: Dict[str, Any]) -> str:
             text = item["text"]
             date = item.get("date")
@@ -1008,8 +1008,8 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             return text
 
         texts_to_embed = [_prepare_text_with_date(item) for item in interactions]
-        
-        # Collect context texts (for goal relevance computation)
+
+        # 收集上下文文本（用于目标相关性计算）
         context_texts = []
         context_indices = []
         for i, item in enumerate(interactions):
@@ -1018,82 +1018,82 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 context_texts.append(ctx)
                 context_indices.append(i)
 
-        # Batch embed main texts
-        logger.info(f"Embedding {len(texts_to_embed)} texts in batches of {batch_size}...")
+        # 批量嵌入主文本
+        logger.info(f"以 {batch_size} 的批次嵌入 {len(texts_to_embed)} 个文本...")
         all_embeddings = self._batch_embed_texts(texts_to_embed, batch_size)
-        
-        # Batch embed context texts if any
+
+        # 批量嵌入上下文文本（如果有）
         context_embeddings: Dict[int, np.ndarray] = {}
         if context_texts:
-            logger.info(f"Embedding {len(context_texts)} context texts...")
+            logger.info(f"嵌入 {len(context_texts)} 个上下文文本...")
             ctx_embs = self._batch_embed_texts(context_texts, batch_size)
             for idx, emb in zip(context_indices, ctx_embs):
                 context_embeddings[idx] = emb
 
-        logger.info("Embedding complete. Processing plots...")
+        logger.info("嵌入完成。处理 plot...")
 
         # =====================================================================
-        # Phase 2: Process each plot individually (preserving VOI semantics)
+        # 第 2 阶段：单独处理每个 plot（保留 VOI 语义）
         # =====================================================================
         plots: List[Plot] = []
         stored_count = 0
 
         for i, item in enumerate(interactions):
-            # Use text with date prefix (same as used for embedding)
+            # 使用带日期前缀的文本（与用于嵌入的相同）
             text = texts_to_embed[i]
             actors = tuple(item.get("actors", ("user", "agent")))
             event_id = item.get("event_id")
             emb = all_embeddings[i]
             context_emb = context_embeddings.get(i)
 
-            # Prepare plot with relationship-centric processing
+            # 使用关系中心处理准备 plot
             plot = self._prepare_plot(text, actors, emb, event_id)
 
-            # Update global density regardless of storage decision (calibration)
+            # 无论存储决策如何，更新全局密度（校准）
             self.kde.add(emb)
 
-            # Compute traditional signals
+            # 计算传统信号
             self._compute_plot_signals(plot, emb, context_emb)
 
-            # Make storage decision (VOI gating)
+            # 做出存储决策（VOI 门控）
             encode = self._compute_storage_decision(plot)
 
             if encode:
                 self._store_plot(plot)
                 self._recent_encoded_plot_ids.append(plot.id)
-                
-                # Update entity tracker for knowledge update detection
+
+                # 更新实体跟踪器以进行知识更新检测
                 self.entity_tracker.update(text, plot.id, plot.ts)
                 stored_count += 1
-                
+
                 logger.debug(
-                    f"[{i+1}/{total}] Encoded plot {plot.id[:8]}..., "
+                    f"[{i+1}/{total}] 编码 plot {plot.id[:8]}...，"
                     f"combined_prob={plot._storage_prob:.3f}"
                 )
             else:
                 logger.debug(
-                    f"[{i+1}/{total}] Dropped plot, combined_prob={plot._storage_prob:.3f}"
+                    f"[{i+1}/{total}] 丢弃 plot，combined_prob={plot._storage_prob:.3f}"
                 )
 
             plots.append(plot)
 
-            # Progress callback
+            # 进度回调
             if progress_callback is not None:
                 try:
                     progress_callback(i + 1, total, plot)
                 except Exception as e:
-                    logger.warning(f"Progress callback error: {e}")
+                    logger.warning(f"进度回调错误：{e}")
 
-            # Pressure management (every 50 plots to avoid overhead)
+            # 压力管理（每 50 个 plot 以避免开销）
             if (i + 1) % 50 == 0:
                 self._pressure_manage()
 
-        # Final pressure management
+        # 最终压力管理
         self._pressure_manage()
 
         logger.info(
-            f"Batch ingest complete: {total} processed, {stored_count} stored "
-            f"({stored_count * 100 / total:.1f}% storage rate)"
+            f"批量摄入完成：{total} 个已处理，{stored_count} 个已存储 "
+            f"（{stored_count * 100 / total:.1f}% 存储率）"
         )
         return plots
 
@@ -1102,23 +1102,23 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         texts: Sequence[str],
         batch_size: int = 25,
     ) -> List[np.ndarray]:
-        """Batch embed texts using the embedder's batch capability.
+        """使用嵌入器的批处理能力批量嵌入文本。
 
-        Handles embedders that may or may not support batch operations.
+        处理可能支持或不支持批处理操作的嵌入器。
 
-        Args:
-            texts: Sequence of texts to embed
-            batch_size: Maximum texts per batch (default: 25 for Bailian API)
+        参数：
+            texts：要嵌入的文本序列
+            batch_size：每批最大文本数（默认值：25，用于百炼 API）
 
-        Returns:
-            List of embeddings in same order as input texts
+        返回：
+            与输入文本顺序相同的嵌入列表
         """
         if not texts:
             return []
 
-        # Check if embedder supports batch operations
+        # 检查嵌入器是否支持批处理操作
         if hasattr(self.embedder, 'embed_batch'):
-            # Use native batch support
+            # 使用原生批处理支持
             all_embeddings: List[np.ndarray] = []
             for batch_start in range(0, len(texts), batch_size):
                 batch_end = min(batch_start + batch_size, len(texts))
@@ -1126,14 +1126,14 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 batch_embs = self.embedder.embed_batch(batch_texts)
                 all_embeddings.extend(batch_embs)
                 logger.debug(
-                    f"Embedded batch {batch_start//batch_size + 1}/"
+                    f"嵌入批次 {batch_start//batch_size + 1}/"
                     f"{(len(texts) + batch_size - 1)//batch_size}"
                 )
             return all_embeddings
         else:
-            # Fallback to sequential embedding
+            # 回退到顺序嵌入
             logger.warning(
-                "Embedder does not support embed_batch, falling back to sequential embedding"
+                "嵌入器不支持 embed_batch，回退到顺序嵌入"
             )
             return [self.embedder.embed(t) for t in texts]
 
@@ -1144,24 +1144,24 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         emb: np.ndarray,
         event_id: Optional[str],
     ) -> Plot:
-        """Prepare a plot with relationship-centric context and knowledge type classification."""
-        # Relationship identification
+        """使用关系中心上下文和知识类型分类准备 plot。"""
+        # 关系识别
         relationship_entity = self._identify_relationship_entity(actors, interaction_text)
 
-        # Identity relevance assessment
+        # 身份相关性评估
         identity_relevance = self._assess_identity_relevance(interaction_text, relationship_entity, emb)
 
-        # Extract relational context
+        # 提取关系背景
         relational_context = self._extract_relational_context(
             interaction_text, relationship_entity, actors, identity_relevance
         )
 
-        # Extract identity impact
+        # 提取身份影响
         identity_impact = self._extract_identity_impact(
             interaction_text, relational_context, identity_relevance
         )
-        
-        # Classify knowledge type for intelligent conflict resolution
+
+        # 为智能冲突解决分类知识类型
         classification = self.knowledge_classifier.classify(interaction_text, embedding=emb)
         knowledge_type = classification.knowledge_type.value
         knowledge_confidence = classification.confidence
@@ -1177,93 +1177,93 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             knowledge_type=knowledge_type,
             knowledge_confidence=knowledge_confidence,
         )
-        
-        # Phase 5: Extract facts for multi-session recall enhancement
+
+        # 第 5 阶段：提取事实以增强多会话回忆
         self.fact_extractor.augment_plot(plot, embedder=self.embedder)
-        
+
         return plot
 
     def _compute_plot_signals(
         self, plot: Plot, emb: np.ndarray, context_emb: Optional[np.ndarray]
     ) -> None:
-        """Compute traditional signals for a plot, with update detection.
-        
-        Enhanced to distinguish knowledge updates from pure redundancy.
-        When an update is detected:
-        - redundancy is set to 0 (force storage)
-        - redundancy_type is set to "update"
-        - supersedes_id points to the updated plot
+        """计算 plot 的传统信号，进行更新检测。
+
+        增强以区分知识更新和纯冗余。
+        检测到更新时：
+        - 冗余度设置为 0（强制存储）
+        - redundancy_type 设置为 "update"
+        - supersedes_id 指向更新的 plot
         """
         plot.surprise = float(self.kde.surprise(emb))
         plot.pred_error = float(self._compute_pred_error(emb))
         
-        # Use enhanced redundancy computation with update detection
+        # 使用增强的冗余计算进行更新检测
         redundancy_score, redundancy_type, supersedes_id = self._compute_redundancy(
             emb, plot.text, plot.ts
         )
-        
+
         plot.redundancy = float(redundancy_score)
         plot.redundancy_type = redundancy_type
-        
-        # If this is an update, record the supersession chain
+
+        # 如果这是一个更新，记录替代链
         if redundancy_type == "update" and supersedes_id is not None:
             if supersedes_id in self.plots:
                 old_plot = self.plots[supersedes_id]
-                
-                # CRITICAL: Only supersede if actors are compatible
-                # "Assistant: Updated" should NOT supersede "User: I changed my number"
-                # Updates should only happen between messages from the same source
-                # (e.g., User info updates User info, not Assistant confirmation updates User info)
+
+                # 关键：仅在参与者兼容时才替代
+                # "Assistant: Updated" 不应替代 "User: I changed my number"
+                # 更新应仅在来自同一来源的消息之间发生
+                # （例如，用户信息更新用户信息，而不是助手确认更新用户信息）
                 actors_compatible = self._actors_compatible_for_update(plot.actors, old_plot.actors)
-                
+
                 if actors_compatible:
                     plot.supersedes_id = supersedes_id
                     update_signals = self._detect_update_signals(
                         plot.text, old_plot.text, plot.ts, old_plot.ts
                     )
                     plot.update_type = update_signals.get("update_type")
-                    
-                    # Mark the old plot as superseded
+
+                    # 将旧 plot 标记为已替代
                     old_plot.status = "superseded"
                     old_plot.superseded_by_id = plot.id
                     logger.info(
-                        f"Update detected: {plot.id[:8]}... supersedes {supersedes_id[:8]}... "
+                        f"检测到更新：{plot.id[:8]}... 替代 {supersedes_id[:8]}... "
                         f"(update_type={plot.update_type})"
                     )
                 else:
-                    # Not compatible actors - treat as reinforcement, not update
+                    # 参与者不兼容 - 视为强化，不是更新
                     plot.redundancy_type = "reinforcement"
                     logger.debug(
-                        f"Skipping supersession: actors not compatible. "
-                        f"New: {plot.actors}, Old: {old_plot.actors}"
+                        f"跳过替代：参与者不兼容。"
+                        f"新：{plot.actors}，旧：{old_plot.actors}"
                     )
-        
+
         plot.goal_relevance = float(self._compute_goal_relevance(emb, context_emb))
         plot.tension = plot.surprise * (1.0 + plot.pred_error)
 
     def _actors_compatible_for_update(
         self, new_actors: Tuple[str, ...], old_actors: Tuple[str, ...]
     ) -> bool:
-        """Check if actors are compatible for supersession.
-        
-        Key principle: Only supersede information from the same source.
-        
-        - User: "I live in Beijing" 
-        - User: "I moved to Shanghai"  → CAN supersede (same source)
-        
+        """检查参与者是否兼容以进行替代。
+
+        关键原则：仅替代来自同一来源的信息。
+
+        - User: "I live in Beijing"
+        - User: "I moved to Shanghai"  → 可以替代（同一来源）
+
         - User: "I changed my number to 098..."
-        - Assistant: "Updated your number"  → CANNOT supersede (different sources)
-        
-        Args:
-            new_actors: Actors in the new plot
-            old_actors: Actors in the old plot
-            
-        Returns:
-            True if new_actors can supersede old_actors
+        - Assistant: "Updated your number"  → 不能替代（不同来源）
+
+        参数：
+            new_actors：新 plot 中的参与者
+            old_actors：旧 plot 中的参与者
+
+        返回：
+            如果 new_actors 可以替代 old_actors，则为 True
         """
-        # Extract primary speaker from each
+        # 从每个中提取主要发言人
         def get_primary_speaker(actors: Tuple[str, ...]) -> Optional[str]:
-            """Get the primary speaker (usually the first non-agent actor)."""
+            """获取主要发言人（通常是第一个非代理参与者）。"""
             for actor in actors:
                 actor_lower = actor.lower()
                 if actor_lower in ("user", "human", "customer"):
@@ -1271,219 +1271,218 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 elif actor_lower in ("assistant", "agent", "ai", "bot"):
                     return "assistant"
             return actors[0].lower() if actors else None
-        
+
         new_speaker = get_primary_speaker(new_actors)
         old_speaker = get_primary_speaker(old_actors)
-        
-        # Same speaker can supersede
+
+        # 同一发言人可以替代
         if new_speaker == old_speaker:
             return True
-        
-        # User can supersede assistant's confirmation of user info
-        # (but be conservative - don't supersede by default)
+
+        # 用户可以替代助手对用户信息的确认
+        # （但要保守 - 默认不替代）
         return False
 
     def _compute_storage_decision(self, plot: Plot) -> bool:
-        """Compute whether to store this plot.
-        
-        Storage decision follows these principles:
-        
-        0. Benchmark mode (highest priority):
-           - If benchmark_mode is True, ALWAYS store all plots
-           - Essential for benchmarks like LongMemEval where every turn matters
-           - Bypasses all gating to ensure no information loss
-        
-        1. Cold start protection:
-           - First COLD_START_FORCE_STORE_COUNT plots are always stored
-           - Ensures critical early information (names, preferences, etc.) is preserved
-        
+        """计算是否存储此 plot。
+
+        存储决策遵循以下原则：
+
+        0. 基准模式（最高优先级）：
+           - 如果 benchmark_mode 为 True，始终存储所有 plot
+           - 对于 LongMemEval 等基准测试至关重要，其中每个回合都很重要
+           - 绕过所有门控以确保没有信息丢失
+
+        1. 冷启动保护：
+           - 前 COLD_START_FORCE_STORE_COUNT 个 plot 始终被存储
+           - 确保关键的早期信息（名称、偏好等）被保留
         2. Knowledge update detection:
-           - If redundancy_type == "update", FORCE STORE
-           - Updates carry temporal information gain even with high semantic similarity
-           - Re-narration principle: old info is repositioned as "past self"
-        
-        3. Standard VOI decision:
-           - Combines identity relevance and Thompson sampling
-           - MIN_STORE_PROB floor ensures baseline storage rate
+           - 如果 redundancy_type == "update"，强制存储
+           - 更新即使具有高语义相似度也携带时间信息增益
+           - 重新叙述原则：旧信息被重新定位为"过去的自我"
+
+        3. 标准 VOI 决策：
+           - 结合身份相关性和 Thompson 采样
+           - MIN_STORE_PROB 下限确保基线存储率
         """
-        # Benchmark mode: force store ALL plots (no gating)
-        # This ensures no information loss for evaluation benchmarks
+        # 基准模式：强制存储所有 plot（无门控）
+        # 这确保评估基准测试没有信息丢失
         if self.benchmark_mode:
             plot._storage_prob = 1.0
-            logger.debug(f"Benchmark mode: force storing plot {plot.id[:8]}...")
+            logger.debug(f"基准模式：强制存储 plot {plot.id[:8]}...")
             return True
-        
-        # Cold start protection: force store first N plots
+
+        # 冷启动保护：强制存储前 N 个 plot
         if len(self.plots) < COLD_START_FORCE_STORE_COUNT:
             plot._storage_prob = 1.0
-            logger.debug(f"Cold start: force storing plot {len(self.plots) + 1}/{COLD_START_FORCE_STORE_COUNT}")
+            logger.debug(f"冷启动：强制存储 plot {len(self.plots) + 1}/{COLD_START_FORCE_STORE_COUNT}")
             return True
-        
-        # Knowledge update detection: FORCE STORE updates
-        # This is the key insight: semantic similarity != redundancy when there's temporal change
+
+        # 知识更新检测：强制存储更新
+        # 这是关键洞察：当存在时间变化时，语义相似度 != 冗余
         if plot.redundancy_type == "update":
             plot._storage_prob = 1.0
             logger.debug(
-                f"Knowledge update detected: force storing plot, "
-                f"supersedes={plot.supersedes_id}, update_type={plot.update_type}"
+                f"检测到知识更新：强制存储 plot，"
+                f"supersedes={plot.supersedes_id}，update_type={plot.update_type}"
             )
             return True
-        
-        # Combine traditional VOI with identity relevance
+
+        # 结合传统 VOI 和身份相关性
         x = self._compute_voi_features(plot)
         voi_decision = self.gate.prob(x)
-        
-        # Get identity relevance from relational context
+
+        # 从关系背景获取身份相关性
         identity_relevance = self._assess_identity_relevance(
-            plot.text, 
+            plot.text,
             plot.get_relationship_entity() or "user",
             plot.embedding
         )
-        
-        # Get knowledge type weight - important knowledge types get higher storage probability
+
+        # 获取知识类型权重 - 重要的知识类型获得更高的存储概率
         knowledge_weight = self._compute_knowledge_type_weight(plot)
-        
-        # Combine all factors:
-        # - identity_relevance: how much this affects "who I am"
-        # - voi_decision: information-theoretic value
-        # - knowledge_weight: importance based on knowledge type (values > static facts > traits > states > preferences > behaviors)
+
+        # 结合所有因素：
+        # - identity_relevance：这对"我是谁"的影响程度
+        # - voi_decision：信息论价值
+        # - knowledge_weight：基于知识类型的重要性（值 > 静态事实 > 特征 > 状态 > 偏好 > 行为）
         combined_prob = (
-            IDENTITY_RELEVANCE_WEIGHT * identity_relevance + 
+            IDENTITY_RELEVANCE_WEIGHT * identity_relevance +
             VOI_DECISION_WEIGHT * voi_decision
         )
-        
-        # Apply knowledge weight as a boost (max 20% boost for critical knowledge types)
-        knowledge_boost = (knowledge_weight - 0.5) * 0.4  # Range: [-0.2, +0.18]
+
+        # 应用知识权重作为提升（关键知识类型最多提升 20%）
+        knowledge_boost = (knowledge_weight - 0.5) * 0.4  # 范围：[-0.2, +0.18]
         combined_prob = combined_prob + knowledge_boost
-        
-        combined_prob = max(combined_prob, MIN_STORE_PROB)  # Ensure baseline storage rate
-        combined_prob = min(combined_prob, 1.0)  # Cap at 1.0
-        plot._storage_prob = combined_prob  # Store for logging
-        
+
+        combined_prob = max(combined_prob, MIN_STORE_PROB)  # 确保基线存储率
+        combined_prob = min(combined_prob, 1.0)  # 上限为 1.0
+        plot._storage_prob = combined_prob  # 存储用于日志记录
+
         return self.rng.random() < combined_prob
 
     # -------------------------------------------------------------------------
-    # Store plot into story + graph weaving
+    # 将 plot 存储到 story + 图编织
     # -------------------------------------------------------------------------
 
     def _store_plot(self, plot: Plot) -> None:
-        """Store plot with relationship-first organization and conflict detection.
-        
-        AURORA Philosophy: Conflict detection happens at storage time, not after.
-        But not all conflicts need resolution - identity traits provide adaptive flexibility.
-        
-        Flow:
-        1. Detect potential conflicts with existing plots
-        2. Handle conflicts based on knowledge type (UPDATE vs PRESERVE_BOTH)
-        3. Assign plot to story
-        4. Store and weave edges
+        """使用关系优先组织和冲突检测存储 plot。
+
+        AURORA 哲学：冲突检测在存储时发生，而不是之后。
+        但并非所有冲突都需要解决 - 身份特征提供自适应灵活性。
+
+        流程：
+        1. 检测与现有 plot 的潜在冲突
+        2. 根据知识类型处理冲突（UPDATE vs PRESERVE_BOTH）
+        3. 将 plot 分配给 story
+        4. 存储和编织边
         """
-        # 1. Conflict detection and handling (before storage)
+        # 1. 冲突检测和处理（存储前）
         conflicts = self._detect_conflicts(plot)
         if conflicts:
             self._handle_conflicts(plot, conflicts)
-        
-        # 2. Assign plot to story
+
+        # 2. 将 plot 分配给 story
         story, chosen_id = self._assign_plot_to_story(plot)
-        
-        # 3. Update story with plot
+
+        # 3. 使用 plot 更新 story
         self._update_story_with_plot(story, plot)
-        
-        # 4. Store plot and weave edges
+
+        # 4. 存储 plot 和编织边
         self._weave_plot_edges(plot, story)
-        
-        # 5. Add to temporal index (Time as First-Class Citizen)
+
+        # 5. 添加到时间索引（时间作为一等公民）
         self._add_to_temporal_index(plot)
-        
-        # 6. Update identity dimensions
+
+        # 6. 更新身份维度
         self._update_identity_dimensions(plot)
 
     def _detect_conflicts(self, new_plot: Plot) -> List[Conflict]:
-        """Detect potential conflicts between new plot and existing memories.
-        
-        AURORA Philosophy: Only detect conflicts worth considering.
-        Uses semantic similarity as a gate - no similarity = no conflict check needed.
-        
-        Args:
-            new_plot: The plot being stored
-            
-        Returns:
-            List of detected conflicts (may be empty)
+        """检测新 plot 与现有记忆之间的潜在冲突。
+
+        AURORA 哲学：仅检测值得考虑的冲突。
+        使用语义相似度作为门控 - 无相似度 = 无需冲突检查。
+
+        参数：
+            new_plot：正在存储的 plot
+
+        返回：
+            检测到的冲突列表（可能为空）
         """
         conflicts: List[Conflict] = []
-        
-        # Early exit if no existing plots
+
+        # 如果没有现有 plot，提前退出
         if not self.plots:
             return conflicts
-        
-        # 1. Find semantically similar plots (gate for conflict checking)
+
+        # 1. 查找语义相似的 plot（冲突检查的门控）
         similar_plots = self.vindex.search(
-            new_plot.embedding, 
-            k=CONFLICT_CHECK_K, 
+            new_plot.embedding,
+            k=CONFLICT_CHECK_K,
             kind="plot"
         )
-        
+
         for pid, sim in similar_plots:
-            # Skip if not similar enough to warrant conflict check
+            # 如果相似度不足以保证冲突检查，则跳过
             if sim < CONFLICT_CHECK_SIMILARITY_THRESHOLD:
                 continue
-            
+
             old_plot = self.plots.get(pid)
             if old_plot is None or old_plot.status != "active":
                 continue
-            
-            # 2. Use ContradictionDetector for probabilistic conflict detection
+
+            # 2. 使用 ContradictionDetector 进行概率冲突检测
             prob, explanation = self.coherence_guardian.detector.detect_contradiction(
                 old_plot, new_plot
             )
-            
-            # 3. Register conflict if probability exceeds threshold
+
+            # 3. 如果概率超过阈值，则注册冲突
             if prob > CONFLICT_PROBABILITY_THRESHOLD:
                 conflict = Conflict(
-                    type=ConflictType.FACTUAL,  # Default to factual
+                    type=ConflictType.FACTUAL,  # 默认为事实性
                     node_a=old_plot.id,
                     node_b=new_plot.id,
                     severity=prob,
-                    confidence=sim,  # Use similarity as confidence
+                    confidence=sim,  # 使用相似度作为置信度
                     description=explanation,
                     evidence=[old_plot.text[:100], new_plot.text[:100]],
                 )
                 conflicts.append(conflict)
-                
+
                 logger.debug(
-                    f"Conflict detected: {old_plot.id} <-> {new_plot.id}, "
-                    f"prob={prob:.3f}, sim={sim:.3f}, reason={explanation}"
+                    f"检测到冲突：{old_plot.id} <-> {new_plot.id}，"
+                    f"prob={prob:.3f}，sim={sim:.3f}，reason={explanation}"
                 )
-        
-        # Limit number of conflicts to handle (for performance)
+
+        # 限制要处理的冲突数量（为了性能）
         return conflicts[:MAX_CONFLICTS_PER_INGEST]
 
     def _handle_conflicts(self, new_plot: Plot, conflicts: List[Conflict]) -> None:
-        """Handle detected conflicts based on knowledge type classification.
-        
-        AURORA Philosophy:
-        - State facts (phone, address) → UPDATE (new supersedes old)
-        - Identity traits (patient, efficient) → PRESERVE_BOTH (adaptive flexibility)
-        - The goal is not to eliminate all contradictions, but to manage them wisely.
-        
-        Args:
-            new_plot: The new plot being stored
-            conflicts: List of detected conflicts
+        """根据知识类型分类处理检测到的冲突。
+
+        AURORA 哲学：
+        - 状态事实（电话、地址）→ UPDATE（新替代旧）
+        - 身份特征（患者、高效）→ PRESERVE_BOTH（自适应灵活性）
+        - 目标不是消除所有矛盾，而是明智地管理它们。
+
+        参数：
+            new_plot：正在存储的新 plot
+            conflicts：检测到的冲突列表
         """
         for conflict in conflicts:
             old_plot = self.plots.get(conflict.node_a)
             if old_plot is None:
                 continue
-            
-            # 1. Classify knowledge type for both plots
+
+            # 1. 为两个 plot 分类知识类型
             old_classification = self.knowledge_classifier.classify(old_plot.text)
             new_classification = self.knowledge_classifier.classify(new_plot.text)
-            
-            # 2. Determine time relation
+
+            # 2. 确定时间关系
             time_gap = abs(new_plot.ts - old_plot.ts)
             time_relation = "sequential" if time_gap > CONCURRENT_TIME_THRESHOLD else "concurrent"
-            
-            # 3. Get resolution strategy from knowledge classifier
+
+            # 3. 从知识分类器获取解决策略
             analysis = self.knowledge_classifier.resolve_conflict(
                 old_classification.knowledge_type,
                 new_classification.knowledge_type,
@@ -1493,8 +1492,8 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 old_plot.embedding,
                 new_plot.embedding,
             )
-            
-            # 4. Apply resolution
+
+            # 4. 应用解决方案
             self._apply_conflict_resolution(
                 old_plot, new_plot, analysis, conflict
             )
@@ -1506,42 +1505,42 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         analysis: ConflictAnalysis,
         conflict: Conflict,
     ) -> None:
-        """Apply the conflict resolution strategy.
-        
-        Resolution strategies:
-        - UPDATE: New supersedes old (state facts)
-        - PRESERVE_BOTH: Both remain active (identity traits, adaptive)
-        - CORRECT: Old is marked as corrected (static facts)
-        - EVOLVE: Track change timeline (preferences, behaviors)
-        
-        Args:
-            old_plot: The existing plot
-            new_plot: The new plot
-            analysis: Conflict analysis with resolution strategy
-            conflict: The original conflict
+        """应用冲突解决策略。
+
+        解决策略：
+        - UPDATE：新替代旧（状态事实）
+        - PRESERVE_BOTH：两者都保持活跃（身份特征、自适应）
+        - CORRECT：旧被标记为已更正（静态事实）
+        - EVOLVE：跟踪变化时间线（偏好、行为）
+
+        参数：
+            old_plot：现有 plot
+            new_plot：新 plot
+            analysis：包含解决策略的冲突分析
+            conflict：原始冲突
         """
         resolution = analysis.resolution
-        
+
         if resolution == ConflictResolution.UPDATE:
-            # State fact update: new supersedes old
+            # 状态事实更新：新替代旧
             new_plot.supersedes_id = old_plot.id
             old_plot.superseded_by_id = new_plot.id
             old_plot.status = "superseded"
             new_plot.update_type = "state_change"
             new_plot.redundancy_type = "update"
-            
+
             logger.info(
-                f"UPDATE resolution: {new_plot.id} supersedes {old_plot.id}. "
-                f"Reason: {analysis.rationale}"
+                f"UPDATE 解决方案：{new_plot.id} 替代 {old_plot.id}。"
+                f"原因：{analysis.rationale}"
             )
-        
+
         elif resolution == ConflictResolution.PRESERVE_BOTH:
-            # Identity traits / adaptive contradictions: preserve both
-            # Create a tension edge in the graph to track the relationship
+            # 身份特征/自适应矛盾：保留两者
+            # 在图中创建张力边以跟踪关系
             self.graph.ensure_edge(old_plot.id, new_plot.id, "tension")
             self.graph.ensure_edge(new_plot.id, old_plot.id, "tension")
-            
-            # Register with TensionManager if it's truly adaptive
+
+            # 如果确实是自适应的，则向 TensionManager 注册
             if analysis.is_complementary:
                 from aurora.algorithms.tension import Tension, TensionType
                 tension = Tension(
@@ -1550,64 +1549,64 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                     element_a_type="plot",
                     element_b_id=new_plot.id,
                     element_b_type="plot",
-                    description=f"Complementary traits: {analysis.rationale}",
+                    description=f"互补特征：{analysis.rationale}",
                     tension_type=TensionType.ADAPTIVE,
                     severity=conflict.severity,
                 )
                 self.coherence_guardian.tension_manager.tensions[tension.id] = tension
-            
+
             logger.info(
-                f"PRESERVE_BOTH resolution: {old_plot.id} and {new_plot.id} both active. "
-                f"Reason: {analysis.rationale}"
+                f"PRESERVE_BOTH 解决方案：{old_plot.id} 和 {new_plot.id} 都活跃。"
+                f"原因：{analysis.rationale}"
             )
-        
+
         elif resolution == ConflictResolution.CORRECT:
-            # Static fact correction: old was wrong
+            # 静态事实更正：旧是错误的
             new_plot.supersedes_id = old_plot.id
             old_plot.superseded_by_id = new_plot.id
             old_plot.status = "corrected"
             new_plot.update_type = "correction"
             new_plot.redundancy_type = "update"
-            
+
             logger.info(
-                f"CORRECT resolution: {old_plot.id} corrected by {new_plot.id}. "
-                f"Reason: {analysis.rationale}"
+                f"CORRECT 解决方案：{old_plot.id} 由 {new_plot.id} 更正。"
+                f"原因：{analysis.rationale}"
             )
-        
+
         elif resolution == ConflictResolution.EVOLVE:
-            # Preference/behavior evolution: track timeline
+            # 偏好/行为演化：跟踪时间线
             new_plot.supersedes_id = old_plot.id
             new_plot.update_type = "refinement"
             new_plot.redundancy_type = "update"
-            # Keep old as active for historical tracking
+            # 保持旧的活跃以进行历史跟踪
             self.graph.ensure_edge(old_plot.id, new_plot.id, "evolved_to")
-            
+
             logger.info(
-                f"EVOLVE resolution: {old_plot.id} evolved to {new_plot.id}. "
-                f"Reason: {analysis.rationale}"
+                f"EVOLVE 解决方案：{old_plot.id} 演化为 {new_plot.id}。"
+                f"原因：{analysis.rationale}"
             )
-        
+
         else:
-            # NO_ACTION: No changes needed
+            # NO_ACTION：无需更改
             logger.debug(
-                f"NO_ACTION for conflict between {old_plot.id} and {new_plot.id}. "
-                f"Reason: {analysis.rationale}"
+                f"对 {old_plot.id} 和 {new_plot.id} 之间的冲突无操作。"
+                f"原因：{analysis.rationale}"
             )
 
     def _assign_plot_to_story(self, plot: Plot) -> Tuple[StoryArc, str]:
-        """Assign a plot to an existing or new story."""
+        """将 plot 分配给现有或新 story。"""
         relationship_entity = plot.get_relationship_entity()
         
         if relationship_entity:
-            # Relationship-first: get or create story for this relationship
+            # 关系优先：获取或为此关系创建 story
             story = self._get_or_create_relationship_story(relationship_entity)
             chosen_id = story.id
-            
-            # Add to vector index if this is a new story
+
+            # 如果这是一个新 story，添加到向量索引
             if story.centroid is None:
                 self.vindex.add(story.id, plot.embedding, kind="story")
         else:
-            # Fallback to CRP for non-relational plots
+            # 回退到 CRP 用于非关系性 plot
             logps: Dict[str, float] = {}
             for sid, story in self.stories.items():
                 prior = math.log(len(story.plot_ids) + EPSILON_PRIOR)
@@ -1626,8 +1625,8 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         return story, chosen_id
 
     def _update_story_with_plot(self, story: StoryArc, plot: Plot) -> None:
-        """Update story statistics and centroid with a new plot."""
-        # Update statistics
+        """使用新 plot 更新 story 统计信息和质心。"""
+        # 更新统计信息
         if story.centroid is not None:
             d2 = self.metric.d2(plot.embedding, story.centroid)
             story._update_stats("dist", d2)
@@ -1639,17 +1638,17 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         story.actor_counts = {a: story.actor_counts.get(a, 0) + 1 for a in plot.actors}
         story.tension_curve.append(plot.tension)
 
-        # Update centroid
+        # 更新质心
         story.centroid = self._update_centroid_online(
             story.centroid, plot.embedding, len(story.plot_ids)
         )
 
-        # Update relationship trajectory
+        # 更新关系轨迹
         if plot.relational and story.is_relationship_story():
             self._update_relationship_trajectory(story, plot)
 
     def _update_relationship_trajectory(self, story: StoryArc, plot: Plot) -> None:
-        """Update relationship trajectory with a new plot."""
+        """使用新 plot 更新关系轨迹。"""
         story.add_relationship_moment(
             event_summary=plot.text[:EVENT_SUMMARY_MAX_LENGTH] + "..." if len(plot.text) > EVENT_SUMMARY_MAX_LENGTH else plot.text,
             trust_level=TRUST_BASE + plot.relational.relationship_quality_delta,
@@ -1657,8 +1656,8 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             quality_delta=plot.relational.relationship_quality_delta,
             ts=plot.ts,
         )
-        
-        # Update identity based on accumulated evidence
+
+        # 基于累积证据更新身份
         if len(story.relationship_arc) >= 3:
             recent_roles = [m.my_role for m in story.relationship_arc[-10:]]
             role_counts = Counter(recent_roles)
@@ -1666,111 +1665,110 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             story.update_identity_in_relationship(dominant_role)
 
     def _weave_plot_edges(self, plot: Plot, story: StoryArc) -> None:
-        """Store plot and weave edges in the graph."""
+        """在图中存储 plot 和编织边。"""
         plot.story_id = story.id
         self.plots[plot.id] = plot
         self.graph.add_node(plot.id, "plot", plot)
         self.vindex.add(plot.id, plot.embedding, kind="plot")
 
-        # Bidirectional edge to story
+        # 到 story 的双向边
         self._create_bidirectional_edge(plot.id, story.id, "belongs_to", "contains")
 
-        # Temporal edge to previous plot in story
+        # 到 story 中前一个 plot 的时间边
         if len(story.plot_ids) > 1:
             prev_id = story.plot_ids[-2]
             self.graph.ensure_edge(prev_id, plot.id, "temporal")
 
-        # Semantic edges to nearest neighbors
+        # 到最近邻居的语义边
         for pid, _ in self.vindex.search(plot.embedding, k=SEMANTIC_NEIGHBORS_K, kind="plot"):
             if pid != plot.id:
                 self.graph.ensure_edge(plot.id, pid, "semantic")
                 self.graph.ensure_edge(pid, plot.id, "semantic")
 
     # -------------------------------------------------------------------------
-    # Query / retrieval
+    # 查询/检索
     # -------------------------------------------------------------------------
 
     def query(
-        self, 
-        text: str, 
-        k: int = 5, 
+        self,
+        text: str,
+        k: int = 5,
         asker_id: Optional[str] = None,
         query_type: Optional[QueryType] = None,
         query_type_hint: Optional[str] = None,
     ) -> RetrievalTrace:
-        """Query the memory system with relationship-first and type-aware retrieval.
+        """使用关系优先和类型感知检索查询内存系统。
 
-        Retrieves relevant memories using a multi-stage process:
-        1) Detect query type (FACTUAL, TEMPORAL, MULTI_HOP, CAUSAL) if not provided
-        2) Adjust k based on query type (multi-hop queries need more results)
-        3) If asker_id is provided, activate the relationship context and
-           identity for that specific relationship
-        4) Retrieve memories with relationship priority (if applicable)
-        5) Fall back to semantic retrieval via FieldRetriever with type-aware processing
-        6) Merge and rank results, updating access counts
+        使用多阶段过程检索相关记忆：
+        1) 检测查询类型（FACTUAL、TEMPORAL、MULTI_HOP、CAUSAL）（如果未提供）
+        2) 根据查询类型调整 k（多跳查询需要更多结果）
+        3) 如果提供了 asker_id，激活该特定关系的关系背景和
+           身份
+        4) 使用关系优先检索记忆（如果适用）
+        5) 回退到通过 FieldRetriever 的语义检索，进行类型感知处理
+        6) 合并和排序结果，更新访问计数
 
-        Query type affects retrieval behavior:
-        - FACTUAL: Standard semantic retrieval
-        - TEMPORAL: Post-sort by timestamps for time-based queries
-        - MULTI_HOP: Increased k and deeper graph exploration
-        - CAUSAL: Causal edge expansion for why/how questions
+        查询类型影响检索行为：
+        - FACTUAL：标准语义检索
+        - TEMPORAL：按时间戳后排序用于基于时间的查询
+        - MULTI_HOP：增加 k 和更深的图探索
+        - CAUSAL：因果边扩展用于为什么/如何问题
 
-        When asker_id matches a known relationship, the system:
-        - Boosts scores for plots in that relationship's story
-        - Activates the identity held in that relationship
-        - Includes relationship narrative context in the trace
+        当 asker_id 匹配已知关系时，系统：
+        - 提升该关系 story 中 plot 的分数
+        - 激活在该关系中持有的身份
+        - 在跟踪中包含关系叙述背景
 
-        Args:
-            text: The query text to search for. Must be non-empty after
-                stripping whitespace.
-            k: Maximum number of results to return. Defaults to 5. The actual
-                number returned may be less if fewer relevant memories exist.
-            asker_id: Optional identifier of the entity asking the query. When
-                provided, enables relationship-aware retrieval that prioritizes
-                memories from the shared history with this entity.
-            query_type: Optional query type override. If None, auto-detected
-                using keyword matching. Use QueryType enum values:
-                QueryType.FACTUAL, QueryType.TEMPORAL, QueryType.MULTI_HOP,
-                QueryType.CAUSAL.
+        参数：
+            text：要搜索的查询文本。去除空格后必须非空。
+            k：要返回的最大结果数。默认为 5。实际
+                返回的数量可能更少，如果存在更少的相关记忆。
+            asker_id：可选的提出查询的实体的标识符。提供时，
+                启用关系感知检索，优先考虑
+                与此实体的共享历史中的记忆。
+            query_type：可选的查询类型覆盖。如果为 None，自动检测
+                使用关键字匹配。使用 QueryType 枚举值：
+                QueryType.FACTUAL、QueryType.TEMPORAL、QueryType.MULTI_HOP、
+                QueryType.CAUSAL。
 
-        Returns:
-            RetrievalTrace containing:
-            - query: The original query text
-            - query_emb: The query embedding vector
-            - ranked: List of (id, score, kind) tuples sorted by relevance
-            - attractor_path: Mean-shift attractor trajectory (if applicable)
-            - asker_id: The provided asker ID (if any)
-            - activated_identity: The agent's identity in this relationship
-            - relationship_context: Narrative summary of the relationship
-            - query_type: Detected or provided query type
+        返回：
+            包含以下内容的 RetrievalTrace：
+            - query：原始查询文本
+            - query_emb：查询嵌入向量
+            - ranked：按相关性排序的 (id, score, kind) 元组列表
+            - attractor_path：均值漂移吸引子轨迹（如果适用）
+            - asker_id：提供的 asker ID（如果有）
+            - activated_identity：代理在此关系中的身份
+            - relationship_context：关系的叙述摘要
+            - query_type：检测到或提供的查询类型
 
-        Raises:
-            ValidationError: If query text is empty or whitespace-only.
+        抛出：
+            ValidationError：如果查询文本为空或仅包含空格。
 
-        Example:
+        示例：
             >>> mem = AuroraMemory(seed=42)
             >>> mem.ingest("用户：我想学习Python", actors=["user", "agent"])
             >>> mem.ingest("用户：帮我写一个排序算法", actors=["user", "agent"])
-            >>> # Basic query
+            >>> # 基本查询
             >>> trace = mem.query("Python编程", k=3)
             >>> for node_id, score, kind in trace.ranked:
-            ...     print(f"{kind}: {node_id[:8]}... score={score:.3f}")
-            >>> # Relationship-aware query
+            ...     print(f"{kind}：{node_id[:8]}... score={score:.3f}")
+            >>> # 关系感知查询
             >>> trace = mem.query("我们之前讨论过什么？", asker_id="user")
             >>> if trace.activated_identity:
-            ...     print(f"Activated identity: {trace.activated_identity}")
-            >>> # Explicit temporal query
+            ...     print(f"激活的身份：{trace.activated_identity}")
+            >>> # 显式时间查询
             >>> from aurora.algorithms.retrieval import QueryType
             >>> trace = mem.query("最近我们聊了什么？", query_type=QueryType.TEMPORAL)
-            >>> print(f"Detected type: {trace.query_type}")
+            >>> print(f"检测到的类型：{trace.query_type}")
         """
         if not text or not text.strip():
-            raise ValidationError("query text cannot be empty")
-        
-        # Detect query type from hint, explicit parameter, or auto-detection
+            raise ValidationError("query text 不能为空")
+
+        # 从提示、显式参数或自动检测检测查询类型
         detected_type = query_type
         if detected_type is None and query_type_hint:
-            # Map string hint to QueryType
+            # 将字符串提示映射到 QueryType
             hint_lower = query_type_hint.lower().replace(' ', '-')
             mapped_type = QUESTION_TYPE_HINT_MAPPINGS.get(hint_lower)
             if mapped_type:
@@ -1778,50 +1776,50 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                     detected_type = QueryType[mapped_type]
                 except KeyError:
                     pass
-        
+
         if detected_type is None:
             detected_type = self.retriever._classify_query(text)
-        
-        # Check if this is an aggregation query (requires collecting info across sessions)
+
+        # 检查这是否是聚合查询（需要跨会话收集信息）
         is_aggregation = self.retriever._is_aggregation_query(text)
-        
-        # Adjust k based on benchmark mode and query type
+
+        # 根据基准模式和查询类型调整 k
         effective_k = k
         if self.benchmark_mode:
-            # Benchmark mode: use larger k values to ensure comprehensive retrieval
-            # LongMemEval multi-session questions need aggregation across many turns
+            # 基准模式：使用更大的 k 值以确保全面检索
+            # LongMemEval 多会话问题需要跨许多回合的聚合
             if is_aggregation:
-                # Aggregation queries need the most results to cover all sessions
+                # 聚合查询需要最多的结果来覆盖所有会话
                 effective_k = max(k, BENCHMARK_AGGREGATION_K)
-                logger.debug(f"Benchmark mode + aggregation query: using k={effective_k}")
+                logger.debug(f"基准模式 + 聚合查询：使用 k={effective_k}")
             elif detected_type == QueryType.MULTI_HOP:
                 effective_k = max(k, BENCHMARK_MULTI_SESSION_K)
-                logger.debug(f"Benchmark mode + multi-hop: using k={effective_k}")
+                logger.debug(f"基准模式 + 多跳：使用 k={effective_k}")
             elif detected_type == QueryType.USER_FACT:
                 # USER_FACT queries need broader coverage due to semantic mismatch
                 effective_k = max(k, int(BENCHMARK_DEFAULT_K * SINGLE_SESSION_USER_K_MULTIPLIER))
-                logger.debug(f"Benchmark mode + user-fact: using k={effective_k}")
+                logger.debug(f"基准模式 + 用户事实：使用 k={effective_k}")
             else:
                 effective_k = max(k, BENCHMARK_DEFAULT_K)
-                logger.debug(f"Benchmark mode: using k={effective_k}")
+                logger.debug(f"基准模式：使用 k={effective_k}")
         elif is_aggregation:
-            # Aggregation queries need 3x more results to cover multiple sessions
+            # 聚合查询需要 3 倍的结果来覆盖多个会话
             from aurora.algorithms.constants import AGGREGATION_K_MULTIPLIER
             effective_k = int(k * AGGREGATION_K_MULTIPLIER)
-            logger.debug(f"Aggregation query detected, adjusting k from {k} to {effective_k}")
+            logger.debug(f"检测到聚合查询，将 k 从 {k} 调整为 {effective_k}")
         elif detected_type == QueryType.MULTI_HOP:
             effective_k = int(k * MULTI_HOP_K_MULTIPLIER)
-            logger.debug(f"Multi-hop query detected, adjusting k from {k} to {effective_k}")
+            logger.debug(f"检测到多跳查询，将 k 从 {k} 调整为 {effective_k}")
         elif detected_type == QueryType.USER_FACT:
-            # USER_FACT queries need broader coverage due to semantic mismatch
+            # USER_FACT 查询由于语义不匹配需要更广泛的覆盖
             effective_k = int(k * SINGLE_SESSION_USER_K_MULTIPLIER)
-            logger.debug(f"User-fact query detected, adjusting k from {k} to {effective_k}")
-        
-        # Relationship identification and identity activation
+            logger.debug(f"检测到用户事实查询，将 k 从 {k} 调整为 {effective_k}")
+
+        # 关系识别和身份激活
         activated_identity = None
         relationship_context = None
         relationship_story = None
-        
+
         if asker_id:
             story_id = self._relationship_story_index.get(asker_id)
             if story_id:
@@ -1829,59 +1827,59 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 if relationship_story:
                     activated_identity = relationship_story.my_identity_in_this_relationship
                     relationship_context = relationship_story.to_relationship_narrative()
-        
-        # Retrieve results with query type
+
+        # 使用查询类型检索结果
         if relationship_story and activated_identity:
             trace = self._retrieve_with_relationship_priority(
                 text, relationship_story, k=effective_k, query_type=detected_type
             )
         else:
             trace = self.retriever.retrieve(
-                query_text=text, 
-                embed=self.embedder, 
-                kinds=self.cfg.retrieval_kinds, 
+                query_text=text,
+                embed=self.embedder,
+                kinds=self.cfg.retrieval_kinds,
                 k=effective_k,
                 query_type=detected_type,
             )
-        
-        # Trim results back to original k (effective_k may be larger)
+
+        # 将结果修剪回原始 k（effective_k 可能更大）
         if len(trace.ranked) > k:
             trace.ranked = trace.ranked[:k]
-        
+
         # =====================================================================
-        # FIRST PRINCIPLES: Timeline-based organization (superseded ≠ deleted)
+        # 第一原理：基于时间线的组织（已替代 ≠ 已删除）
         # =====================================================================
-        # 
-        # OLD APPROACH (filter-based - DEPRECATED):
+        #
+        # 旧方法（基于过滤 - 已弃用）：
         #   trace.ranked = self._filter_active_results(trace.ranked)
-        #   Problem: Loses temporal context. "Where did I used to live?" fails.
+        #   问题：丢失时间背景。"我以前住在哪里？"失败。
         #
-        # NEW APPROACH (timeline-based):
-        #   Organize results into timelines showing knowledge evolution.
-        #   Let the semantic understanding layer (LLM) decide based on full context.
+        # 新方法（基于时间线）：
+        #   将结果组织成显示知识演化的时间线。
+        #   让语义理解层 (LLM) 根据完整背景决定。
         #
-        # Key insight from narrative psychology:
-        #   - "I lived in Beijing" is still TRUE, just in the past tense
-        #   - Past facts are repositioned, not deleted
-        #   - The retrieval layer should provide information, not make decisions
+        # 来自叙事心理学的关键洞察：
+        #   - "我住在北京"仍然是真的，只是过去时
+        #   - 过去的事实被重新定位，而不是删除
+        #   - 检索层应该提供信息，而不是做决定
         # =====================================================================
-        
-        # Group results into timelines preserving full temporal context
+
+        # 将结果分组为时间线，保留完整的时间背景
         trace.timeline_group = self._group_into_timelines(trace.ranked)
-        trace.include_historical = True  # By default, preserve full history
-        
-        # For backward compatibility: also provide filtered ranked list
-        # This ensures existing code that expects only active results still works
-        # But new code can access timeline_group for full temporal context
+        trace.include_historical = True  # 默认情况下，保留完整历史
+
+        # 为了向后兼容：也提供过滤的排序列表
+        # 这确保期望仅活跃结果的现有代码仍然有效
+        # 但新代码可以访问 timeline_group 以获得完整的时间背景
         trace.ranked = self._filter_active_results(trace.ranked)
-        
-        # Enrich trace with relationship context and query type
+
+        # 使用关系背景和查询类型丰富跟踪
         trace.asker_id = asker_id
         trace.activated_identity = activated_identity
         trace.relationship_context = relationship_context
         trace.query_type = detected_type
 
-        # Abstention detection: check if we should reject answering
+        # 弃权检测：检查我们是否应该拒绝回答
         retrieved_scores = [score for _, score, _ in trace.ranked]
         retrieved_texts = []
         for nid, _, kind in trace.ranked:
@@ -1898,225 +1896,225 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                     elif hasattr(story, "to_relationship_narrative"):
                         content_text = story.to_relationship_narrative()
                     else:
-                        content_text = f"Story with {len(story.plot_ids)} plots"
+                        content_text = f"包含 {len(story.plot_ids)} 个 plot 的 story"
             elif kind == "theme":
                 theme = self.themes.get(nid)
                 if theme:
-                    content_text = theme.description or theme.name or f"Theme with {len(theme.story_ids)} stories"
+                    content_text = theme.description or theme.name or f"包含 {len(theme.story_ids)} 个 story 的 theme"
             retrieved_texts.append(content_text)
-        
-        # In benchmark mode, skip abstention detection
-        # Benchmarks like LongMemEval require answering ALL questions
-        # "I don't know" is not a valid answer for evaluation
+
+        # 在基准模式下，跳过弃权检测
+        # 像 LongMemEval 这样的基准测试需要回答所有问题
+        # "我不知道"不是评估的有效答案
         if self.benchmark_mode:
             abstention_result = None
         else:
             abstention_result = self.abstention_detector.detect(
-                query=text,  # text parameter from query() method signature
+                query=text,  # query() 方法签名中的 text 参数
                 retrieved_scores=retrieved_scores,
                 retrieved_texts=retrieved_texts,
             )
         trace.abstention = abstention_result
 
-        # Update access/mass
+        # 更新访问/质量计数
         self._update_access_counts(trace)
-        
+
         return trace
 
     def _filter_active_results(
         self, ranked: List[Tuple[str, float, str]]
     ) -> List[Tuple[str, float, str]]:
-        """Filter retrieval results to only include active plots.
-        
-        DEPRECATED: This filter-based approach is being replaced by timeline-based
-        retrieval. Instead of filtering out superseded plots (treating them as
-        "invalid"), we now organize them into timelines with temporal markers.
-        
-        First Principles insight:
-        - superseded ≠ deleted
-        - "I lived in Beijing" is still TRUE, just in the past tense
-        - The semantic understanding layer (LLM) should decide, not the retrieval layer
-        
-        This method is kept for backward compatibility but should be replaced
-        by _group_into_timelines() which preserves full temporal context.
-        
-        Args:
-            ranked: List of (id, score, kind) tuples
-            
-        Returns:
-            Filtered list with only active plots (stories/themes always pass)
+        """过滤检索结果以仅包含活跃 plot。
+
+        已弃用：这种基于过滤的方法正在被基于时间线的
+        检索所取代。我们现在不是过滤掉已替代的 plot（将其视为
+        "无效"），而是将它们组织成带有时间标记的时间线。
+
+        第一原理洞察：
+        - 已替代 ≠ 已删除
+        - "我住在北京"仍然是真的，只是过去时
+        - 语义理解层 (LLM) 应该决定，而不是检索层
+
+        此方法保留用于向后兼容，但应被替换
+        为 _group_into_timelines()，它保留完整的时间背景。
+
+        参数：
+            ranked：(id, score, kind) 元组列表
+
+        返回：
+            仅包含活跃 plot 的过滤列表（story/theme 始终通过）
         """
         filtered: List[Tuple[str, float, str]] = []
-        
+
         for nid, score, kind in ranked:
             if kind == "plot":
                 plot = self.plots.get(nid)
                 if plot is None:
                     continue
-                # Only include active plots
-                # Exclude: superseded, corrected, archived, dormant
+                # 仅包含活跃 plot
+                # 排除：已替代、已更正、已存档、休眠
                 if plot.status != "active":
                     logger.debug(
-                        f"Filtering out non-active plot {nid[:8]}... "
-                        f"(status={plot.status}, superseded_by={plot.superseded_by_id})"
+                        f"过滤掉非活跃 plot {nid[:8]}... "
+                        f"(status={plot.status}，superseded_by={plot.superseded_by_id})"
                     )
                     continue
-            # Stories and themes always pass through
+            # Story 和 theme 始终通过
             filtered.append((nid, score, kind))
-        
+
         return filtered
-    
+
     # -------------------------------------------------------------------------
-    # Timeline-Based Retrieval (First Principles: superseded ≠ deleted)
+    # 基于时间线的检索（第一原理：已替代 ≠ 已删除）
     # -------------------------------------------------------------------------
 
     def _get_update_chain(self, plot_id: str) -> List[str]:
-        """Get the complete update chain for a plot.
-        
-        First Principles:
-        - In narrative psychology, past facts are repositioned, not deleted
-        - "I lived in Beijing" becomes "I **used to** live in Beijing"
-        - The fact is still true, just with different temporal positioning
-        
-        This method traces the complete evolution of a piece of knowledge:
-        - Backward: Find all predecessors (what this plot superseded)
-        - Forward: Find all successors (what superseded this plot)
-        
-        Args:
-            plot_id: The plot ID to trace
-            
-        Returns:
-            List of plot IDs in chronological order [oldest, ..., newest]
-            The input plot_id is guaranteed to be in the chain.
-            
-        Example:
-            For plot "I moved to Shanghai" that superseded "I live in Beijing":
+        """获取 plot 的完整更新链。
+
+        第一原理：
+        - 在叙事心理学中，过去的事实被重新定位，而不是删除
+        - "我住在北京"变成"我**曾经**住在北京"
+        - 事实仍然是真的，只是具有不同的时间定位
+
+        此方法追踪一段知识的完整演化：
+        - 向后：查找所有前驱（此 plot 替代的内容）
+        - 向前：查找所有后继（替代此 plot 的内容）
+
+        参数：
+            plot_id：要追踪的 plot ID
+
+        返回：
+            按时间顺序排列的 plot ID 列表 [最旧, ..., 最新]
+            输入的 plot_id 保证在链中。
+
+        示例：
+            对于替代"我住在北京"的 plot"我搬到了上海"：
             >>> chain = mem._get_update_chain("plot-shanghai")
             >>> chain  # ["plot-beijing", "plot-shanghai"]
         """
         if plot_id not in self.plots:
-            return [plot_id]  # Return as-is if not found
-        
+            return [plot_id]  # 如果未找到，按原样返回
+
         chain: List[str] = []
-        visited: set = set()  # Prevent cycles
-        
-        # Phase 1: Trace backward through supersedes_id
+        visited: set = set()  # 防止循环
+
+        # 第 1 阶段：通过 supersedes_id 向后追踪
         current_id: Optional[str] = plot_id
         backward_chain: List[str] = []
-        
+
         while current_id and current_id not in visited:
             visited.add(current_id)
             backward_chain.insert(0, current_id)
-            
+
             current_plot = self.plots.get(current_id)
             if current_plot and current_plot.supersedes_id:
                 current_id = current_plot.supersedes_id
             else:
                 break
-        
+
         chain.extend(backward_chain)
-        
-        # Phase 2: Trace forward through superseded_by_id
+
+        # 第 2 阶段：通过 superseded_by_id 向前追踪
         current_id = plot_id
         visited.clear()
-        visited.add(plot_id)  # Already in chain
-        
+        visited.add(plot_id)  # 已在链中
+
         while current_id:
             current_plot = self.plots.get(current_id)
             if not current_plot or not current_plot.superseded_by_id:
                 break
-            
+
             next_id = current_plot.superseded_by_id
             if next_id in visited:
-                break  # Prevent cycles
-            
+                break  # 防止循环
+
             visited.add(next_id)
             chain.append(next_id)
             current_id = next_id
-        
+
         return chain
 
     def _group_into_timelines(
         self, ranked: List[Tuple[str, float, str]]
     ) -> TimelineGroup:
-        """Group retrieval results into knowledge timelines.
-        
-        First Principles:
-        - Don't filter superseded plots as "invalid"
-        - Organize them into timelines showing knowledge evolution
-        - Let the semantic understanding layer (LLM) make decisions
-        
-        This replaces the filter-based approach with structure-based organization:
-        - Old: Filter out superseded → lose temporal context
-        - New: Group into timelines → preserve full evolution history
-        
-        Args:
-            ranked: List of (id, score, kind) tuples from retrieval
-            
-        Returns:
-            TimelineGroup containing:
-            - timelines: Related plots organized by update chains
-            - standalone_results: Results not part of any update chain
-            
-        Example:
-            For query "Where do I live?":
-            - Timeline 1: [Beijing (historical), Shanghai (historical), Shenzhen (current)]
-            - Standalone: [work location plot, favorite restaurant plot]
+        """将检索结果分组为知识时间线。
+
+        第一原理：
+        - 不要将已替代的 plot 过滤为"无效"
+        - 将它们组织成显示知识演化的时间线
+        - 让语义理解层 (LLM) 做出决定
+
+        这用基于结构的组织替换了基于过滤的方法：
+        - 旧：过滤掉已替代 → 丢失时间背景
+        - 新：分组为时间线 → 保留完整演化历史
+
+        参数：
+            ranked：来自检索的 (id, score, kind) 元组列表
+
+        返回：
+            包含以下内容的 TimelineGroup：
+            - timelines：按更新链组织的相关 plot
+            - standalone_results：不属于任何更新链的结果
+
+        示例：
+            对于查询"我住在哪里？"：
+            - 时间线 1：[北京（历史）、上海（历史）、深圳（当前）]
+            - 独立：[工作地点 plot、最喜欢的餐厅 plot]
         """
         timelines: List[KnowledgeTimeline] = []
         standalone: List[Tuple[str, float, str]] = []
         processed_plots: set = set()
-        
-        # First, find all plot results
+
+        # 首先，查找所有 plot 结果
         plot_results: Dict[str, Tuple[float, str]] = {}  # plot_id -> (score, kind)
-        other_results: List[Tuple[str, float, str]] = []  # stories, themes
-        
+        other_results: List[Tuple[str, float, str]] = []  # story、theme
+
         for nid, score, kind in ranked:
             if kind == "plot":
                 plot_results[nid] = (score, kind)
             else:
                 other_results.append((nid, score, kind))
-        
-        # Process each plot, grouping into timelines
+
+        # 处理每个 plot，分组为时间线
         for plot_id, (score, kind) in plot_results.items():
             if plot_id in processed_plots:
                 continue
-            
-            # Get the complete update chain
+
+            # 获取完整的更新链
             chain = self._get_update_chain(plot_id)
-            
+
             if len(chain) == 1:
-                # No update chain - standalone result
+                # 无更新链 - 独立结果
                 standalone.append((plot_id, score, kind))
                 processed_plots.add(plot_id)
             else:
-                # Part of an update chain - create timeline
-                # Mark all chain members as processed
+                # 属于更新链的一部分 - 创建时间线
+                # 将所有链成员标记为已处理
                 for pid in chain:
                     processed_plots.add(pid)
-                
-                # Find the current (active) plot in the chain
+
+                # 查找链中的当前（活跃）plot
                 current_id: Optional[str] = None
-                for pid in reversed(chain):  # Start from newest
+                for pid in reversed(chain):  # 从最新开始
                     plot = self.plots.get(pid)
                     if plot and plot.status == "active":
                         current_id = pid
                         break
-                
-                # Use the best score from any plot in the chain
+
+                # 使用链中任何 plot 的最佳分数
                 best_score = score
                 for pid in chain:
                     if pid in plot_results:
                         pid_score, _ = plot_results[pid]
                         best_score = max(best_score, pid_score)
-                
-                # Create topic signature from the earliest plot text
+
+                # 从最早的 plot 文本创建主题签名
                 topic_sig = ""
                 if chain:
                     first_plot = self.plots.get(chain[0])
                     if first_plot:
                         topic_sig = first_plot.text[:50]
-                
+
                 timeline = KnowledgeTimeline(
                     chain=chain,
                     current_id=current_id,
@@ -2124,153 +2122,153 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                     match_score=best_score,
                 )
                 timelines.append(timeline)
-        
-        # Sort timelines by match score
+
+        # 按匹配分数排序时间线
         timelines.sort(key=lambda t: t.match_score, reverse=True)
-        
-        # Add non-plot results to standalone
+
+        # 将非 plot 结果添加到独立
         standalone.extend(other_results)
-        
+
         return TimelineGroup(timelines=timelines, standalone_results=standalone)
 
     def format_retrieval_with_temporal_markers(
         self, trace: RetrievalTrace, max_results: int = 10
     ) -> str:
-        """Format retrieval results with temporal markers for LLM consumption.
-        
-        First Principles:
-        - Let the LLM see the full temporal context
-        - Use clear markers: [CURRENT], [HISTORICAL], [UPDATED TO]
-        - The LLM can then decide based on query intent
-        
-        Format example:
+        """使用时间标记格式化检索结果以供 LLM 使用。
+
+        第一原理：
+        - 让 LLM 看到完整的时间背景
+        - 使用清晰的标记：[CURRENT]、[HISTORICAL]、[UPDATED TO]
+        - LLM 可以根据查询意图决定
+
+        格式示例：
             [TIMELINE: User residence]
             [HISTORICAL - updated 2024-06-15] User: I live in Beijing
               → Updated to: User: I moved to Shanghai
             [HISTORICAL - updated 2024-12-01] User: I moved to Shanghai
               → Updated to: User: I moved to Shenzhen
             [CURRENT] User: I moved to Shenzhen
-            
+
             [STANDALONE]
             [CURRENT] User: I work at TechCorp
-        
-        Args:
-            trace: RetrievalTrace with timeline_group populated
-            max_results: Maximum number of results to format
-            
-        Returns:
-            Formatted string with temporal markers for LLM context
+
+        参数：
+            trace：填充了 timeline_group 的 RetrievalTrace
+            max_results：要格式化的最大结果数
+
+        返回：
+            带有时间标记的格式化字符串，用于 LLM 背景
         """
         if not trace.timeline_group:
-            # Fallback: format ranked results without timeline structure
+            # 回退：不使用时间线结构格式化排序结果
             return self._format_ranked_simple(trace.ranked, max_results)
-        
+
         parts: List[str] = []
         result_count = 0
-        
-        # Format timelines first
+
+        # 首先格式化时间线
         for timeline in trace.timeline_group.timelines:
             if result_count >= max_results:
                 break
-            
+
             if timeline.has_evolution():
-                # Multi-version timeline - show full evolution
-                parts.append(f"\n[KNOWLEDGE EVOLUTION: {timeline.topic_signature}]")
-                
+                # 多版本时间线 - 显示完整演化
+                parts.append(f"\n[知识演化：{timeline.topic_signature}]")
+
                 for i, plot_id in enumerate(timeline.chain):
                     if result_count >= max_results:
                         break
-                    
+
                     plot = self.plots.get(plot_id)
                     if not plot:
                         continue
-                    
+
                     is_current = (plot_id == timeline.current_id)
-                    
+
                     if is_current:
-                        marker = "[CURRENT]"
+                        marker = "[当前]"
                     elif plot.status == "superseded":
-                        # Find what superseded it
+                        # 查找替代它的内容
                         next_plot = self.plots.get(plot.superseded_by_id) if plot.superseded_by_id else None
                         if next_plot:
-                            marker = f"[HISTORICAL - superseded]"
-                            update_info = f"\n  → Updated to: {next_plot.text[:100]}"
+                            marker = f"[历史 - 已替代]"
+                            update_info = f"\n  → 更新为：{next_plot.text[:100]}"
                         else:
-                            marker = "[HISTORICAL]"
+                            marker = "[历史]"
                             update_info = ""
                     elif plot.status == "corrected":
-                        marker = "[CORRECTED]"
+                        marker = "[已更正]"
                         update_info = ""
                     else:
                         marker = f"[{plot.status.upper()}]"
                         update_info = ""
-                    
+
                     formatted_text = f"{marker} {plot.text[:200]}"
                     if plot.status == "superseded" and 'update_info' in dir() and update_info:
                         formatted_text += update_info
-                    
+
                     parts.append(formatted_text)
                     result_count += 1
             else:
-                # Single-version - treat as standalone
+                # 单版本 - 视为独立
                 plot_id = timeline.chain[0]
                 plot = self.plots.get(plot_id)
                 if plot:
-                    parts.append(f"[CURRENT] {plot.text[:200]}")
+                    parts.append(f"[当前] {plot.text[:200]}")
                     result_count += 1
-        
-        # Format standalone results
+
+        # 格式化独立结果
         if trace.timeline_group.standalone_results and result_count < max_results:
-            parts.append("\n[OTHER RELEVANT MEMORIES]")
-            
+            parts.append("\n[其他相关记忆]")
+
             for nid, score, kind in trace.timeline_group.standalone_results:
                 if result_count >= max_results:
                     break
-                
+
                 if kind == "plot":
                     plot = self.plots.get(nid)
                     if plot:
-                        marker = "[CURRENT]" if plot.status == "active" else f"[{plot.status.upper()}]"
+                        marker = "[当前]" if plot.status == "active" else f"[{plot.status.upper()}]"
                         parts.append(f"{marker} {plot.text[:200]}")
                         result_count += 1
                 elif kind == "story":
                     story = self.stories.get(nid)
                     if story:
-                        parts.append(f"[STORY] {story.relationship_with or 'Unknown'}: {len(story.plot_ids)} interactions")
+                        parts.append(f"[STORY] {story.relationship_with or '未知'}：{len(story.plot_ids)} 次交互")
                         result_count += 1
                 elif kind == "theme":
                     theme = self.themes.get(nid)
                     if theme:
-                        parts.append(f"[THEME] {theme.identity_dimension or 'Unknown theme'}")
+                        parts.append(f"[THEME] {theme.identity_dimension or '未知主题'}")
                         result_count += 1
-        
+
         return "\n".join(parts)
 
     def _format_ranked_simple(
         self, ranked: List[Tuple[str, float, str]], max_results: int
     ) -> str:
-        """Simple formatting for ranked results without timeline structure."""
+        """不使用时间线结构的排序结果的简单格式化。"""
         parts: List[str] = []
-        
+
         for nid, score, kind in ranked[:max_results]:
             if kind == "plot":
                 plot = self.plots.get(nid)
                 if plot:
-                    marker = "[CURRENT]" if plot.status == "active" else f"[{plot.status.upper()}]"
+                    marker = "[当前]" if plot.status == "active" else f"[{plot.status.upper()}]"
                     parts.append(f"{marker} {plot.text[:200]}")
             elif kind == "story":
                 story = self.stories.get(nid)
                 if story:
-                    parts.append(f"[STORY] {story.relationship_with or 'Unknown'}")
+                    parts.append(f"[STORY] {story.relationship_with or '未知'}")
             elif kind == "theme":
                 theme = self.themes.get(nid)
                 if theme:
-                    parts.append(f"[THEME] {theme.identity_dimension or 'Unknown'}")
-        
+                    parts.append(f"[THEME] {theme.identity_dimension or '未知'}")
+
         return "\n".join(parts)
 
     # -------------------------------------------------------------------------
-    # Public Timeline-Aware Query Methods
+    # 公共时间线感知查询方法
     # -------------------------------------------------------------------------
 
     def query_with_timeline(
@@ -2281,155 +2279,155 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         query_type: Optional[QueryType] = None,
         format_for_llm: bool = False,
     ) -> RetrievalTrace:
-        """Query with full timeline context for temporal reasoning.
-        
-        First Principles:
-        - superseded ≠ deleted
-        - Past facts are repositioned, not invalidated
-        - "I lived in Beijing" is still TRUE, just in the past tense
-        
-        This method is designed for queries that need temporal context:
-        - "Where did I used to live?" → needs historical data
-        - "How has my opinion changed?" → needs evolution timeline
-        - "When did I first mention X?" → needs temporal ordering
-        
-        Unlike query(), this method:
-        1. Does NOT filter out superseded plots
-        2. Organizes results into knowledge timelines
-        3. Provides temporal markers for LLM consumption
-        
-        Args:
-            text: The query text
-            k: Number of results to return
-            asker_id: Optional entity ID for relationship context
-            query_type: Optional query type override
-            format_for_llm: If True, returns trace with formatted context
-                in trace.relationship_context (reusing the field)
-                
-        Returns:
-            RetrievalTrace with:
-            - timeline_group: Organized timelines showing evolution
-            - ranked: ALL relevant plots (including historical)
-            - relationship_context: If format_for_llm=True, contains
-                temporal-marker-formatted context string
-                
-        Example:
-            >>> trace = mem.query_with_timeline("Where did I used to live?")
+        """使用完整时间线背景进行查询以进行时间推理。
+
+        第一原理：
+        - 已替代 ≠ 已删除
+        - 过去的事实被重新定位，而不是失效
+        - "我住在北京"仍然是真的，只是过去时
+
+        此方法设计用于需要时间背景的查询：
+        - "我以前住在哪里？" → 需要历史数据
+        - "我的观点如何改变？" → 需要演化时间线
+        - "我什么时候第一次提到 X？" → 需要时间排序
+
+        与 query() 不同，此方法：
+        1. 不过滤掉已替代的 plot
+        2. 将结果组织成知识时间线
+        3. 为 LLM 使用提供时间标记
+
+        参数：
+            text：查询文本
+            k：要返回的结果数
+            asker_id：可选的实体 ID 用于关系背景
+            query_type：可选的查询类型覆盖
+            format_for_llm：如果为 True，返回带有格式化背景的跟踪
+                在 trace.relationship_context 中（重用该字段）
+
+        返回：
+            包含以下内容的 RetrievalTrace：
+            - timeline_group：显示演化的组织时间线
+            - ranked：所有相关 plot（包括历史）
+            - relationship_context：如果 format_for_llm=True，包含
+                时间标记格式化的背景字符串
+
+        示例：
+            >>> trace = mem.query_with_timeline("我以前住在哪里？")
             >>> for timeline in trace.timeline_group.timelines:
-            ...     print(f"Timeline: {len(timeline.chain)} versions")
+            ...     print(f"时间线：{len(timeline.chain)} 个版本")
             ...     for plot_id in timeline.chain:
             ...         plot = mem.plots[plot_id]
-            ...         marker = "CURRENT" if plot.status == "active" else "HISTORICAL"
+            ...         marker = "当前" if plot.status == "active" else "历史"
             ...         print(f"  [{marker}] {plot.text[:50]}")
         """
-        # Use standard query but get full results before filtering
+        # 使用标准查询但在过滤前获取完整结果
         trace = self.query(
             text=text,
-            k=k * 2,  # Get more results to ensure we have full timelines
+            k=k * 2,  # 获取更多结果以确保我们有完整的时间线
             asker_id=asker_id,
             query_type=query_type,
         )
-        
-        # The trace already has timeline_group populated
-        # Override ranked with unfiltered results for temporal queries
+
+        # 跟踪已经填充了 timeline_group
+        # 为时间查询覆盖排序结果以包含历史
         if trace.timeline_group:
-            # Reconstruct ranked from timeline_group to include historical
+            # 从 timeline_group 重建排序以包含历史
             all_ranked: List[Tuple[str, float, str]] = []
-            
+
             for timeline in trace.timeline_group.timelines:
                 for plot_id in timeline.chain:
                     plot = self.plots.get(plot_id)
                     if plot:
-                        # Use original score or timeline score
+                        # 使用原始分数或时间线分数
                         score = timeline.match_score
                         all_ranked.append((plot_id, score, "plot"))
-            
-            # Add standalone results
+
+            # 添加独立结果
             all_ranked.extend(trace.timeline_group.standalone_results)
-            
-            # Sort by score and trim
+
+            # 按分数排序并修剪
             all_ranked.sort(key=lambda x: x[1], reverse=True)
             trace.ranked = all_ranked[:k]
-        
-        # Optionally format for LLM consumption
+
+        # 可选地为 LLM 使用格式化
         if format_for_llm:
             formatted = self.format_retrieval_with_temporal_markers(trace, max_results=k)
-            # Store in relationship_context for convenience
+            # 为方便起见存储在 relationship_context 中
             trace.relationship_context = (
-                f"[Timeline-Aware Context]\n{formatted}"
-                + (f"\n\n[Relationship Context]\n{trace.relationship_context}" 
+                f"[时间线感知背景]\n{formatted}"
+                + (f"\n\n[关系背景]\n{trace.relationship_context}"
                    if trace.relationship_context else "")
             )
-        
+
         return trace
 
     def get_knowledge_evolution(self, topic_query: str, k: int = 5) -> List[KnowledgeTimeline]:
-        """Get the evolution timeline for a specific knowledge topic.
-        
-        First Principles:
-        - Knowledge evolves over time
-        - The retrieval should show this evolution, not hide it
-        - Let the consumer decide what's relevant
-        
-        This is a specialized method for exploring how knowledge has changed.
-        
-        Args:
-            topic_query: Query to find relevant knowledge topic
-            k: Maximum number of timelines to return
-            
-        Returns:
-            List of KnowledgeTimeline objects showing evolution
-            
-        Example:
-            >>> timelines = mem.get_knowledge_evolution("user address")
+        """获取特定知识主题的演化时间线。
+
+        第一原理：
+        - 知识随时间演化
+        - 检索应显示这种演化，而不是隐藏它
+        - 让消费者决定什么是相关的
+
+        这是一个用于探索知识如何改变的专门方法。
+
+        参数：
+            topic_query：查询以查找相关知识主题
+            k：要返回的最大时间线数
+
+        返回：
+            显示演化的 KnowledgeTimeline 对象列表
+
+        示例：
+            >>> timelines = mem.get_knowledge_evolution("用户地址")
             >>> for t in timelines:
-            ...     print(f"Evolution ({len(t.chain)} versions):")
+            ...     print(f"演化（{len(t.chain)} 个版本）：")
             ...     for pid in t.chain:
             ...         plot = mem.plots[pid]
-            ...         status = "→ CURRENT" if pid == t.current_id else "(historical)"
-            ...         print(f"  {status}: {plot.text[:50]}")
+            ...         status = "→ 当前" if pid == t.current_id else "（历史）"
+            ...         print(f"  {status}：{plot.text[:50]}")
         """
         trace = self.query_with_timeline(topic_query, k=k * 2)
-        
+
         if trace.timeline_group:
-            # Return only timelines with evolution (multiple versions)
+            # 仅返回具有演化的时间线（多个版本）
             evolved = [t for t in trace.timeline_group.timelines if t.has_evolution()]
             return evolved[:k]
-        
+
         return []
 
     def _retrieve_with_relationship_priority(
-        self, 
-        text: str, 
-        relationship_story: StoryArc, 
+        self,
+        text: str,
+        relationship_story: StoryArc,
         k: int,
         query_type: Optional[QueryType] = None,
     ) -> RetrievalTrace:
-        """Retrieve with priority given to the relationship's history.
-        
-        Args:
-            text: Query text
-            relationship_story: The story arc for the relationship
-            k: Number of results to return
-            query_type: Optional query type for type-aware processing
+        """使用优先级检索关系的历史。
+
+        参数：
+            text：查询文本
+            relationship_story：关系的 story arc
+            k：要返回的结果数
+            query_type：用于类型感知处理的可选查询类型
         """
         query_emb = self.embedder.embed(text)
-        
-        # Get relationship-specific results
+
+        # 获取关系特定的结果
         relationship_results = self._get_relationship_results(query_emb, relationship_story)
-        
-        # Get semantic results from other memories with query type
+
+        # 使用查询类型从其他记忆获取语义结果
         semantic_trace = self.retriever.retrieve(
-            query_text=text, 
+            query_text=text,
             embed=self.embedder,
-            kinds=self.cfg.retrieval_kinds, 
+            kinds=self.cfg.retrieval_kinds,
             k=k,
             query_type=query_type,
         )
-        
-        # Merge results
+
+        # 合并结果
         ranked = self._merge_retrieval_results(relationship_results, semantic_trace.ranked, k)
-        
+
         trace = RetrievalTrace(
             query=text,
             query_emb=query_emb,
@@ -2442,24 +2440,24 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     def _get_relationship_results(
         self, query_emb: np.ndarray, relationship_story: StoryArc
     ) -> List[Tuple[str, float, str]]:
-        """Get retrieval results from a relationship's history."""
+        """从关系的历史获取检索结果。"""
         results: List[Tuple[str, float, str]] = []
-        
-        # Score plots in this relationship's story
+
+        # 对此关系 story 中的 plot 评分
         for plot_id in relationship_story.plot_ids[-MAX_RECENT_PLOTS_FOR_RETRIEVAL:]:
             plot = self.plots.get(plot_id)
             if plot is None or plot.status != "active":
                 continue
-            
+
             sem_sim = self.metric.sim(query_emb, plot.embedding)
             score = sem_sim + RELATIONSHIP_BONUS_SCORE
             results.append((plot_id, score, "plot"))
-        
-        # Add the relationship story itself
+
+        # 添加关系 story 本身
         if relationship_story.centroid is not None:
             story_sim = self.metric.sim(query_emb, relationship_story.centroid)
             results.append((relationship_story.id, story_sim + STORY_SIMILARITY_BONUS, "story"))
-        
+
         return results
 
     def _merge_retrieval_results(
@@ -2469,30 +2467,30 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         k: int,
         diversity_lambda: float = 0.3,
     ) -> List[Tuple[str, float, str]]:
-        """Merge relationship and semantic retrieval results with MMR diversity.
-        
-        Uses Maximal Marginal Relevance (MMR) to balance relevance with diversity,
-        avoiding highly similar results in the final output.
-        
-        MMR formula: λ * relevance - (1 - λ) * max_similarity_to_selected
-        
-        Args:
-            relationship_results: Results from relationship-priority retrieval
-            semantic_results: Results from semantic retrieval
-            k: Number of results to return
-            diversity_lambda: Balance between relevance (1.0) and diversity (0.0).
-                Default 0.3 favors diversity to avoid redundant results.
-        
-        Returns:
-            List of (id, score, kind) tuples with diverse selection
+        """使用 MMR 多样性合并关系和语义检索结果。
+
+        使用最大边际相关性 (MMR) 来平衡相关性和多样性，
+        避免最终输出中高度相似的结果。
+
+        MMR 公式：λ * 相关性 - (1 - λ) * max_similarity_to_selected
+
+        参数：
+            relationship_results：来自关系优先检索的结果
+            semantic_results：来自语义检索的结果
+            k：要返回的结果数
+            diversity_lambda：相关性 (1.0) 和多样性 (0.0) 之间的平衡。
+                默认 0.3 倾向于多样性以避免冗余结果。
+
+        返回：
+            具有多样化选择的 (id, score, kind) 元组列表
         """
         all_results: Dict[str, Tuple[float, str]] = {}
-        
-        # Add relationship results (higher priority)
+
+        # 添加关系结果（更高优先级）
         for nid, score, kind in relationship_results:
             all_results[nid] = (score, kind)
-        
-        # Add semantic results (don't override if already present with higher score)
+
+        # 添加语义结果（如果已存在且分数更高，则不覆盖）
         for nid, score, kind in semantic_results:
             if nid not in all_results:
                 all_results[nid] = (score, kind)
@@ -2500,54 +2498,54 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 existing_score, existing_kind = all_results[nid]
                 if score > existing_score:
                     all_results[nid] = (score, kind)
-        
+
         if not all_results:
             return []
-        
-        # Collect embeddings for diversity calculation
+
+        # 收集用于多样性计算的嵌入
         candidates: List[Tuple[str, float, str, Optional[np.ndarray]]] = []
         for nid, (score, kind) in all_results.items():
             emb = self._get_embedding_for_node(nid)
             candidates.append((nid, score, kind, emb))
-        
-        # MMR selection
+
+        # MMR 选择
         selected: List[Tuple[str, float, str]] = []
         selected_embeddings: List[np.ndarray] = []
         remaining = list(candidates)
-        
+
         while len(selected) < k and remaining:
             best_idx = -1
             best_mmr = float('-inf')
-            
+
             for idx, (nid, score, kind, emb) in enumerate(remaining):
-                # Compute relevance term (normalized score)
+                # 计算相关性项（归一化分数）
                 relevance = score
-                
-                # Compute diversity term (max similarity to already selected)
+
+                # 计算多样性项（与已选择项的最大相似度）
                 max_sim_to_selected = 0.0
                 if selected_embeddings and emb is not None:
                     for sel_emb in selected_embeddings:
                         if sel_emb is not None:
                             sim = cosine_sim(emb, sel_emb)
                             max_sim_to_selected = max(max_sim_to_selected, sim)
-                
-                # MMR: λ * relevance - (1 - λ) * max_similarity
+
+                # MMR：λ * 相关性 - (1 - λ) * max_similarity
                 mmr_score = diversity_lambda * relevance - (1.0 - diversity_lambda) * max_sim_to_selected
-                
+
                 if mmr_score > best_mmr:
                     best_mmr = mmr_score
                     best_idx = idx
-            
+
             if best_idx >= 0:
                 nid, score, kind, emb = remaining.pop(best_idx)
                 selected.append((nid, score, kind))
                 if emb is not None:
                     selected_embeddings.append(emb)
-        
+
         return selected
-    
+
     def _get_embedding_for_node(self, nid: str) -> Optional[np.ndarray]:
-        """Get embedding vector for a node (plot, story, or theme)."""
+        """获取节点（plot、story 或 theme）的嵌入向量。"""
         if nid in self.plots:
             return self.plots[nid].embedding
         elif nid in self.stories:
@@ -2557,7 +2555,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         return None
 
     def _update_access_counts(self, trace: RetrievalTrace) -> None:
-        """Update access counts for retrieved items."""
+        """更新检索项的访问计数。"""
         for nid, _, kind in trace.ranked:
             if kind == "plot":
                 plot = self.graph.payload(nid)
@@ -2568,80 +2566,79 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 story.reference_count += 1
 
     # -------------------------------------------------------------------------
-    # Feedback: credit assignment and learning
+    # 反馈：信用分配和学习
     # -------------------------------------------------------------------------
 
     def feedback_retrieval(self, query_text: str, chosen_id: str, success: bool) -> None:
-        """Provide feedback for retrieval results to enable online learning.
+        """为检索结果提供反馈以启用在线学习。
 
-        This method implements delayed credit assignment for the memory system.
-        When a retrieval result is used (successfully or not), this feedback
-        propagates learning signals to multiple components:
+        此方法为内存系统实现延迟信用分配。
+        当使用检索结果时（成功或不成功），此反馈
+        将学习信号传播到多个组件：
 
-        1) Edge beliefs: Updates Beta distributions on graph edges along
-           shortest paths from query seeds to the chosen node
-        2) Metric learning: Performs triplet update (anchor=query, positive=chosen,
-           negative=random high-similarity non-chosen) to improve similarity
-        3) Encode gate: Updates Thompson sampling weights for recently encoded
-           plots based on the reward signal
-        4) Theme evidence: Updates evidence counts if chosen_id is a theme
+        1) 边信念：更新沿着从查询种子到所选节点的
+           最短路径的图边上的 Beta 分布
+        2) 度量学习：执行三元组更新（anchor=query、positive=chosen、
+           negative=随机高相似度非选择），以改进相似性
+        3) 编码门：根据奖励信号为最近编码的
+           plot 更新 Thompson 采样权重
+        4) 主题证据：如果 chosen_id 是主题，则更新证据计数
 
-        Args:
-            query_text: The original query text that produced the retrieval
-                results. Used to compute the query embedding and find seed
-                nodes for credit assignment.
-            chosen_id: The ID of the memory node (plot, story, or theme) that
-                was selected from the retrieval results. This is the target
-                for positive/negative credit assignment.
-            success: Whether the retrieval was successful. True indicates the
-                chosen result was helpful; False indicates it was not useful.
-                This determines the direction of belief updates.
+        参数：
+            query_text：产生检索的原始查询文本
+                结果。用于计算查询嵌入和查找种子
+                节点以进行信用分配。
+            chosen_id：从检索结果中选择的内存节点（plot、story 或 theme）的 ID。这是正/负
+                信用分配的目标。
+            success：检索是否成功。True 表示所选
+                结果很有帮助；False 表示它没有用。
+                这决定了信念更新的方向。
 
-        Example:
+        示例：
             >>> mem = AuroraMemory(seed=42)
             >>> mem.ingest("用户：Python是什么？")
             >>> mem.ingest("用户：如何写快速排序？")
             >>> trace = mem.query("编程语言", k=3)
             >>> if trace.ranked:
-            ...     # User found the first result helpful
+            ...     # 用户发现第一个结果很有帮助
             ...     chosen = trace.ranked[0][0]
             ...     mem.feedback_retrieval("编程语言", chosen, success=True)
-            >>> # Later, if a result was not helpful
+            >>> # 稍后，如果结果没有帮助
             >>> trace2 = mem.query("数据库", k=3)
             >>> if trace2.ranked:
             ...     bad_result = trace2.ranked[0][0]
             ...     mem.feedback_retrieval("数据库", bad_result, success=False)
 
-        Note:
-            - The feedback affects the most recent RECENT_PLOTS_FOR_FEEDBACK
-              (default: 20) encoded plots for gate updates
-            - Edge belief updates use Beta-Bernoulli conjugate updates
-            - Metric updates use triplet loss with margin
+        注意：
+            - 反馈影响最近的 RECENT_PLOTS_FOR_FEEDBACK
+              （默认值：20）编码的 plot 用于门更新
+            - 边信念更新使用 Beta-Bernoulli 共轭更新
+            - 度量更新使用带边距的三元组损失
         """
         import networkx as nx
-        
+
         query_emb = self.embedder.embed(query_text)
         graph = self.graph.g
 
-        # Update edges on shortest paths from seeds
+        # 更新从种子到所选节点的最短路径上的边
         self._update_edge_beliefs(query_emb, chosen_id, success, graph)
 
-        # Metric triplet update
+        # 度量三元组更新
         self._update_metric_triplet(query_emb, chosen_id, success, graph)
 
-        # Encode gate update
+        # 编码门更新
         self._update_encode_gate(success)
 
-        # Theme evidence update
+        # 主题证据更新
         if chosen_id in self.themes:
             self.themes[chosen_id].update_evidence(success)
 
     def _update_edge_beliefs(
         self, query_emb: np.ndarray, chosen_id: str, success: bool, graph: nx.DiGraph
     ) -> None:
-        """Update edge beliefs on shortest paths."""
+        """更新最短路径上的边信念。"""
         import networkx as nx
-        
+
         seeds = [i for i, _ in self.vindex.search(query_emb, k=10)]
         if chosen_id in graph:
             for seed in seeds:
@@ -2657,33 +2654,33 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
     def _update_metric_triplet(
         self, query_emb: np.ndarray, chosen_id: str, success: bool, graph: nx.DiGraph
     ) -> None:
-        """Update metric using triplet loss."""
+        """使用三元组损失更新度量。"""
         if chosen_id not in graph:
             return
-            
+
         chosen = self.graph.payload(chosen_id)
         pos_emb = getattr(chosen, "embedding", getattr(chosen, "centroid", getattr(chosen, "prototype", None)))
-        
+
         if pos_emb is None:
             return
-            
-        # Pick negative among high-sim but not chosen
+
+        # 在高相似度但未选择的候选中选择负样本
         cands = [i for i, _ in self.vindex.search(query_emb, k=30) if i != chosen_id and i in graph]
         if not cands:
             return
-            
+
         neg_id = self.rng.choice(cands)
         neg = self.graph.payload(neg_id)
         neg_emb = getattr(neg, "embedding", getattr(neg, "centroid", getattr(neg, "prototype", None)))
-        
+
         if neg_emb is not None:
             self.metric.update_triplet(anchor=query_emb, positive=pos_emb, negative=neg_emb)
 
     def _update_encode_gate(self, success: bool) -> None:
-        """Update encode gate with reward signal."""
+        """使用奖励信号更新编码门。"""
         reward = 1.0 if success else -1.0
         recent = list(self._recent_encoded_plot_ids)[-RECENT_PLOTS_FOR_FEEDBACK:]
-        
+
         for pid in recent:
             plot = self.plots.get(pid)
             if plot is not None:
@@ -2691,15 +2688,15 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 self.gate.update(x, reward)
 
     # -------------------------------------------------------------------------
-    # Evolution: consolidation & theme emergence
+    # 演化：整合和主题出现
     # -------------------------------------------------------------------------
 
     def evolve(self) -> None:
-        """Execute offline evolution step for memory consolidation.
+        """执行离线演化步骤以进行内存整合。
 
-        This method implements "持续成为" (continuous becoming) - the core
-        principle that memory is an active process of identity construction,
-        not passive storage. It should be called periodically (e.g., after
+        此方法实现"持续成为"（continuous becoming）- 核心
+        原则是内存是身份构建的主动过程，
+        而不是被动存储。应定期调用（例如，在
         a session, daily, or when the system is idle).
 
         The evolution process performs several consolidation operations:

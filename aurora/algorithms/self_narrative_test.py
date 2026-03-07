@@ -1,5 +1,5 @@
 """
-Tests for AURORA Self-Narrative Module
+AURORA 自我叙事模块的测试
 """
 
 from __future__ import annotations

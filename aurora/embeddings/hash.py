@@ -1,13 +1,13 @@
 """
-AURORA Hash Embedding
+AURORA 哈希嵌入
 =====================
 
-Deterministic pseudo-random embedding for testing.
-Produces consistent embeddings based on text hash.
+用于测试的确定性伪随机嵌入。
+基于文本哈希生成一致的嵌入。
 
-Usage:
+使用方法：
     from aurora.embeddings import HashEmbedding
-    
+
     embedder = HashEmbedding(dim=384)
     vec = embedder.embed("Hello world")
 """
@@ -24,14 +24,14 @@ from aurora.utils.id_utils import stable_hash
 
 
 class HashEmbedding(EmbeddingProvider):
-    """Deterministic pseudo-random embedding for testing.
-    
-    Produces consistent embeddings based on text hash.
-    Replace with real embedding model in production.
-    
-    Attributes:
-        dim: Embedding dimension
-        seed: Random seed for reproducibility
+    """用于测试的确定性伪随机嵌入。
+
+    基于文本哈希生成一致的嵌入。
+    在生产环境中应替换为真实的嵌入模型。
+
+    属性：
+        dim: 嵌入维度
+        seed: 用于可重复性的随机种子
     """
 
     def __init__(self, dim: int = 384, seed: int = 7):
@@ -39,11 +39,11 @@ class HashEmbedding(EmbeddingProvider):
         self.seed = seed
 
     def embed(self, text: str) -> np.ndarray:
-        """Generate deterministic embedding from text."""
+        """从文本生成确定性嵌入。"""
         rng = np.random.default_rng(stable_hash(text) ^ self.seed)
         v = rng.normal(size=self.dim).astype(np.float32)
         return l2_normalize(v)
 
     def embed_batch(self, texts: List[str]) -> List[np.ndarray]:
-        """Embed multiple texts."""
+        """嵌入多个文本。"""
         return [self.embed(t) for t in texts]

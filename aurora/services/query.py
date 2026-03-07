@@ -1,11 +1,11 @@
 """
-Query Service (Read Path)
+查询服务 (读取路径)
 =========================
 
-Handles the read side of CQRS:
-- Directly queries read-optimized stores (vector DB, cache)
-- Bypasses write path for low latency
-- Supports various query types (semantic, temporal, causal)
+处理 CQRS 的读取端:
+- 直接查询读优化存储 (向量数据库、缓存)
+- 绕过写入路径以实现低延迟
+- 支持各种查询类型 (语义、时间、因果)
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class QueryRequest(BaseModel):
-    """Request to query memories."""
+    """查询记忆的请求。"""
     user_id: str
     text: str
     k: int = Field(default=8, ge=1, le=50)
@@ -44,7 +44,7 @@ class QueryRequest(BaseModel):
 
 @dataclass
 class QueryResponse:
-    """Response from a query."""
+    """查询的响应。"""
     query: str
     hits: List[QueryHit]
     attractor_path_len: int = 0
@@ -53,7 +53,7 @@ class QueryResponse:
 
 
 class QueryCache:
-    """Simple in-memory query cache with TTL."""
+    """带 TTL 的简单内存查询缓存。"""
     
     def __init__(self, ttl_seconds: float = 60.0, max_size: int = 1000):
         self.ttl = ttl_seconds
@@ -78,14 +78,14 @@ class QueryCache:
     async def set(self, user_id: str, text: str, k: int, response: QueryResponse) -> None:
         key = self._cache_key(user_id, text, k)
         async with self._lock:
-            # Evict oldest if at capacity
+            # 如果达到容量，驱逐最旧的
             if len(self._cache) >= self.max_size:
                 oldest_key = min(self._cache, key=lambda k: self._cache[k][0])
                 del self._cache[oldest_key]
             self._cache[key] = (time.time(), response)
     
     async def invalidate(self, user_id: str) -> int:
-        """Invalidate all cache entries for a user."""
+        """使用户的所有缓存条目失效。"""
         prefix = f"{user_id}:"
         async with self._lock:
             keys_to_remove = [k for k in self._cache if k.startswith(prefix)]
@@ -95,14 +95,14 @@ class QueryCache:
 
 
 class QueryService:
-    """Read service for CQRS architecture.
-    
-    Directly queries read-optimized stores:
-    - Vector store for semantic search
-    - Cache for repeated queries
-    - Memory state for metadata
-    
-    Does NOT go through the write path.
+    """CQRS 架构的读取服务。
+
+    直接查询读优化存储:
+    - 用于语义搜索的向量存储
+    - 用于重复查询的缓存
+    - 用于元数据的内存状态
+
+    不经过写入路径。
     """
     
     def __init__(
@@ -113,48 +113,48 @@ class QueryService:
         cache: Optional[QueryCache] = None,
         cache_enabled: bool = True,
     ):
-        """Initialize query service.
-        
-        Args:
-            vector_store: VectorStore instance for semantic search
-            state_store: StateStore instance for metadata
-            memory: AuroraMemory instance for sync/fallback mode
-            cache: Query cache (default: creates new cache)
-            cache_enabled: Whether to use caching
+        """初始化查询服务。
+
+        参数:
+            vector_store: 用于语义搜索的 VectorStore 实例
+            state_store: 用于元数据的 StateStore 实例
+            memory: 用于同步/回退模式的 AuroraMemory 实例
+            cache: 查询缓存 (默认: 创建新缓存)
+            cache_enabled: 是否使用缓存
         """
         self.vector_store = vector_store
         self.state_store = state_store
         self.memory = memory
         self.cache = cache or QueryCache() if cache_enabled else None
         self.cache_enabled = cache_enabled
-        
-        # Statistics
+
+        # 统计信息
         self._total_queries = 0
         self._cache_hits = 0
         self._cache_misses = 0
     
     async def query(self, request: QueryRequest) -> QueryResponse:
-        """Execute a semantic query.
-        
-        Tries in order:
-        1. Cache lookup
-        2. Vector store search
-        3. Fallback to in-memory search
+        """执行语义查询。
+
+        按顺序尝试:
+        1. 缓存查找
+        2. 向量存储搜索
+        3. 回退到内存搜索
         """
         start_time = time.time()
         self._total_queries += 1
-        
-        # Try cache first
+
+        # 先尝试缓存
         if self.cache is not None:
             cached = await self.cache.get(request.user_id, request.text, request.k)
             if cached is not None:
                 self._cache_hits += 1
                 cached.from_cache = True
                 return cached
-        
+
         self._cache_misses += 1
-        
-        # Execute query
+
+        # 执行查询
         if self.vector_store is not None:
             response = await self._query_vector_store(request)
         elif self.memory is not None:
@@ -165,25 +165,25 @@ class QueryService:
                 hits=[],
                 attractor_path_len=0,
             )
-        
-        # Calculate latency
+
+        # 计算延迟
         response.latency_ms = (time.time() - start_time) * 1000
-        
-        # Cache the result
+
+        # 缓存结果
         if self.cache is not None:
             await self.cache.set(request.user_id, request.text, request.k, response)
-        
+
         return response
     
     async def _query_vector_store(self, request: QueryRequest) -> QueryResponse:
-        """Query using the vector store."""
-        # This requires the embedding provider to embed the query
-        # For now, we'll use a simplified approach
-        
-        # TODO: Add embedding provider to QueryService
+        """使用向量存储进行查询。"""
+        # 这需要嵌入提供者来嵌入查询
+        # 目前，我们将使用简化的方法
+
+        # TODO: 将嵌入提供者添加到 QueryService
         # query_embedding = await self.embedding_provider.embed(request.text)
-        
-        # Fallback to memory-based query for now
+
+        # 目前回退到基于内存的查询
         if self.memory is not None:
             return await self._query_memory_sync(request)
         
@@ -194,26 +194,26 @@ class QueryService:
         )
     
     async def _query_memory_sync(self, request: QueryRequest) -> QueryResponse:
-        """Query using in-memory AuroraMemory (sync mode)."""
+        """使用内存中的 AuroraMemory 进行查询 (同步模式)。"""
         if self.memory is None:
             return QueryResponse(query=request.text, hits=[], attractor_path_len=0)
-        
-        # Run synchronous query in thread pool
+
+        # 在线程池中运行同步查询
         def _sync_query():
             return self.memory.query(request.text, k=request.k)
-        
+
         loop = asyncio.get_event_loop()
         trace = await loop.run_in_executor(None, _sync_query)
-        
+
         hits = []
         kinds_filter = set(request.kinds) if request.kinds else None
-        
+
         for nid, score, kind in trace.ranked:
-            # Apply kind filter
+            # 应用类型过滤
             if kinds_filter and kind not in kinds_filter:
                 continue
-            
-            # Get snippet
+
+            # 获取片段
             snippet = ""
             if kind == "plot":
                 plot = self.memory.plots.get(nid)
@@ -227,11 +227,11 @@ class QueryService:
                 theme = self.memory.themes.get(nid)
                 if theme:
                     snippet = theme.description or theme.name or f"Theme with {len(theme.story_ids)} stories"
-            
+
             metadata = None
             if request.include_metadata:
                 metadata = await self._get_metadata(nid, kind)
-            
+
             hits.append(QueryHit(
                 id=nid,
                 kind=kind,
@@ -239,7 +239,7 @@ class QueryService:
                 snippet=snippet,
                 metadata=metadata,
             ))
-        
+
         return QueryResponse(
             query=request.text,
             hits=hits,
@@ -247,7 +247,7 @@ class QueryService:
         )
     
     async def _get_metadata(self, node_id: str, kind: str) -> Dict[str, Any]:
-        """Get metadata for a node."""
+        """获取节点的元数据。"""
         if self.memory is None:
             return {}
         
@@ -286,13 +286,13 @@ class QueryService:
         return {}
     
     async def invalidate_cache(self, user_id: str) -> int:
-        """Invalidate cache entries for a user."""
+        """使用户的缓存条目失效。"""
         if self.cache is not None:
             return await self.cache.invalidate(user_id)
         return 0
     
     def stats(self) -> Dict[str, Any]:
-        """Return service statistics."""
+        """返回服务统计信息。"""
         cache_rate = self._cache_hits / max(1, self._total_queries)
         return {
             "total_queries": self._total_queries,

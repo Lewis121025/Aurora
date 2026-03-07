@@ -1,21 +1,21 @@
 """
-AURORA Legacy Service Layer
-===========================
+AURORA 遗留服务层
+================
 
-NOTE: This is the original monolithic service module.
-For new projects, consider using the CQRS architecture in aurora.services/:
+注意：这是原始的单体服务模块。
+对于新项目，请考虑使用 aurora.services/ 中的 CQRS 架构：
 
     from aurora.services import IngestionService, QueryService, IngestWorker
 
-This module is maintained for backward compatibility and is still used by:
-- aurora.hub (multi-tenant routing)
-- aurora.mcp.server (MCP protocol)
-- Various tests
+该模块为了向后兼容而维护，仍被以下模块使用：
+- aurora.hub（多租户路由）
+- aurora.mcp.server（MCP 协议）
+- 各种测试
 
-The new services/ architecture provides:
-- Better horizontal scaling (separate read/write paths)
-- Non-blocking writes (queue-based ingestion)
-- Lower latency reads (optimized query path)
+新的 services/ 架构提供：
+- 更好的水平扩展（分离的读写路径）
+- 非阻塞写入（基于队列的摄入）
+- 更低的读取延迟（优化的查询路径）
 """
 
 from __future__ import annotations
@@ -51,26 +51,26 @@ logger = logging.getLogger(__name__)
 
 
 def check_embedding_api_keys() -> None:
-    """Check if embedding API keys are configured and print guidance if not.
-    
-    Checks for:
+    """检查嵌入 API 密钥是否已配置，如果未配置则打印指导。
+
+    检查项：
     - AURORA_BAILIAN_API_KEY: 阿里云百炼 embedding API
     - AURORA_ARK_API_KEY: 火山方舟 embedding API
-    
-    If neither is set, prints a clear configuration guide.
+
+    如果都未设置，打印清晰的配置指南。
     """
     bailian_key = os.environ.get("AURORA_BAILIAN_API_KEY")
     ark_key = os.environ.get("AURORA_ARK_API_KEY")
     
     if bailian_key or ark_key:
-        # At least one API key is configured
+        # 至少配置了一个 API 密钥
         if bailian_key:
             logger.info("✓ AURORA_BAILIAN_API_KEY is configured")
         if ark_key:
             logger.info("✓ AURORA_ARK_API_KEY is configured")
         return
-    
-    # Neither API key is configured - print informational message
+
+    # 两个 API 密钥都未配置 - 打印信息消息
     info_msg = """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║                    ℹ️  USING LOCAL SEMANTIC EMBEDDING ℹ️                     ║
@@ -106,11 +106,11 @@ def check_embedding_api_keys() -> None:
 
 
 def create_llm_provider(settings: AuroraSettings) -> LLMProvider:
-    """Create LLM provider based on settings.
-    
-    Supports:
-    - "ark": 火山方舟 (Volcengine Ark) - requires ark_api_key
-    - "mock": Local mock for testing
+    """根据设置创建 LLM 提供者。
+
+    支持：
+    - "ark": 火山方舟 (Volcengine Ark) - 需要 ark_api_key
+    - "mock": 本地模拟用于测试
     """
     if settings.llm_provider == "ark" and settings.ark_api_key:
         try:
@@ -133,16 +133,16 @@ def create_llm_provider(settings: AuroraSettings) -> LLMProvider:
 
 
 def create_embedding_provider(settings: AuroraSettings):
-    """Create embedding provider based on settings.
-    
-    Supports:
-    - "bailian": 阿里云百炼 (Alibaba Bailian) - requires bailian_api_key
-    - "ark": 火山方舟 (Volcengine Ark) - requires ark_api_key + endpoint
-    - "local": Local semantic embedding (word vectors, captures basic semantics)
-    - "hash": Local hash embedding for legacy testing (random vectors, no semantics)
-    
-    When no API keys are configured, defaults to "local" (LocalSemanticEmbedding)
-    which provides basic semantic similarity unlike HashEmbedding.
+    """根据设置创建嵌入提供者。
+
+    支持：
+    - "bailian": 阿里云百炼 (Alibaba Bailian) - 需要 bailian_api_key
+    - "ark": 火山方舟 (Volcengine Ark) - 需要 ark_api_key + endpoint
+    - "local": 本地语义嵌入（词向量，捕获基本语义）
+    - "hash": 本地哈希嵌入用于遗留测试（随机向量，无语义）
+
+    当未配置 API 密钥时，默认为 "local"（LocalSemanticEmbedding）
+    提供基本语义相似性，不同于 HashEmbedding。
     """
     # 阿里云百炼
     if settings.embedding_provider == "bailian" and settings.bailian_api_key:
@@ -159,8 +159,8 @@ def create_embedding_provider(settings: AuroraSettings):
             )
         except Exception as e:
             logger.warning(f"Failed to create Bailian embedding provider: {e}, falling back to local semantic")
-    
-    # 火山方舟 (需要 endpoint ID)
+
+    # 火山方舟（需要 endpoint ID）
     elif settings.embedding_provider == "ark" and settings.ark_api_key:
         try:
             from aurora.embeddings.ark import ArkEmbeddingWithFallback
@@ -179,7 +179,7 @@ def create_embedding_provider(settings: AuroraSettings):
         from aurora.embeddings.hash import HashEmbedding
         logger.info("Using local Hash embedding provider (random vectors, no semantic meaning)")
         return HashEmbedding(dim=settings.dim)
-    
+
     # 本地语义嵌入（默认，或显式指定 "local"）
     # 比 HashEmbedding 更好：语义相似的文本会有相似的向量
     from aurora.embeddings.local_semantic import LocalSemanticEmbedding
@@ -193,7 +193,7 @@ class IngestResult:
     plot_id: str
     story_id: Optional[str]
     encoded: bool
-    # lightweight signals
+    # 轻量级信号
     tension: float
     surprise: float
     pred_error: float
@@ -216,17 +216,17 @@ class CoherenceResult:
 
 
 class AuroraTenant:
-    """Per-user memory instance.
+    """每个用户的内存实例。
 
-    Production notes:
-    - Concurrency: guarded by a lock.
-    - Durability: event-sourcing + periodic snapshot.
-    - Idempotency: event_id is unique; duplicate events do not re-ingest.
-    
-    Extended with:
-    - Causal inference
-    - Coherence checking
-    - Self-narrative management
+    生产环保：
+    - 并发性：由锁保护。
+    - 持久性：事件溯源 + 定期快照。
+    - 幂等性：event_id 唯一；重复事件不会重新摄入。
+
+    扩展功能：
+    - 因果推断
+    - 一致性检查
+    - 自我叙述管理
     """
 
     def __init__(self, *, user_id: str, settings: AuroraSettings, llm: Optional[LLMProvider] = None):
@@ -239,31 +239,31 @@ class AuroraTenant:
 
         self._lock = threading.RLock()
 
-        # tenant directories
+        # 租户目录
         self.user_dir = os.path.join(self.settings.data_dir, f"user_{self.user_id}")
         os.makedirs(self.user_dir, exist_ok=True)
 
-        # stores
+        # 存储
         self.event_log = SQLiteEventLog(os.path.join(self.user_dir, self.settings.event_log_filename))
         self.doc_store = SQLiteDocStore(os.path.join(self.user_dir, "docs.sqlite3"))
         self.snapshots = SnapshotStore(os.path.join(self.user_dir, self.settings.snapshot_dirname))
 
-        # state
+        # 状态
         self.last_seq: int = 0
         self.mem: AuroraMemory = self._load_or_init()
-        
-        # Extended modules
+
+        # 扩展模块
         self.coherence_guardian = CoherenceGuardian(self.mem.metric)
         self.self_narrative_engine = SelfNarrativeEngine(self.mem.metric)
-        
-        # Causal beliefs (stored separately for flexibility)
+
+        # 因果信念（单独存储以提高灵活性）
         self.causal_beliefs: Dict[tuple, CausalEdgeBelief] = {}
 
-        # replay any events after snapshot
+        # 重放快照后的任何事件
         self._replay()
 
     # ---------------------------------------------------------------------
-    # Bootstrapping: snapshot + replay
+    # 引导：快照 + 重放
     # ---------------------------------------------------------------------
 
     def _load_or_init(self) -> AuroraMemory:
@@ -273,7 +273,7 @@ class AuroraTenant:
             self.last_seq = snap.last_seq
             return snap.state
 
-        # deterministic seed per user for replay stability
+        # 每个用户的确定性种子用于重放稳定性
         seed = abs(hash(self.user_id)) % (2**32)
         cfg = MemoryConfig(
             dim=self.settings.dim,
@@ -286,7 +286,7 @@ class AuroraTenant:
         return AuroraMemory(cfg=cfg, seed=int(seed))
 
     def _replay(self) -> None:
-        # replay events after last_seq
+        # 重放 last_seq 之后的事件
         for seq, ev in self.event_log.iter_events(after_seq=self.last_seq, user_id=self.user_id):
             if ev.type != "interaction":
                 continue
@@ -303,7 +303,7 @@ class AuroraTenant:
             self.last_seq = seq
 
     # ---------------------------------------------------------------------
-    # Public APIs
+    # 公共 API
     # ---------------------------------------------------------------------
 
     def ingest_interaction(
@@ -321,7 +321,7 @@ class AuroraTenant:
         ts = ts or time.time()
 
         with self._lock:
-            # idempotency: if event exists, return stored ingest result
+            # 幂等性：如果事件存在，返回存储的摄入结果
             existing_seq = self.event_log.get_seq_by_id(event_id)
             if existing_seq is not None:
                 doc = self.doc_store.get(f"ingest:{event_id}")
@@ -337,7 +337,7 @@ class AuroraTenant:
                         pred_error=float(body.get("pred_error", 0.0)),
                         redundancy=float(body.get("redundancy", 0.0)),
                     )
-                # fallback: treat as no-op
+                # 回退：视为无操作
                 return IngestResult(
                     event_id=event_id,
                     plot_id="",
@@ -349,12 +349,12 @@ class AuroraTenant:
                     redundancy=0.0,
                 )
 
-            # privacy hook
+            # 隐私钩子
             if self.settings.pii_redaction_enabled:
                 user_message = redact(user_message).redacted_text
                 agent_message = redact(agent_message).redacted_text
 
-            # persist event first (write-ahead)
+            # 先持久化事件（预写日志）
             seq = self.event_log.append(
                 Event(
                     id=event_id,
@@ -371,7 +371,7 @@ class AuroraTenant:
                 )
             )
 
-            # apply to memory
+            # 应用到内存
             res = self._apply_interaction(
                 event_id=event_id,
                 user_message=user_message,
@@ -383,7 +383,7 @@ class AuroraTenant:
             )
             self.last_seq = max(self.last_seq, seq)
 
-            # snapshot policy (operational)
+            # 快照策略（操作性）
             if self.settings.snapshot_every_events > 0 and self.last_seq % self.settings.snapshot_every_events == 0:
                 self._snapshot(logger=logger)
 
@@ -403,7 +403,7 @@ class AuroraTenant:
                 p = self.mem.plots.get(nid)
                 snippet = (p.text[:240] + "...") if p else ""
             else:
-                # try doc store summaries
+                # 尝试文档存储摘要
                 doc = self.doc_store.get(nid)
                 if doc:
                     snippet = (doc.body.get("summary", "") or doc.body.get("description", ""))[:240]
@@ -418,8 +418,8 @@ class AuroraTenant:
     def evolve(self, *, logger: Optional[Any] = None) -> None:
         with self._lock:
             self.mem.evolve()
-            
-            # Update self-narrative from themes
+
+            # 从主题更新自我叙述
             themes = list(self.mem.themes.values())
             self.self_narrative_engine.update_from_themes(themes)
             
@@ -427,7 +427,7 @@ class AuroraTenant:
             log_event(logger, "aurora_evolve", user_id=self.user_id, stories=len(self.mem.stories), themes=len(self.mem.themes))
 
     def check_coherence(self, *, logger: Optional[Any] = None) -> CoherenceResult:
-        """Check memory coherence and return report"""
+        """检查内存一致性并返回报告"""
         with self._lock:
             report = self.coherence_guardian.full_check(
                 graph=self.mem.graph,
@@ -457,7 +457,7 @@ class AuroraTenant:
         return result
 
     def get_self_narrative(self) -> Dict[str, Any]:
-        """Get current self-narrative"""
+        """获取当前自我叙述"""
         with self._lock:
             narrative = self.self_narrative_engine.narrative
             
@@ -487,9 +487,9 @@ class AuroraTenant:
             }
 
     def get_causal_chain(self, node_id: str, direction: str = "ancestors") -> List[Dict[str, Any]]:
-        """Get causal ancestors or descendants of a node"""
+        """获取节点的因果祖先或后代"""
         with self._lock:
-            # Build a causal memory graph view
+            # 构建因果内存图视图
             causal_graph = CausalMemoryGraph(self.mem.metric)
             causal_graph.g = self.mem.graph.g.copy()
             causal_graph.causal_beliefs = self.causal_beliefs
@@ -512,16 +512,16 @@ class AuroraTenant:
         success: bool,
         entity_id: Optional[str] = None,
     ) -> None:
-        """Record feedback and update learning models"""
+        """记录反馈并更新学习模型"""
         with self._lock:
-            # Standard feedback
+            # 标准反馈
             self.mem.feedback_retrieval(
                 query_text=query_text,
                 chosen_id=chosen_id,
                 success=success,
             )
-            
-            # Update self-narrative from interaction
+
+            # 从交互更新自我叙述
             plot = self.mem.plots.get(chosen_id)
             if plot:
                 self.self_narrative_engine.update_from_interaction(
@@ -529,12 +529,12 @@ class AuroraTenant:
                     success=success,
                     entity_id=entity_id or self.user_id,
                 )
-            
-            # Update causal beliefs if applicable
-            # (Could trace which edges were used in retrieval and update them)
+
+            # 如果适用，更新因果信念
+            # （可以追踪检索中使用的边并更新它们）
 
     # ---------------------------------------------------------------------
-    # Internal helpers
+    # 内部辅助函数
     # ---------------------------------------------------------------------
 
     def _apply_interaction(
@@ -548,10 +548,10 @@ class AuroraTenant:
         ts: float,
         persist: bool,
     ) -> IngestResult:
-        # 1) optional structured extraction (kept cheap; can be async in production)
+        # 1) 可选的结构化提取（保持便宜；在生产中可以异步）
         extraction = self._extract_plot(user_message=user_message, agent_message=agent_message, context=context)
 
-        # 2) build interaction text for algorithm core
+        # 2) 为算法核心构建交互文本
         interaction_text = f"USER: {user_message}\nAGENT: {agent_message}\nOUTCOME: {extraction.outcome}".strip()
 
         plot = self.mem.ingest(
@@ -563,7 +563,7 @@ class AuroraTenant:
 
         encoded = plot.id in self.mem.plots
 
-        # 3) persist derived documents
+        # 3) 持久化派生文档
         if persist:
             self.doc_store.upsert(
                 Document(
@@ -619,7 +619,7 @@ class AuroraTenant:
         )
 
     def _extract_plot(self, *, user_message: str, agent_message: str, context: Optional[str]) -> PlotExtraction:
-        # In production: apply routing & caching; also allow "no-LLM" mode.
+        # 在生产中：应用路由和缓存；也允许"无 LLM"模式。
         instruction = prompts.instruction("PlotExtraction")
         u = prompts.render(
             prompts.PLOT_EXTRACTION_USER,

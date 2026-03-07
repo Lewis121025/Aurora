@@ -1,13 +1,13 @@
 """
-AURORA Data Models
+AURORA 数据模型
 ==================
 
-Core data structures for the AURORA memory system.
+AURORA 记忆系统的核心数据结构。
 
-The memory model has three layers:
-- Factual: What happened (Plot core fields)
-- Relational: Who I am in this relationship (RelationalContext)
-- Identity: How this affects who I am (IdentityImpact)
+记忆模型有三个层次：
+- 事实层：发生了什么（Plot 核心字段）
+- 关系层：我在这段关系中是谁（RelationalContext）
+- 身份层：这如何影响我是谁（IdentityImpact）
 """
 
 from aurora.algorithms.models.plot import Plot, RelationalContext, IdentityImpact
@@ -24,24 +24,24 @@ from aurora.algorithms.models.trace import (
 )
 
 __all__ = [
-    # Plot and its layers
+    # Plot 及其层次
     "Plot",
     "RelationalContext",
     "IdentityImpact",
-    # Story and its relationship structures
+    # Story 及其关系结构
     "StoryArc",
     "RelationshipMoment",
-    # Theme
+    # 主题
     "Theme",
-    # Config
+    # 配置
     "AlgorithmConfig",
     "MemoryConfig",
-    # Traces and Query Results
+    # 追踪和查询结果
     "RetrievalTrace",
     "EvolutionSnapshot",
     "EvolutionPatch",
     "QueryHit",
-    # Timeline-based retrieval (First Principles: superseded ≠ deleted)
+    # 基于时间线的检索（第一性原理：被取代 ≠ 被删除）
     "KnowledgeTimeline",
     "TimelineGroup",
 ]

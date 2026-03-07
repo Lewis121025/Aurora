@@ -1,12 +1,12 @@
 """
-Aurora Storage Layer
+Aurora 存储层
 ====================
 
-Provides storage abstractions for:
-- Vector storage (VectorStore): Semantic embeddings with similarity search
-- State storage (StateStore): Hot/cold tiered state management
-- Event logging (SQLiteEventLog): Append-only event sourcing
-- Document storage (SQLiteDocStore): Structured document storage
+提供以下存储抽象：
+- 向量存储（VectorStore）：具有相似性搜索的语义嵌入
+- 状态存储（StateStore）：热/冷分层状态管理
+- 事件日志（SQLiteEventLog）：仅追加事件溯源
+- 文档存储（SQLiteDocStore）：结构化文档存储
 """
 
 from aurora.storage.event_log import Event, SQLiteEventLog

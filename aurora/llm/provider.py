@@ -9,15 +9,15 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class LLMProvider(ABC):
-    """LLM provider interface.
+    """LLM 提供者接口。
 
-    Production:
-      - implement JSON schema constrained outputs (tool calling / response_format JSON)
-      - enforce max tokens / retry / backoff / circuit breaker
-    
-    Provides two main methods:
-      - complete(): For text generation
-      - complete_json(): For structured JSON output with schema validation
+    生产环境要求：
+      - 实现 JSON schema 约束输出（工具调用 / response_format JSON）
+      - 强制执行最大令牌数 / 重试 / 退避 / 断路器
+
+    提供两个主要方法：
+      - complete()：用于文本生成
+      - complete_json()：用于结构化 JSON 输出和 schema 验证
     """
 
     @abstractmethod
@@ -32,19 +32,19 @@ class LLMProvider(ABC):
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Generate text completion for the given prompt.
-        
-        Args:
-            prompt: The user prompt to complete
-            system: Optional system message
-            temperature: Sampling temperature (0.0-1.0)
-            max_tokens: Maximum tokens to generate
-            timeout_s: Request timeout in seconds
-            stop: Optional stop sequences
-            metadata: Optional request metadata
-            
-        Returns:
-            Generated text string
+        """为给定的提示生成文本补全。
+
+        参数：
+            prompt：要补全的用户提示
+            system：可选的系统消息
+            temperature：采样温度 (0.0-1.0)
+            max_tokens：要生成的最大令牌数
+            timeout_s：请求超时时间（秒）
+            stop：可选的停止序列
+            metadata：可选的请求元数据
+
+        返回：
+            生成的文本字符串
         """
         raise NotImplementedError
 
@@ -59,17 +59,17 @@ class LLMProvider(ABC):
         timeout_s: float = 30.0,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> T:
-        """Generate structured JSON output conforming to schema.
-        
-        Args:
-            system: System message
-            user: User message
-            schema: Pydantic model class for response validation
-            temperature: Sampling temperature (0.0-1.0)
-            timeout_s: Request timeout in seconds
-            metadata: Optional request metadata
-            
-        Returns:
-            Parsed and validated response as schema instance
+        """生成符合 schema 的结构化 JSON 输出。
+
+        参数：
+            system：系统消息
+            user：用户消息
+            schema：用于响应验证的 Pydantic 模型类
+            temperature：采样温度 (0.0-1.0)
+            timeout_s：请求超时时间（秒）
+            metadata：可选的请求元数据
+
+        返回：
+            解析并验证的响应，作为 schema 实例
         """
         raise NotImplementedError

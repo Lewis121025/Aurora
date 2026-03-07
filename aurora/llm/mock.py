@@ -11,10 +11,10 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class MockLLM(LLMProvider):
-    """Deterministic mock used for local runs/tests.
+    """用于本地运行/测试的确定性模拟。
 
-    It produces simplistic outputs that satisfy schemas, without any model calls.
-    Replace with a real provider in production.
+    生成满足 schema 的简单输出，无需任何模型调用。
+    在生产环境中替换为真实提供者。
     """
 
     def complete(
@@ -28,46 +28,46 @@ class MockLLM(LLMProvider):
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Generate simple mock text completion.
-        
-        For benchmarks, this provides basic pattern-based extraction
-        rather than random text.
+        """生成简单的模拟文本补全。
+
+        对于基准测试，这提供基本的基于模式的提取
+        而不是随机文本。
         """
-        # Basic answer extraction patterns for benchmark evaluation
+        # 用于基准评估的基本答案提取模式
         prompt_lower = prompt.lower()
-        
-        # Look for question patterns and try to extract relevant answer
+
+        # 查找问题模式并尝试提取相关答案
         if "what city" in prompt_lower or "where" in prompt_lower:
-            # Extract location mentions
+            # 提取位置提及
             locations = re.findall(
                 r"(?:in|at|to|from|visit(?:ed)?)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)",
                 prompt
             )
             if locations:
-                return locations[-1]  # Return most recent location
-        
+                return locations[-1]  # 返回最近的位置
+
         if "who" in prompt_lower:
-            # Extract person names (simple capitalized words)
+            # 提取人名（简单的大写单词）
             names = re.findall(r"\b([A-Z][a-z]+)\b(?:\s+[a-z]+\s+|\s+said|\s+told)", prompt)
             if names:
                 return names[-1]
-        
+
         if "when" in prompt_lower:
-            # Extract time references
+            # 提取时间参考
             times = re.findall(
                 r"(?:on|at|in)\s+(\w+\s+\d+|\d+[:\d]*\s*(?:am|pm)?|\w+day)",
                 prompt, re.IGNORECASE
             )
             if times:
                 return times[-1]
-        
-        # For summaries or general questions, return first meaningful sentence
+
+        # 对于摘要或一般问题，返回第一个有意义的句子
         sentences = re.split(r'[.!?]', prompt)
         for sent in sentences:
             sent = sent.strip()
             if len(sent) > 20 and not sent.startswith(("Question", "Answer", "Context")):
                 return sent[:200]
-        
+
         return "Unable to determine answer from context."
 
     def complete_json(
@@ -82,7 +82,7 @@ class MockLLM(LLMProvider):
     ) -> T:
         name = schema.__name__
         if name == "PlotExtraction":
-            # naive extraction: pull first sentence as action
+            # 朴素提取：将第一句作为动作
             m_user = re.search(r"user_message: (.*)", user)
             umsg = m_user.group(1).strip() if m_user else ""
             action = umsg[:120] or "interaction"
@@ -132,7 +132,7 @@ class MockLLM(LLMProvider):
             }
             return schema.model_validate(data)
 
-        # Causal schemas
+        # 因果 schema
         if name == "CausalRelation":
             data = {
                 "cause_id": "",
@@ -166,7 +166,7 @@ class MockLLM(LLMProvider):
             }
             return schema.model_validate(data)
 
-        # Self-narrative schemas
+        # 自我叙述 schema
         if name == "CapabilityAssessment":
             data = {
                 "capability_name": "general",
@@ -202,7 +202,7 @@ class MockLLM(LLMProvider):
             }
             return schema.model_validate(data)
 
-        # Coherence schemas
+        # 一致性 schema
         if name == "CoherenceCheck":
             data = {
                 "element_a_id": "",
@@ -217,5 +217,5 @@ class MockLLM(LLMProvider):
             }
             return schema.model_validate(data)
 
-        # default
+        # 默认
         return schema.model_validate({})

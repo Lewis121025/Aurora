@@ -1,9 +1,9 @@
 """
-AURORA Time Utilities
+AURORA 时间工具
 =====================
 
-Time-related utility functions.
-Supports mocking for deterministic testing.
+时间相关的实用函数。
+支持用于确定性测试的模拟。
 """
 
 from __future__ import annotations
@@ -11,19 +11,19 @@ from __future__ import annotations
 import time
 from typing import Callable, Optional
 
-# Optional mock function for testing
+# 用于测试的可选模拟函数
 _mock_time: Optional[Callable[[], float]] = None
 
 
 def now_ts() -> float:
     """
-    Get current timestamp in seconds since epoch.
+    获取当前时间戳（自纪元以来的秒数）。
 
-    Returns:
-        Current time as float (seconds.microseconds)
+    返回：
+        当前时间为浮点数（秒.微秒）
 
-    Note:
-        Can be mocked for testing using set_mock_time()
+    注意：
+        可以使用 set_mock_time() 为测试进行模拟
     """
     if _mock_time is not None:
         return _mock_time()
@@ -32,19 +32,19 @@ def now_ts() -> float:
 
 def set_mock_time(mock_fn: Optional[Callable[[], float]]) -> None:
     """
-    Set a mock time function for testing.
+    为测试设置模拟时间函数。
 
-    Args:
-        mock_fn: Function that returns mock timestamp, or None to disable mocking
+    参数：
+        mock_fn: 返回模拟时间戳的函数，或 None 以禁用模拟
 
-    Example:
+    示例：
         >>> counter = [0.0]
         >>> set_mock_time(lambda: (counter[0] := counter[0] + 1.0))
         >>> now_ts()
         1.0
         >>> now_ts()
         2.0
-        >>> set_mock_time(None)  # Restore real time
+        >>> set_mock_time(None)  # 恢复真实时间
     """
     global _mock_time
     _mock_time = mock_fn
@@ -52,25 +52,25 @@ def set_mock_time(mock_fn: Optional[Callable[[], float]]) -> None:
 
 def age_hours(ts: float) -> float:
     """
-    Calculate age in hours from a timestamp.
+    计算从时间戳开始的年龄（小时）。
 
-    Args:
-        ts: Timestamp to compare against current time
+    参数：
+        ts: 与当前时间比较的时间戳
 
-    Returns:
-        Age in hours (can be negative if ts is in the future)
+    返回：
+        年龄（小时）（如果 ts 在未来则可能为负）
     """
     return (now_ts() - ts) / 3600.0
 
 
 def age_days(ts: float) -> float:
     """
-    Calculate age in days from a timestamp.
+    计算从时间戳开始的年龄（天）。
 
-    Args:
-        ts: Timestamp to compare against current time
+    参数：
+        ts: 与当前时间比较的时间戳
 
-    Returns:
-        Age in days (can be negative if ts is in the future)
+    返回：
+        年龄（天）（如果 ts 在未来则可能为负）
     """
     return (now_ts() - ts) / 86400.0

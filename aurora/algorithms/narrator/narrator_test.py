@@ -1,10 +1,10 @@
-"""Tests for narrator module.
+"""叙述者模块的测试。
 
-This module tests the narrative reconstruction engine and its components:
-- NarratorEngine: Main narrative reconstruction engine
-- PerspectiveSelector: Bayesian perspective selection
-- PerspectiveOrganizer: Perspective-specific plot organization
-- ContextRecovery: Causal context recovery and turning point detection
+此模块测试叙事重构引擎及其组件：
+- NarratorEngine: 主要叙事重构引擎
+- PerspectiveSelector: 贝叶斯视角选择
+- PerspectiveOrganizer: 特定视角的情节组织
+- ContextRecovery: 因果上下文恢复和转折点检测
 """
 
 from __future__ import annotations
@@ -38,19 +38,19 @@ from aurora.utils.time_utils import now_ts
 
 @pytest.fixture
 def narrator_metric() -> LowRankMetric:
-    """Create a LowRankMetric for narrator tests."""
+    """为叙述者测试创建LowRankMetric。"""
     return LowRankMetric(dim=64, rank=16, seed=42)
 
 
 @pytest.fixture
 def rng() -> np.random.Generator:
-    """Create a random generator with fixed seed."""
+    """创建具有固定种子的随机生成器。"""
     return np.random.default_rng(42)
 
 
 @pytest.fixture
 def narrator_engine(narrator_metric: LowRankMetric) -> NarratorEngine:
-    """Create a NarratorEngine instance."""
+    """创建NarratorEngine实例。"""
     return NarratorEngine(metric=narrator_metric, seed=42)
 
 
@@ -58,7 +58,7 @@ def narrator_engine(narrator_metric: LowRankMetric) -> NarratorEngine:
 def perspective_selector(
     narrator_metric: LowRankMetric, rng: np.random.Generator
 ) -> PerspectiveSelector:
-    """Create a PerspectiveSelector instance."""
+    """创建PerspectiveSelector实例。"""
     return PerspectiveSelector(metric=narrator_metric, rng=rng)
 
 
@@ -66,7 +66,7 @@ def perspective_selector(
 def perspective_organizer(
     narrator_metric: LowRankMetric, rng: np.random.Generator
 ) -> PerspectiveOrganizer:
-    """Create a PerspectiveOrganizer instance."""
+    """创建PerspectiveOrganizer实例。"""
     return PerspectiveOrganizer(metric=narrator_metric, rng=rng)
 
 
@@ -74,13 +74,13 @@ def perspective_organizer(
 def context_recovery(
     narrator_metric: LowRankMetric, rng: np.random.Generator
 ) -> ContextRecovery:
-    """Create a ContextRecovery instance."""
+    """创建ContextRecovery实例。"""
     return ContextRecovery(metric=narrator_metric, rng=rng)
 
 
 @pytest.fixture
 def turning_point_detector(rng: np.random.Generator) -> TurningPointDetector:
-    """Create a TurningPointDetector instance."""
+    """创建TurningPointDetector实例。"""
     return TurningPointDetector(rng=rng)
 
 
@@ -93,9 +93,9 @@ def make_plot(
     story_id: str | None = None,
     with_identity_impact: bool = False,
 ) -> Plot:
-    """Helper to create a test Plot.
-    
-    Note: ts_offset should be negative or zero to ensure plots are in the past.
+    """创建测试Plot的辅助函数。
+
+    注意：ts_offset应为负数或零以确保情节在过去。
     """
     emb = rng.standard_normal(64).astype(np.float32)
     emb = emb / np.linalg.norm(emb)
@@ -110,9 +110,9 @@ def make_plot(
             evolution_history=[],
         )
 
-    # Use negative offset to ensure plots are in the past
-    # This prevents math domain errors in log1p(now - plot.ts)
-    base_ts = now_ts() - 86400  # Start from 1 day ago
+    # 使用负偏移以确保情节在过去
+    # 这防止了log1p(now - plot.ts)中的数学域错误
+    base_ts = now_ts() - 86400  # 从1天前开始
     return Plot(
         id=det_id("plot", f"test_{idx}"),
         ts=base_ts + ts_offset,
@@ -127,7 +127,7 @@ def make_plot(
 
 @pytest.fixture
 def sample_plots_for_narrator(rng: np.random.Generator) -> List[Plot]:
-    """Create a list of test plots with varying tensions and timestamps."""
+    """创建具有不同张力和时间戳的测试情节列表。"""
     plots = []
     texts = [
         "用户：今天天气不错。助理：是的，很适合出去走走。",
@@ -142,10 +142,10 @@ def sample_plots_for_narrator(rng: np.random.Generator) -> List[Plot]:
         plot = make_plot(
             idx=i,
             rng=rng,
-            ts_offset=i * 3600,  # 1 hour apart (relative to base_ts in make_plot)
+            ts_offset=i * 3600,  # 相隔1小时（相对于make_plot中的base_ts）
             tension=tension,
             text=text,
-            with_identity_impact=(i == 2),  # Third plot has identity impact
+            with_identity_impact=(i == 2),  # 第三个情节有身份影响
         )
         plots.append(plot)
 
@@ -158,10 +158,10 @@ def sample_plots_for_narrator(rng: np.random.Generator) -> List[Plot]:
 
 
 class TestNarratorEngine:
-    """Tests for NarratorEngine class."""
+    """NarratorEngine类的测试。"""
 
     def test_reconstruct_story_empty_input(self, narrator_engine: NarratorEngine):
-        """Test reconstruct_story with empty plot list."""
+        """使用空情节列表测试reconstruct_story。"""
         trace = narrator_engine.reconstruct_story(
             query="测试查询",
             plots=[],
@@ -176,7 +176,7 @@ class TestNarratorEngine:
     def test_reconstruct_story_single_plot(
         self, narrator_engine: NarratorEngine, rng: np.random.Generator
     ):
-        """Test reconstruct_story with a single plot."""
+        """使用单个情节测试reconstruct_story。"""
         plot = make_plot(idx=0, rng=rng, text="单个测试交互")
         trace = narrator_engine.reconstruct_story(
             query="测试查询",
@@ -190,7 +190,7 @@ class TestNarratorEngine:
     def test_reconstruct_story_multiple_plots(
         self, narrator_engine: NarratorEngine, sample_plots_for_narrator: List[Plot]
     ):
-        """Test reconstruct_story with multiple plots."""
+        """使用多个情节测试reconstruct_story。"""
         trace = narrator_engine.reconstruct_story(
             query="测试查询",
             plots=sample_plots_for_narrator,
@@ -204,7 +204,7 @@ class TestNarratorEngine:
     def test_reconstruct_story_with_specific_perspective(
         self, narrator_engine: NarratorEngine, sample_plots_for_narrator: List[Plot]
     ):
-        """Test reconstruct_story with a specified perspective."""
+        """使用指定的视角测试reconstruct_story。"""
         for perspective in NarrativePerspective:
             trace = narrator_engine.reconstruct_story(
                 query="测试查询",
@@ -218,7 +218,7 @@ class TestNarratorEngine:
     def test_select_perspective_returns_valid_perspective(
         self, narrator_engine: NarratorEngine, sample_plots_for_narrator: List[Plot]
     ):
-        """Test that select_perspective returns a valid perspective."""
+        """测试select_perspective返回有效的视角。"""
         perspective, probs = narrator_engine.select_perspective(
             query="如何处理矛盾？",
             plots=sample_plots_for_narrator,
@@ -232,7 +232,7 @@ class TestNarratorEngine:
         assert abs(sum(probs.values()) - 1.0) < 0.01
 
     def test_select_perspective_without_plots(self, narrator_engine: NarratorEngine):
-        """Test select_perspective when no plots are provided."""
+        """未提供情节时测试select_perspective。"""
         perspective, probs = narrator_engine.select_perspective(
             query="测试查询",
             plots=None,
@@ -244,7 +244,7 @@ class TestNarratorEngine:
     def test_recover_context(
         self, narrator_engine: NarratorEngine, sample_plots_for_narrator: List[Plot]
     ):
-        """Test context recovery for a plot."""
+        """测试情节的上下文恢复。"""
         plots_dict = {p.id: p for p in sample_plots_for_narrator}
         target_plot = sample_plots_for_narrator[2]
 
@@ -262,7 +262,7 @@ class TestNarratorEngine:
     def test_identify_turning_points(
         self, narrator_engine: NarratorEngine, sample_plots_for_narrator: List[Plot]
     ):
-        """Test turning point identification."""
+        """测试转折点识别。"""
         turning_points = narrator_engine.identify_turning_points(
             plots=sample_plots_for_narrator,
         )
@@ -275,7 +275,7 @@ class TestNarratorEngine:
     def test_feedback_narrative(
         self, narrator_engine: NarratorEngine, sample_plots_for_narrator: List[Plot]
     ):
-        """Test feedback updates perspective beliefs."""
+        """测试反馈更新视角信念。"""
         trace = narrator_engine.reconstruct_story(
             query="测试查询",
             plots=sample_plots_for_narrator,
@@ -294,7 +294,7 @@ class TestNarratorEngine:
     def test_feedback_narrative_negative(
         self, narrator_engine: NarratorEngine, sample_plots_for_narrator: List[Plot]
     ):
-        """Test negative feedback updates perspective beliefs."""
+        """测试负反馈更新视角信念。"""
         trace = narrator_engine.reconstruct_story(
             query="测试查询",
             plots=sample_plots_for_narrator,
@@ -311,7 +311,7 @@ class TestNarratorEngine:
     def test_serialization_round_trip(
         self, narrator_metric: LowRankMetric, narrator_engine: NarratorEngine
     ):
-        """Test serialization and deserialization."""
+        """测试序列化和反序列化。"""
         # Modify state
         narrator_engine.perspective_beliefs[NarrativePerspective.FOCUSED] = (5.0, 2.0)
 
@@ -338,12 +338,12 @@ class TestNarratorEngine:
 
 
 class TestPerspectiveSelector:
-    """Tests for PerspectiveSelector class."""
+    """PerspectiveSelector类的测试。"""
 
     def test_select_perspective_deterministic(
         self, narrator_metric: LowRankMetric, sample_plots_for_narrator: List[Plot]
     ):
-        """Test that same seed produces reproducible results."""
+        """测试相同种子产生可重现的结果。"""
         selector1 = PerspectiveSelector(
             metric=narrator_metric,
             rng=np.random.default_rng(42),
@@ -368,7 +368,7 @@ class TestPerspectiveSelector:
     def test_feedback_increases_alpha(
         self, perspective_selector: PerspectiveSelector
     ):
-        """Test that positive feedback increases alpha."""
+        """测试正反馈增加alpha。"""
         perspective = NarrativePerspective.CHRONOLOGICAL
         a_before, b_before = perspective_selector.perspective_beliefs[perspective]
 
@@ -381,7 +381,7 @@ class TestPerspectiveSelector:
     def test_feedback_increases_beta(
         self, perspective_selector: PerspectiveSelector
     ):
-        """Test that negative feedback increases beta."""
+        """测试负反馈增加beta。"""
         perspective = NarrativePerspective.CONTRASTIVE
         a_before, b_before = perspective_selector.perspective_beliefs[perspective]
 
@@ -398,16 +398,16 @@ class TestPerspectiveSelector:
 
 
 class TestPerspectiveOrganizer:
-    """Tests for PerspectiveOrganizer class."""
+    """PerspectiveOrganizer类的测试。"""
 
     def test_organize_chronological(
         self, perspective_organizer: PerspectiveOrganizer, rng: np.random.Generator
     ):
-        """Test chronological organization orders by timestamp."""
-        # Create plots with specific timestamps
+        """测试时间序组织按时间戳排序。"""
+        # 创建具有特定时间戳的情节
         plots = [
             make_plot(idx=i, rng=rng, ts_offset=offset)
-            for i, offset in enumerate([300, 100, 200])  # Not in order
+            for i, offset in enumerate([300, 100, 200])  # 不按顺序
         ]
 
         def compute_sig(p: Plot) -> float:
@@ -426,7 +426,7 @@ class TestPerspectiveOrganizer:
         rng: np.random.Generator,
         narrator_metric: LowRankMetric,
     ):
-        """Test retrospective organization prioritizes recency and relevance."""
+        """测试回顾式组织优先考虑最近性和相关性。"""
         plots = [make_plot(idx=i, rng=rng, ts_offset=i * 3600) for i in range(3)]
         query_embedding = plots[2].embedding  # Most similar to last plot
 
@@ -444,7 +444,7 @@ class TestPerspectiveOrganizer:
     def test_organize_contrastive(
         self, perspective_organizer: PerspectiveOrganizer, rng: np.random.Generator
     ):
-        """Test contrastive organization pairs contrasting plots."""
+        """测试对比式组织配对对比的情节。"""
         # Create plots with different tensions
         plots = [
             make_plot(idx=0, rng=rng, tension=0.2),
@@ -468,12 +468,12 @@ class TestPerspectiveOrganizer:
 
 
 class TestContextRecovery:
-    """Tests for ContextRecovery class."""
+    """ContextRecovery类的测试。"""
 
     def test_recover_context_basic(
         self, context_recovery: ContextRecovery, rng: np.random.Generator
     ):
-        """Test basic context recovery."""
+        """测试基本上下文恢复。"""
         # Create plots with temporal proximity
         plots = [make_plot(idx=i, rng=rng, ts_offset=i * 60) for i in range(5)]
         plots_dict = {p.id: p for p in plots}
@@ -492,7 +492,7 @@ class TestContextRecovery:
     def test_recover_context_with_story_connection(
         self, context_recovery: ContextRecovery, rng: np.random.Generator
     ):
-        """Test context recovery with story connections."""
+        """测试具有故事连接的上下文恢复。"""
         story_id = det_id("story", "test_story")
         plots = [
             make_plot(idx=i, rng=rng, ts_offset=i * 60, story_id=story_id)
@@ -514,7 +514,7 @@ class TestContextRecovery:
     def test_identify_turning_points_few_plots(
         self, context_recovery: ContextRecovery, rng: np.random.Generator
     ):
-        """Test turning point identification with few plots."""
+        """测试具有少量情节的转折点识别。"""
         # With only one plot, should return empty
         plots = [make_plot(idx=0, rng=rng)]
         turning_points = context_recovery.identify_turning_points(plots)
@@ -523,7 +523,7 @@ class TestContextRecovery:
     def test_identify_turning_points_with_tension_variance(
         self, context_recovery: ContextRecovery, rng: np.random.Generator
     ):
-        """Test turning point identification with varying tension."""
+        """测试具有不同张力的转折点识别。"""
         # Create plots with a tension peak
         tensions = [0.2, 0.4, 0.9, 0.5, 0.3]  # Peak at index 2
         plots = [
@@ -545,19 +545,19 @@ class TestContextRecovery:
 
 
 class TestTurningPointDetector:
-    """Tests for TurningPointDetector class."""
+    """TurningPointDetector类的测试。"""
 
     def test_detect_from_elements_empty(
         self, turning_point_detector: TurningPointDetector
     ):
-        """Test detection with empty elements."""
+        """测试使用空元素的检测。"""
         turning_points = turning_point_detector.detect_from_elements([])
         assert turning_points == []
 
     def test_detect_from_elements_single(
         self, turning_point_detector: TurningPointDetector
     ):
-        """Test detection with single element."""
+        """测试使用单个元素的检测。"""
         elements = [{"plot_id": "p1", "tension_level": 0.5}]
         turning_points = turning_point_detector.detect_from_elements(elements)
         assert turning_points == []  # Need at least 2 for comparison
@@ -565,7 +565,7 @@ class TestTurningPointDetector:
     def test_detect_from_elements_with_variance(
         self, turning_point_detector: TurningPointDetector
     ):
-        """Test detection with varying tension levels."""
+        """测试具有不同张力水平的检测。"""
         elements = [
             {"plot_id": f"p{i}", "tension_level": t}
             for i, t in enumerate([0.1, 0.3, 0.9, 0.4, 0.2])
@@ -585,10 +585,10 @@ class TestTurningPointDetector:
 
 
 class TestDataClasses:
-    """Tests for NarrativeElement and NarrativeTrace data classes."""
+    """NarrativeElement和NarrativeTrace数据类的测试。"""
 
     def test_narrative_element_serialization(self):
-        """Test NarrativeElement serialization round-trip."""
+        """测试NarrativeElement序列化往返。"""
         element = NarrativeElement(
             plot_id="test_plot",
             role=NarrativeRole.CLIMAX,
@@ -617,7 +617,7 @@ class TestDataClasses:
         assert restored.tension_level == element.tension_level
 
     def test_narrative_trace_serialization(self):
-        """Test NarrativeTrace serialization round-trip."""
+        """测试NarrativeTrace序列化往返。"""
         element = NarrativeElement(
             plot_id="p1",
             role=NarrativeRole.EXPOSITION,
@@ -657,12 +657,12 @@ class TestDataClasses:
 
 
 class TestNarratorIntegration:
-    """Integration tests for the narrator module."""
+    """叙述者模块的集成测试。"""
 
     def test_full_narrative_flow(
         self, narrator_engine: NarratorEngine, sample_plots_for_narrator: List[Plot]
     ):
-        """Test the full narrative reconstruction flow."""
+        """测试完整的叙事重构流程。"""
         # Step 1: Select perspective
         perspective, probs = narrator_engine.select_perspective(
             query="发生了什么变化？",
@@ -692,7 +692,7 @@ class TestNarratorIntegration:
     def test_narrator_determinism(
         self, narrator_metric: LowRankMetric, sample_plots_for_narrator: List[Plot]
     ):
-        """Test that narrator produces deterministic results with same seed."""
+        """测试叙述者使用相同种子产生确定性结果。"""
         engine1 = NarratorEngine(metric=narrator_metric, seed=42)
         engine2 = NarratorEngine(metric=narrator_metric, seed=42)
 

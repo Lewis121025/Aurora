@@ -1,17 +1,17 @@
 """
-Context Recovery Module
+上下文恢复模块
 =======================
 
-Handles causal context recovery and turning point identification.
+处理因果上下文恢复和转折点识别。
 
-Responsibilities:
-1. Trace causal chains from a plot
-2. Identify turning points in narrative sequences
-3. Find connected plots based on temporal, semantic, and story relationships
+职责：
+1. 从情节追踪因果链
+2. 识别叙事序列中的转折点
+3. 基于时间、语义和故事关系查找连接的情节
 
-Design principles:
-- Zero hard-coded thresholds: Uses probabilistic pruning
-- Deterministic reproducibility: All random operations support seed
+设计原则：
+- 零硬编码阈值：使用概率修剪
+- 确定性可重现性：所有随机操作支持种子
 """
 
 from __future__ import annotations
@@ -34,19 +34,19 @@ from aurora.utils.math_utils import sigmoid
 
 
 class ContextRecovery:
-    """Handles context recovery and causal chain tracing.
-    
-    Provides methods to:
-    - Trace back through causal chains and temporal connections
-    - Identify turning points in a sequence of plots
-    - Find plots connected through various relationships
-    
-    All decisions use probabilistic approaches rather than hard thresholds.
-    
-    Attributes:
-        metric: Learned metric for similarity computation
-        rng: Random number generator for reproducibility
-        graph: Optional memory graph for explicit causal links
+    """处理上下文恢复和因果链追踪。
+
+    提供以下方法：
+    - 通过因果链和时间连接追踪回溯
+    - 识别情节序列中的转折点
+    - 查找通过各种关系连接的情节
+
+    所有决策使用概率方法而不是硬阈值。
+
+    属性：
+        metric: 用于相似度计算的学习度量
+        rng: 用于可重现性的随机数生成器
+        graph: 用于显式因果链接的可选内存图
     """
     
     def __init__(
@@ -55,12 +55,12 @@ class ContextRecovery:
         rng: np.random.Generator,
         graph: Optional[MemoryGraph] = None,
     ):
-        """Initialize context recovery.
-        
-        Args:
-            metric: Learned low-rank metric for similarity computation
-            rng: Random number generator
-            graph: Optional memory graph for causal tracing
+        """初始化上下文恢复。
+
+        参数：
+            metric: 用于相似度计算的学习低秩度量
+            rng: 随机数生成器
+            graph: 用于因果追踪的可选内存图
         """
         self.metric: LowRankMetric = metric
         self.rng: np.random.Generator = rng
@@ -72,22 +72,22 @@ class ContextRecovery:
         plots_dict: Dict[str, Plot],
         depth: int = DEFAULT_CAUSAL_DEPTH,
     ) -> List[Plot]:
-        """Recover the causal context for a plot.
-        
-        Traces back through causal chains and temporal connections
-        to find the context that led to this plot.
-        
-        Args:
-            plot: The plot to recover context for
-            plots_dict: Dictionary of all available plots
-            depth: Maximum depth of causal chain to trace
-            
-        Returns:
-            List of plots forming the causal context (ordered by relevance)
+        """恢复情节的因果上下文。
+
+        通过因果链和时间连接追踪回溯
+        以查找导致此情节的上下文。
+
+        参数：
+            plot: 要恢复上下文的情节
+            plots_dict: 所有可用情节的字典
+            depth: 要追踪的因果链的最大深度
+
+        返回：
+            形成因果上下文的情节列表（按相关性排序）
         """
         context_plots: List[Tuple[Plot, float]] = []  # (plot, relevance_score)
         visited: set = {plot.id}
-        
+
         # BFS with probabilistic pruning
         queue: List[Tuple[str, int, float]] = [(plot.id, 0, 1.0)]  # (id, depth, path_strength)
         
@@ -96,31 +96,31 @@ class ContextRecovery:
             
             if current_depth >= depth:
                 continue
-            
+
             current_plot = plots_dict.get(current_id)
             if current_plot is None:
                 continue
-            
-            # Find connected plots
+
+            # 查找连接的情节
             connected = self._find_connected_plots(
                 current_plot, plots_dict, visited
             )
-            
+
             for connected_plot, connection_strength in connected:
                 if connected_plot.id in visited:
                     continue
-                
+
                 visited.add(connected_plot.id)
-                
-                # Compute relevance score
+
+                # 计算相关性分数
                 new_strength = path_strength * connection_strength
-                
-                # Probabilistic pruning (weaker connections less likely to be followed)
+
+                # 概率修剪（较弱的连接不太可能被跟踪）
                 if self.rng.random() < new_strength:
                     context_plots.append((connected_plot, new_strength))
                     queue.append((connected_plot.id, current_depth + 1, new_strength))
-        
-        # Sort by relevance and return plots only
+
+        # 按相关性排序并返回仅情节
         context_plots.sort(key=lambda x: x[1], reverse=True)
         return [p for p, _ in context_plots]
     
@@ -129,63 +129,63 @@ class ContextRecovery:
         plots: List[Plot],
         stories: Optional[Dict[str, StoryArc]] = None,
     ) -> List[Plot]:
-        """Identify turning points in a sequence of plots.
-        
-        Turning points are moments of significant change:
-        - High tension followed by resolution
-        - Shift in relationship dynamics
-        - Identity-relevant events
-        
-        Uses probabilistic detection, not fixed thresholds.
-        
-        Args:
-            plots: List of plots to analyze
-            stories: Optional story context
-            
-        Returns:
-            List of plots identified as turning points
+        """识别情节序列中的转折点。
+
+        转折点是显著变化的时刻：
+        - 高张力后跟随解决
+        - 关系动态的转变
+        - 身份相关事件
+
+        使用概率检测，而不是固定阈值。
+
+        参数：
+            plots: 要分析的情节列表
+            stories: 可选的故事上下文
+
+        返回：
+            被识别为转折点的情节列表
         """
         if len(plots) < 2:
             return []
-        
-        # Sort by timestamp
+
+        # 按时间戳排序
         sorted_plots = sorted(plots, key=lambda p: p.ts)
-        
+
         turning_points: List[Plot] = []
-        
-        # Compute tension curve
+
+        # 计算张力曲线
         tensions = [p.tension for p in sorted_plots]
-        
-        # Adaptive threshold based on tension distribution
+
+        # 基于张力分布的自适应阈值
         if tensions:
             mean_tension = np.mean(tensions)
             std_tension = np.std(tensions) + 1e-6
-            
+
             for i, plot in enumerate(sorted_plots):
-                # Z-score of tension
+                # 张力的Z分数
                 z_score = (plot.tension - mean_tension) / std_tension
-                
-                # Probability of being a turning point
-                # Higher tension = higher probability
+
+                # 成为转折点的概率
+                # 更高的张力 = 更高的概率
                 p_turning = sigmoid(z_score - TURNING_POINT_TENSION_THRESHOLD_BASE)
-                
-                # Also consider identity impact
+
+                # 也考虑身份影响
                 if plot.has_identity_impact():
                     p_turning = min(1.0, p_turning * 1.5)
-                
-                # Check for tension drop (climax followed by resolution)
+
+                # 检查张力下降（高潮后跟随解决）
                 if i > 0 and i < len(sorted_plots) - 1:
                     prev_tension = sorted_plots[i - 1].tension
                     next_tension = sorted_plots[i + 1].tension
-                    
-                    # Peak detection
+
+                    # 峰值检测
                     if plot.tension > prev_tension and plot.tension > next_tension:
                         p_turning = min(1.0, p_turning * 1.3)
-                
-                # Stochastic selection
+
+                # 随机选择
                 if self.rng.random() < p_turning:
                     turning_points.append(plot)
-        
+
         return turning_points
     
     def _find_connected_plots(
@@ -194,60 +194,59 @@ class ContextRecovery:
         plots_dict: Dict[str, Plot],
         visited: set,
     ) -> List[Tuple[Plot, float]]:
-        """Find plots connected to the given plot.
-        
-        Considers multiple types of connections:
-        - Temporal proximity (close in time)
-        - Semantic similarity (similar embeddings)
-        - Story membership (same story arc)
-        
-        Args:
-            plot: The plot to find connections for
-            plots_dict: Dictionary of all available plots
-            visited: Set of already visited plot IDs
-            
-        Returns:
-            List of (plot, connection_strength) tuples, sorted by strength
+        """查找与给定情节连接的情节。
+
+        考虑多种连接类型：
+        - 时间接近（时间上接近）
+        - 语义相似性（相似的嵌入）
+        - 故事成员（相同的故事弧）
+
+        参数：
+            plot: 要查找连接的情节
+            plots_dict: 所有可用情节的字典
+            visited: 已访问情节ID的集合
+
+        返回：
+            (情节, 连接强度) 元组列表，按强度排序
         """
         connected = []
-        
+
         for pid, p in plots_dict.items():
             if pid in visited or pid == plot.id:
                 continue
-            
-            # Temporal connection (close in time)
+
+            # 时间连接（时间上接近）
             time_diff = abs(p.ts - plot.ts)
-            temporal_strength = math.exp(-time_diff / 3600.0)  # Decay over 1 hour
-            
-            # Semantic connection
+            temporal_strength = math.exp(-time_diff / 3600.0)  # 在1小时内衰减
+
+            # 语义连接
             semantic_strength = self.metric.sim(plot.embedding, p.embedding)
-            
-            # Story connection
+
+            # 故事连接
             story_strength = 1.0 if p.story_id == plot.story_id and plot.story_id else 0.0
-            
-            # Combined strength
+
+            # 组合强度
             strength = 0.3 * temporal_strength + 0.4 * semantic_strength + 0.3 * story_strength
-            
-            if strength > 0.2:  # Soft threshold
+
+            if strength > 0.2:  # 软阈值
                 connected.append((p, strength))
-        
-        # Sort by strength
+
+        # 按强度排序
         connected.sort(key=lambda x: x[1], reverse=True)
-        return connected[:5]  # Limit to top 5
+        return connected[:5]  # 限制前5个
 
 
 class TurningPointDetector:
-    """Dedicated detector for turning points in narratives.
-    
-    Provides alternative detection strategies that can be used
-    alongside or instead of the basic approach.
+    """用于叙事中转折点的专用检测器。
+
+    提供可与基本方法一起使用或代替基本方法的替代检测策略。
     """
-    
+
     def __init__(self, rng: np.random.Generator):
-        """Initialize the detector.
-        
-        Args:
-            rng: Random number generator
+        """初始化检测器。
+
+        参数：
+            rng: 随机数生成器
         """
         self.rng = rng
     
@@ -255,13 +254,13 @@ class TurningPointDetector:
         self,
         elements: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
-        """Identify turning points from narrative elements.
-        
-        Args:
-            elements: List of narrative element dicts with tension_level
-            
-        Returns:
-            List of elements identified as turning points
+        """从叙事元素识别转折点。
+
+        参数：
+            elements: 具有tension_level的叙事元素字典列表
+
+        返回：
+            被识别为转折点的元素列表
         """
         if len(elements) < 2:
             return []

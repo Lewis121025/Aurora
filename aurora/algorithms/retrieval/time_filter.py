@@ -1,15 +1,15 @@
 """
-AURORA Time Range Filter
+AURORA 时间范围过滤器
 ========================
 
-Time-aware query expansion for temporal reasoning optimization.
+用于时间推理优化的时间感知查询扩展。
 
-First Principles:
-- Temporal queries benefit from time range pre-filtering
-- Reduces search space by 40-60% for temporal queries
-- Improves temporal-reasoning accuracy by 7-11% (paper findings)
+第一性原理：
+- 时间查询受益于时间范围预过滤
+- 对时间查询的搜索空间减少 40-60%
+- 改进时间推理准确性 7-11%（论文发现）
 
-Core idea: Infer time range from query, filter candidates before semantic search.
+核心思想：从查询推断时间范围，在语义搜索前过滤候选项。
 """
 
 from __future__ import annotations
@@ -27,13 +27,13 @@ from aurora.algorithms.constants import (
 
 @dataclass
 class TimeRange:
-    """Time range specification for filtering candidates.
-    
-    Attributes:
-        start: Start timestamp (inclusive). None means no lower bound.
-        end: End timestamp (inclusive). None means no upper bound.
-        anchor_event: Optional event text to anchor the range
-        relation: Temporal relation type ("first", "last", "before", "after", "during", "any")
+    """用于过滤候选项的时间范围规范。
+
+    属性：
+        start: 开始时间戳（包含）。None 表示无下界。
+        end: 结束时间戳（包含）。None 表示无上界。
+        anchor_event: 可选的事件文本以锚定范围
+        relation: 时间关系类型（"first"、"last"、"before"、"after"、"during"、"any"）
     """
     start: Optional[float] = None  # timestamp
     end: Optional[float] = None
@@ -42,26 +42,25 @@ class TimeRange:
 
 
 class TimeRangeExtractor:
-    """Extract time range from query text for pre-filtering.
-    
-    This class implements time-aware query expansion by inferring temporal
-    constraints from natural language queries. The extracted time range is
-    used to filter candidates before expensive semantic search operations.
-    
-    Example:
+    """从查询文本中提取时间范围以进行预过滤。
+
+    该类通过从自然语言查询推断时间约束来实现时间感知查询扩展。
+    提取的时间范围用于在昂贵的语义搜索操作之前过滤候选项。
+
+    示例：
         >>> extractor = TimeRangeExtractor()
         >>> time_range = extractor.extract("最早学了什么？", events_timeline)
-        >>> # Returns TimeRange with relation="first", end=earliest_timestamp+86400
+        >>> # 返回 TimeRange，relation="first"，end=earliest_timestamp+86400
     """
-    
-    # Time anchor patterns (matching constants from field_retriever.py)
+
+    # 时间锚点模式（匹配 field_retriever.py 中的常量）
     ANCHOR_PATTERNS = {
         "first": list(EARLIEST_ANCHOR_KEYWORDS),
         "last": list(RECENT_ANCHOR_KEYWORDS),
         "span": list(SPAN_ANCHOR_KEYWORDS),
     }
-    
-    # Relative time patterns (days)
+
+    # 相对时间模式（天数）
     RELATIVE_PATTERNS = {
         "last_week": r"(last week|上周|上星期)",
         "last_month": r"(last month|上个月|上月)",
@@ -70,79 +69,79 @@ class TimeRangeExtractor:
     }
     
     def extract(
-        self, 
-        query: str, 
+        self,
+        query: str,
         events_timeline: Optional[List[Tuple[str, float]]] = None
     ) -> TimeRange:
-        """Extract time range from query text.
-        
-        Args:
-            query: Query text to analyze
-            events_timeline: Optional list of (event_text, timestamp) tuples
-                for anchor event resolution. If None, uses simple pattern matching.
-            
-        Returns:
-            TimeRange object with inferred temporal constraints
+        """从查询文本中提取时间范围。
+
+        参数：
+            query: 要分析的查询文本
+            events_timeline: 可选的 (event_text, timestamp) 元组列表
+                用于锚点事件解析。如果为 None，使用简单的模式匹配。
+
+        返回：
+            TimeRange 对象，包含推断的时间约束
         """
         query_lower = query.lower()
         events_timeline = events_timeline or []
-        
-        # Detect time relation from anchor patterns
+
+        # 从锚点模式检测时间关系
         for relation, keywords in self.ANCHOR_PATTERNS.items():
             for keyword in keywords:
                 if keyword in query_lower:
                     return self._resolve_anchor(query, relation, events_timeline)
-        
-        # Detect relative time patterns
+
+        # 检测相对时间模式
         for pattern_name, pattern in self.RELATIVE_PATTERNS.items():
             if re.search(pattern, query_lower, re.IGNORECASE):
                 return self._resolve_relative_time(pattern_name, events_timeline)
-        
-        # Default: no time constraint
+
+        # 默认：无时间约束
         return TimeRange(relation="any")
     
     def _resolve_anchor(
-        self, 
-        query: str, 
+        self,
+        query: str,
         relation: str,
         events_timeline: List[Tuple[str, float]]
     ) -> TimeRange:
-        """Resolve time anchor to specific time range.
-        
-        Args:
-            query: Original query text
-            relation: Detected relation ("first", "last", "span")
-            events_timeline: List of (event_text, timestamp) tuples
-            
-        Returns:
-            TimeRange with resolved start/end timestamps
+        """将时间锚点解析为特定的时间范围。
+
+        参数：
+            query: 原始查询文本
+            relation: 检测到的关系（"first"、"last"、"span"）
+            events_timeline: (event_text, timestamp) 元组列表
+
+        返回：
+            TimeRange，包含已解析的开始/结束时间戳
         """
         if not events_timeline:
-            # No timeline available, return relation-only range
+            # 没有可用的时间线，返回仅包含关系的范围
             return TimeRange(relation=relation)
-        
+
         timestamps = [ts for _, ts in events_timeline]
-        
+
         if relation == "first":
-            # Return earliest time period (first 24 hours)
+            # 返回最早的时间段（前 24 小时）
             earliest = min(timestamps)
             return TimeRange(
-                end=earliest + 86400,  # +1 day buffer
+                end=earliest + 86400,  # +1 天缓冲
                 relation="first"
             )
-        
+
         elif relation == "last":
-            # Return latest time period (last 24 hours)
+            # 返回最新的时间段（最后 24 小时）
             latest = max(timestamps)
             return TimeRange(
-                start=latest - 86400,  # -1 day buffer
+                start=latest - 86400,  # -1 天缓冲
                 relation="last"
             )
-        
+
         elif relation == "span":
-            # Span queries need full range (no filtering)
+            # 跨度查询需要完整范围（无过滤）
             return TimeRange(relation="span")
-        
+
         return TimeRange(relation=relation)
     
     def _resolve_relative_time(
@@ -150,88 +149,88 @@ class TimeRangeExtractor:
         pattern_name: str,
         events_timeline: List[Tuple[str, float]]
     ) -> TimeRange:
-        """Resolve relative time patterns (yesterday, last week, etc.).
-        
-        Args:
-            pattern_name: Detected pattern name
-            events_timeline: List of (event_text, timestamp) tuples
-            
-        Returns:
-            TimeRange with resolved relative time bounds
+        """解析相对时间模式（昨天、上周等）。
+
+        参数：
+            pattern_name: 检测到的模式名称
+            events_timeline: (event_text, timestamp) 元组列表
+
+        返回：
+            TimeRange，包含已解析的相对时间边界
         """
         if not events_timeline:
             return TimeRange(relation="any")
-        
-        # Get current time from latest event
+
+        # 从最新事件获取当前时间
         latest_ts = max(ts for _, ts in events_timeline)
-        
+
         if pattern_name == "yesterday":
-            # Yesterday = 24-48 hours ago
+            # 昨天 = 24-48 小时前
             start = latest_ts - 2 * 86400
             end = latest_ts - 86400
             return TimeRange(start=start, end=end, relation="during")
-        
+
         elif pattern_name == "today":
-            # Today = last 24 hours
+            # 今天 = 最后 24 小时
             return TimeRange(start=latest_ts - 86400, relation="during")
-        
+
         elif pattern_name == "last_week":
-            # Last week = 7-14 days ago
+            # 上周 = 7-14 天前
             start = latest_ts - 14 * 86400
             end = latest_ts - 7 * 86400
             return TimeRange(start=start, end=end, relation="during")
-        
+
         elif pattern_name == "last_month":
-            # Last month = 30-60 days ago
+            # 上月 = 30-60 天前
             start = latest_ts - 60 * 86400
             end = latest_ts - 30 * 86400
             return TimeRange(start=start, end=end, relation="during")
-        
+
         return TimeRange(relation="any")
     
     def filter_by_range(
         self,
         candidates: List[Tuple[str, float, float]],  # [(id, score, timestamp), ...]
         time_range: TimeRange,
-        get_timestamp: Optional[Callable[[str], float]] = None  # Function to get timestamp for a node ID
+        get_timestamp: Optional[Callable[[str], float]] = None  # 获取节点 ID 时间戳的函数
     ) -> List[Tuple[str, float, float]]:
-        """Filter candidates by time range.
-        
-        Args:
-            candidates: List of (id, score, timestamp) tuples
-            time_range: TimeRange to filter by
-            get_timestamp: Function to get timestamp for a node ID (fallback if not in tuple)
-            
-        Returns:
-            Filtered list of candidates within time range
+        """按时间范围过滤候选项。
+
+        参数：
+            candidates: (id, score, timestamp) 元组列表
+            time_range: 要过滤的 TimeRange
+            get_timestamp: 获取节点 ID 时间戳的函数（如果元组中没有则回退）
+
+        返回：
+            在时间范围内的过滤候选项列表
         """
         if time_range.relation == "any" or time_range.relation == "span":
-            # No filtering for "any" or "span" relations
+            # "any" 或 "span" 关系不进行过滤
             return candidates
-        
+
         filtered = []
         for item in candidates:
             if len(item) == 3:
                 cid, score, ts = item
             else:
-                # Fallback: get timestamp from function
+                # 回退：从函数获取时间戳
                 cid, score = item[0], item[1]
                 ts = get_timestamp(cid) if get_timestamp else 0.0
-            
-            # Apply time bounds
+
+            # 应用时间边界
             if time_range.start is not None and ts < time_range.start:
                 continue
             if time_range.end is not None and ts > time_range.end:
                 continue
-            
+
             filtered.append((cid, score, ts))
-        
-        # Sort by relation type
+
+        # 按关系类型排序
         if time_range.relation == "first":
-            # Sort ascending (earliest first)
+            # 升序排列（最早优先）
             filtered.sort(key=lambda x: x[2])
         elif time_range.relation == "last":
-            # Sort descending (latest first)
+            # 降序排列（最新优先）
             filtered.sort(key=lambda x: -x[2])
-        
+
         return filtered

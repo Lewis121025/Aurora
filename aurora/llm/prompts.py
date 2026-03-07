@@ -91,7 +91,7 @@ Return ContradictionJudgement JSON.
 
 
 # -----------------------------------------------------------------------------
-# Causal Inference Prompts
+# 因果推理提示
 # -----------------------------------------------------------------------------
 
 CAUSAL_RELATION_SYSTEM = (
@@ -148,7 +148,7 @@ Return CounterfactualQuery JSON with your reasoning.
 """
 
 # -----------------------------------------------------------------------------
-# Self-Narrative Prompts
+# 自我叙述提示
 # -----------------------------------------------------------------------------
 
 CAPABILITY_ASSESSMENT_SYSTEM = (
@@ -202,7 +202,7 @@ Generate a self-reflection. Return IdentityReflection JSON.
 """
 
 # -----------------------------------------------------------------------------
-# Coherence Prompts
+# 一致性提示
 # -----------------------------------------------------------------------------
 
 COHERENCE_CHECK_SYSTEM = (
@@ -358,19 +358,19 @@ Answer (be brief and specific):"""
 
 
 def detect_question_type(question: str, question_type_hint: Optional[str] = None) -> str:
-    """Detect question type from question text or use provided hint.
-    
-    Args:
-        question: The question text
-        question_type_hint: Optional explicit question type (e.g., from dataset)
-        
-    Returns:
-        Question type key for prompt template selection
+    """从问题文本或使用提供的提示检测问题类型。
+
+    参数：
+        question：问题文本
+        question_type_hint：可选的显式问题类型（例如，来自数据集）
+
+    返回：
+        用于提示模板选择的问题类型键
     """
-    # If explicit type is provided, use it (with normalization)
+    # 如果提供了显式类型，使用它（带规范化）
     if question_type_hint:
         hint_lower = question_type_hint.lower().replace('_', '-')
-        # Map common variations
+        # 映射常见变体
         if 'multi-session' in hint_lower or 'multisession' in hint_lower:
             return 'multi-session'
         if 'knowledge-update' in hint_lower or 'knowledgeupdate' in hint_lower:
@@ -383,12 +383,12 @@ def detect_question_type(question: str, question_type_hint: Optional[str] = None
             return 'single-session-assistant'
         if 'user' in hint_lower and 'single' in hint_lower:
             return 'single-session-user'
-    
-    # Auto-detect from question text
+
+    # 从问题文本自动检测
     question_lower = question.lower()
-    
-    # Check for multi-session/aggregation indicators
-    # These keywords indicate questions that need information from multiple sessions
+
+    # 检查多会话/聚合指示符
+    # 这些关键字表示需要来自多个会话的信息的问题
     aggregation_keywords = [
         'how many', 'how much', 'total', 'sum', 'count', 'all', 'every', 'each',
         'aggregate', 'combined', 'together', 'altogether', 'in total', 'in all',
@@ -396,8 +396,8 @@ def detect_question_type(question: str, question_type_hint: Optional[str] = None
     ]
     if any(kw in question_lower for kw in aggregation_keywords):
         return 'multi-session'
-    
-    # Check for temporal reasoning indicators
+
+    # 检查时间推理指示符
     temporal_keywords = [
         'first', 'last', 'earliest', 'latest', 'before', 'after',
         'when', 'time', 'date', 'then', 'previously', 'initially',
@@ -405,38 +405,38 @@ def detect_question_type(question: str, question_type_hint: Optional[str] = None
     ]
     if any(kw in question_lower for kw in temporal_keywords):
         return 'temporal-reasoning'
-    
-    # Check for knowledge update indicators
+
+    # 检查知识更新指示符
     update_keywords = [
         'current', 'now', 'latest', 'most recent', 'updated',
         'change', 'changed', 'new', 'newer'
     ]
     if any(kw in question_lower for kw in update_keywords):
         return 'knowledge-update'
-    
-    # Default to generic prompt
+
+    # 默认为通用提示
     return 'default'
 
 
 def _extract_question_keywords(question: str) -> list:
-    """Extract meaningful keywords from a question for matching.
-    
-    Args:
-        question: The question text
-        
-    Returns:
-        List of keyword strings (lowercase)
+    """从问题中提取有意义的关键字用于匹配。
+
+    参数：
+        question：问题文本
+
+    返回：
+        关键字字符串列表（小写）
     """
     from aurora.algorithms.constants import QUESTION_STOP_WORDS
-    
+
     question_lower = question.lower()
     words = []
     for w in question_lower.split():
-        # Clean punctuation
+        # 清理标点符号
         clean_w = w.strip('?.,!\'\"()[]{}:;')
         if len(clean_w) > 2 and clean_w not in QUESTION_STOP_WORDS:
             words.append(clean_w)
-    
+
     return words
 
 
@@ -447,52 +447,52 @@ def _extract_relevant_context(
     delimiter: str = '\n---\n',
     question_type: Optional[str] = None
 ) -> str:
-    """Extract most relevant parts of context based on question keywords.
-    
-    This uses a simple but effective strategy:
-    1. Split context into chunks (by delimiter)
-    2. Score each chunk by keyword overlap with question
-    3. Include highest-scoring chunks up to max_length
-    
-    Enhanced for single-session-user questions:
-    - Prioritizes chunks containing user statements
-    - Extracts more context around matching keywords
-    - Uses a higher max_length
-    
-    Args:
-        context: Full context string
-        question: Question to answer
-        max_length: Maximum output length
-        delimiter: Chunk delimiter in context
-        question_type: Optional question type hint for optimized extraction
-        
-    Returns:
-        Filtered context with most relevant chunks
+    """根据问题关键字提取上下文中最相关的部分。
+
+    这使用一个简单但有效的策略：
+    1. 按分隔符将上下文分割成块
+    2. 根据与问题的关键字重叠对每个块进行评分
+    3. 包括最高评分的块，直到达到 max_length
+
+    针对 single-session-user 问题的增强：
+    - 优先考虑包含用户陈述的块
+    - 提取匹配关键字周围的更多上下文
+    - 使用更高的 max_length
+
+    参数：
+        context：完整上下文字符串
+        question：要回答的问题
+        max_length：最大输出长度
+        delimiter：上下文中的块分隔符
+        question_type：可选的问题类型提示，用于优化提取
+
+    返回：
+        包含最相关块的过滤上下文
     """
     from aurora.algorithms.constants import (
         SINGLE_SESSION_USER_MAX_CONTEXT,
         USER_ROLE_PRIORITY_BOOST,
     )
-    
-    # For single-session-user, use longer context and special handling
+
+    # 对于 single-session-user，使用更长的上下文和特殊处理
     is_user_type = question_type and 'user' in question_type.lower() and 'single' in question_type.lower()
-    
-    # For single-session-preference, also use special handling
+
+    # 对于 single-session-preference，也使用特殊处理
     is_preference_type = question_type and 'preference' in question_type.lower()
-    
+
     if is_user_type or is_preference_type:
         max_length = max(max_length, SINGLE_SESSION_USER_MAX_CONTEXT)
-    
+
     if len(context) <= max_length:
         return context
-    
-    # Split into chunks
+
+    # 分割成块
     chunks = context.split(delimiter)
     if len(chunks) <= 1:
-        # No delimiter found, try line-based splitting
+        # 未找到分隔符，尝试基于行的分割
         lines = context.split('\n')
         if len(lines) > 20:
-            # Group lines into ~500 char chunks
+            # 将行分组为 ~500 字符的块
             chunks = []
             current_chunk = []
             current_len = 0
@@ -506,160 +506,160 @@ def _extract_relevant_context(
             if current_chunk:
                 chunks.append('\n'.join(current_chunk))
         else:
-            # Not enough lines to chunk, just truncate
+            # 行数不足以分块，只需截断
             return context[:max_length] + "\n[... context truncated ...]"
-    
-    # Extract keywords from question
+
+    # 从问题中提取关键字
     question_words = _extract_question_keywords(question)
-    
-    # Score each chunk
+
+    # 对每个块进行评分
     scored_chunks = []
     for i, chunk in enumerate(chunks):
         chunk_lower = chunk.lower()
         score = 0.0
-        
-        # Base score from keyword matches
+
+        # 来自关键字匹配的基础分数
         for word in question_words:
             if word in chunk_lower:
                 score += chunk_lower.count(word)
-        
-        # For single-session-user: boost user statements
+
+        # 对于 single-session-user：提升用户陈述
         if is_user_type:
-            # Check if chunk contains user statement markers
+            # 检查块是否包含用户陈述标记
             user_markers = ['user:', '用户:', 'user：', '用户：']
             for marker in user_markers:
                 if marker in chunk_lower:
-                    # Count user statements
+                    # 计算用户陈述数
                     user_count = chunk_lower.count(marker)
                     score += user_count * USER_ROLE_PRIORITY_BOOST * 10
                     break
-        
-        # For single-session-preference: boost chunks with user preferences
+
+        # 对于 single-session-preference：提升包含用户偏好的块
         if is_preference_type:
-            # Check for user statements
+            # 检查用户陈述
             user_markers = ['user:', '用户:', 'user：', '用户：']
             for marker in user_markers:
                 if marker in chunk_lower:
                     user_count = chunk_lower.count(marker)
                     score += user_count * USER_ROLE_PRIORITY_BOOST * 8
                     break
-            
-            # Boost chunks mentioning preferences, tools, or brands
+
+            # 提升提及偏好、工具或品牌的块
             preference_indicators = [
-                'i use', 'i prefer', "i'm using", 'my setup', 'i like', 
+                'i use', 'i prefer', "i'm using", 'my setup', 'i like',
                 'i enjoy', 'i have', 'compatible with', 'working with',
                 'learning', 'interested in', 'focusing on', 'specializing',
                 '我用', '我喜欢', '我的'
             ]
             for indicator in preference_indicators:
                 if indicator in chunk_lower:
-                    score += 5  # Boost preference-related content
-        
-        # Give slight preference to earlier chunks (recency bias)
-        # But not too much, since important info could be anywhere
+                    score += 5  # 提升偏好相关内容
+
+        # 对早期块给予轻微偏好（近期偏差）
+        # 但不要太多，因为重要信息可能在任何地方
         position_bonus = 0.1 * (1 - i / len(chunks))
         scored_chunks.append((chunk, score + position_bonus, i))
-    
-    # Sort by score (highest first), break ties by original position
+
+    # 按分数排序（最高优先），用原始位置打破平局
     scored_chunks.sort(key=lambda x: (-x[1], x[2]))
-    
-    # Build result by adding chunks until max_length
-    # If a chunk is too large, truncate it but still include the most relevant parts
+
+    # 通过添加块直到达到 max_length 来构建结果
+    # 如果块太大，截断它但仍包括最相关的部分
     selected = []
     total_len = 0
     for chunk, score, orig_idx in scored_chunks:
         remaining = max_length - total_len
         if remaining <= 100:
             break
-            
+
         if len(chunk) <= remaining:
-            # Chunk fits entirely
+            # 块完全适合
             selected.append((orig_idx, chunk))
             total_len += len(chunk) + len(delimiter)
         elif score > 0:
-            # Chunk too large but has relevant content - extract relevant parts
-            # Find lines containing question words and include surrounding context
+            # 块太大但有相关内容 - 提取相关部分
+            # 查找包含问题词的行并包括周围上下文
             lines = chunk.split('\n')
             relevant_lines = []
-            
-            # For single-session-user and preference, also mark user statement lines
+
+            # 对于 single-session-user 和 preference，也标记用户陈述行
             user_line_indices = set()
             if is_user_type or is_preference_type:
                 for j, line in enumerate(lines):
                     line_lower = line.lower()
                     if any(m in line_lower for m in ['user:', '用户:', 'user：', '用户：']):
                         user_line_indices.add(j)
-            
+
             for j, line in enumerate(lines):
                 line_lower = line.lower()
                 is_relevant = any(word in line_lower for word in question_words)
-                
-                # For user-type questions, also include all user statement lines
+
+                # 对于用户类型问题，也包括所有用户陈述行
                 if is_user_type and j in user_line_indices:
                     is_relevant = True
-                
-                # For preference questions, include user statements and preference indicators
+
+                # 对于偏好问题，包括用户陈述和偏好指示符
                 if is_preference_type and j in user_line_indices:
                     is_relevant = True
-                    
-                # Also check for preference indicators in preference questions
+
+                # 也检查偏好问题中的偏好指示符
                 if is_preference_type:
-                    pref_indicators = ['i use', 'i prefer', "i'm using", 'my setup', 'i like', 
+                    pref_indicators = ['i use', 'i prefer', "i'm using", 'my setup', 'i like',
                                        'compatible with', 'working with', 'learning', 'interested']
                     if any(ind in line_lower for ind in pref_indicators):
                         is_relevant = True
-                
+
                 if is_relevant:
-                    # Include this line and some context around it
-                    # For user-type and preference, include more context (3 lines vs 2)
+                    # 包括此行和周围的一些上下文
+                    # 对于用户类型和偏好，包括更多上下文（3 行 vs 2 行）
                     context_lines = 3 if (is_user_type or is_preference_type) else 2
                     start = max(0, j - context_lines)
                     end = min(len(lines), j + context_lines + 1)
                     for k in range(start, end):
                         if k not in [idx for idx, _ in relevant_lines]:
                             relevant_lines.append((k, lines[k]))
-            
+
             if relevant_lines:
-                # Sort by line index to maintain order
+                # 按行索引排序以保持顺序
                 relevant_lines.sort(key=lambda x: x[0])
                 extracted = '\n'.join(line for _, line in relevant_lines)
-                
-                # Truncate if still too long
+
+                # 如果仍然太长则截断
                 if len(extracted) > remaining - 50:
                     extracted = extracted[:remaining - 50] + "\n[...]"
-                
+
                 selected.append((orig_idx, extracted))
                 total_len += len(extracted) + len(delimiter)
-    
-    # Sort selected by original position to maintain coherence
+
+    # 按原始位置排序以保持一致性
     selected.sort(key=lambda x: x[0])
-    
-    # Join selected chunks
+
+    # 连接选定的块
     result = delimiter.join(chunk for _, chunk in selected)
-    
+
     if len(result) < len(context):
         result += f"\n[... {len(chunks) - len(selected)} context chunks omitted for brevity ...]"
-    
+
     return result
 
 
 def evaluate_preference_match(expected: str, answer: str) -> bool:
-    """Evaluate if answer matches preference expectation using key concept extraction.
-    
-    For preference questions, we need to match KEY CONCEPTS (brands, tools, topics)
-    rather than all words. Common words like "prefer", "user", "would" should be ignored.
-    
-    Args:
-        expected: Expected answer (e.g., "The user would prefer resources for Adobe Premiere Pro...")
-        answer: LLM's answer
-        
-    Returns:
-        True if key concepts match
+    """使用关键概念提取评估答案是否与偏好期望匹配。
+
+    对于偏好问题，我们需要匹配关键概念（品牌、工具、主题）
+    而不是所有单词。常见词如"prefer"、"user"、"would"应被忽略。
+
+    参数：
+        expected：预期答案（例如，"用户会更喜欢 Adobe Premiere Pro 的资源..."）
+        answer：LLM 的答案
+
+    返回：
+        如果关键概念匹配则为 True
     """
     expected_lower = expected.lower()
     answer_lower = answer.lower()
-    
-    # Common words to ignore (they appear in all preference answers)
+
+    # 要忽略的常见词（它们出现在所有偏好答案中）
     stop_words = {
         'the', 'user', 'would', 'prefer', 'responses', 'that', 'suggest', 'resources',
         'related', 'specifically', 'tailored', 'might', 'not', 'other', 'general',
@@ -670,59 +670,59 @@ def evaluate_preference_match(expected: str, answer: str) -> bool:
         'unrelated', 'involve', 'involving', 'recent', 'suggestions', 'equipment',
         'gear', 'quality', 'high', 'low', 'brands', 'brand', 'type', 'types'
     }
-    
-    # Extract key concepts: longer words that are likely proper nouns or technical terms
-    # Also look for multi-word phrases (capitalized sequences in original)
+
+    # 提取关键概念：可能是专有名词或技术术语的较长单词
+    # 也查找多词短语（原始文本中的大写序列）
     import re
-    
-    # Find potential proper nouns and technical terms (3+ chars, not stop words)
+
+    # 查找潜在的专有名词和技术术语（3+ 字符，非停用词）
     words = re.findall(r'\b[a-zA-Z][a-zA-Z0-9\-]+\b', expected)
     key_concepts = []
-    
+
     for word in words:
         word_lower = word.lower()
-        # Skip stop words and very short words
+        # 跳过停用词和非常短的单词
         if word_lower in stop_words or len(word) < 3:
             continue
-        # Technical terms and proper nouns are usually longer or have numbers
+        # 技术术语和专有名词通常较长或有大写字母
         if len(word) >= 4 or any(c.isupper() for c in word[1:]) or any(c.isdigit() for c in word):
             key_concepts.append(word_lower)
-    
-    # Also extract multi-word proper nouns (e.g., "Adobe Premiere Pro", "Sony A7R IV")
-    # Look for sequences of capitalized words in original
+
+    # 也提取多词专有名词（例如，"Adobe Premiere Pro"、"Sony A7R IV"）
+    # 查找原始文本中大写单词的序列
     proper_noun_pattern = r'\b([A-Z][a-zA-Z0-9]*(?:\s+[A-Z][a-zA-Z0-9]*)+)\b'
     multi_word_matches = re.findall(proper_noun_pattern, expected)
     for match in multi_word_matches:
         key_concepts.append(match.lower())
-    
-    # Deduplicate while preserving order
+
+    # 去重同时保持顺序
     seen = set()
     unique_concepts = []
     for c in key_concepts:
         if c not in seen:
             seen.add(c)
             unique_concepts.append(c)
-    
+
     if not unique_concepts:
-        # Fall back to regular keyword matching
+        # 回退到常规关键字匹配
         return expected_lower in answer_lower
-    
-    # Check how many key concepts are in the answer
+
+    # 检查有多少关键概念在答案中
     matched = 0
     for concept in unique_concepts:
         if concept in answer_lower:
             matched += 1
-    
-    # Require at least 40% of key concepts to match (more lenient threshold)
-    # For preference questions, matching the main tool/brand is enough
+
+    # 要求至少 40% 的关键概念匹配（更宽松的阈值）
+    # 对于偏好问题，匹配主要工具/品牌就足够了
     match_ratio = matched / len(unique_concepts) if unique_concepts else 0
-    
-    # Also check if answer follows the expected format
+
+    # 也检查答案是否遵循预期格式
     has_prefer_format = 'prefer' in answer_lower or 'would' in answer_lower or 'interest' in answer_lower
-    
-    # Match if either:
-    # 1. 40%+ key concepts match, or
-    # 2. At least one key concept matches AND answer uses preference language
+
+    # 匹配如果：
+    # 1. 40%+ 关键概念匹配，或
+    # 2. 至少一个关键概念匹配且答案使用偏好语言
     return match_ratio >= 0.4 or (matched >= 1 and has_prefer_format)
 
 
@@ -733,42 +733,41 @@ def build_qa_prompt(
     is_abstention: bool = False,
     max_context_length: int = 12000
 ) -> str:
-    """Build a question-answering prompt based on question type.
-    
-    This function uses intelligent context filtering to include the most
-    relevant parts of context based on question keywords, rather than
-    simple truncation which may discard critical information.
-    
-    Args:
-        question: The question to answer
-        context: Retrieved context from memory
-        question_type_hint: Optional explicit question type
-        is_abstention: Whether this is an abstention question
-        max_context_length: Maximum length of context to include (default 12000)
-        
-    Returns:
-        Formatted prompt string
+    """基于问题类型构建问答提示。
+
+    此函数使用智能上下文过滤来包括基于问题关键字最相关的部分，
+    而不是简单截断，这可能会丢弃关键信息。
+
+    参数：
+        question：要回答的问题
+        context：从内存检索的上下文
+        question_type_hint：可选的显式问题类型
+        is_abstention：这是否是弃权问题
+        max_context_length：要包括的最大上下文长度（默认 12000）
+
+    返回：
+        格式化的提示字符串
     """
-    # Detect question type
+    # 检测问题类型
     qtype = detect_question_type(question, question_type_hint)
-    
-    # Get template
+
+    # 获取模板
     template = QA_PROMPT_TEMPLATES.get(qtype, QA_PROMPT_TEMPLATES['default'])
-    
-    # Intelligently extract relevant context (not simple truncation)
-    # Pass question_type for type-specific extraction optimization
+
+    # 智能提取相关上下文（不是简单截断）
+    # 传递 question_type 以进行类型特定的提取优化
     filtered_context = _extract_relevant_context(
         context, question, max_context_length, question_type=qtype
     )
-    
-    # Build prompt
+
+    # 构建提示
     prompt = template.format(
         context=filtered_context,
         question=question
     )
-    
-    # Add abstention instruction if needed
+
+    # 如果需要，添加弃权指令
     if is_abstention:
         prompt += "\n\nIMPORTANT: If the information is not clearly available in the conversation history, respond with 'I don't know' rather than guessing."
-    
+
     return prompt

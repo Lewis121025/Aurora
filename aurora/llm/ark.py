@@ -1,9 +1,9 @@
 """
-火山方舟 (Volcengine Ark) LLM Provider
+火山方舟 (Volcengine Ark) LLM 提供者
 ======================================
 
-Production-ready LLM provider for AURORA memory system.
-Supports structured JSON output with retry and error handling.
+AURORA 内存系统的生产级 LLM 提供者。
+支持结构化 JSON 输出、重试和错误处理。
 """
 
 from __future__ import annotations
@@ -23,13 +23,13 @@ logger = logging.getLogger(__name__)
 
 
 class ArkLLM(LLMProvider):
-    """火山方舟 LLM provider with structured output support.
-    
-    Features:
-    - JSON schema constrained outputs
-    - Automatic retry with exponential backoff
-    - Token usage tracking
-    - Error handling and fallback
+    """火山方舟 LLM 提供者，支持结构化输出。
+
+    功能：
+    - JSON schema 约束输出
+    - 指数退避自动重试
+    - 令牌使用跟踪
+    - 错误处理和回退
     """
     
     def __init__(
@@ -49,7 +49,7 @@ class ArkLLM(LLMProvider):
         self._total_tokens_used = 0
         
     def _get_client(self):
-        """Lazy initialization of OpenAI client (Ark uses OpenAI-compatible API)."""
+        """OpenAI 客户端的延迟初始化（Ark 使用 OpenAI 兼容 API）。"""
         if self._client is None:
             try:
                 from openai import OpenAI
@@ -64,7 +64,7 @@ class ArkLLM(LLMProvider):
         return self._client
     
     def _build_json_schema(self, schema: Type[T]) -> Dict[str, Any]:
-        """Build JSON schema from Pydantic model for structured output."""
+        """从 Pydantic 模型构建 JSON schema 用于结构化输出。"""
         json_schema = schema.model_json_schema()
         return {
             "type": "json_schema",
@@ -86,19 +86,19 @@ class ArkLLM(LLMProvider):
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Generate text completion for the given prompt.
-        
-        Args:
-            prompt: The user prompt to complete
-            system: Optional system message
-            temperature: Sampling temperature (0.0-1.0)
-            max_tokens: Maximum tokens to generate
-            timeout_s: Request timeout in seconds
-            stop: Optional stop sequences
-            metadata: Optional request metadata
-            
-        Returns:
-            Generated text string
+        """为给定的提示生成文本补全。
+
+        参数：
+            prompt：要补全的用户提示
+            system：可选的系统消息
+            temperature：采样温度 (0.0-1.0)
+            max_tokens：要生成的最大令牌数
+            timeout_s：请求超时时间（秒）
+            stop：可选的停止序列
+            metadata：可选的请求元数据
+
+        返回：
+            生成的文本字符串
         """
         client = self._get_client()
         
@@ -121,8 +121,8 @@ class ArkLLM(LLMProvider):
                     kwargs["stop"] = stop
                 
                 response = client.chat.completions.create(**kwargs)
-                
-                # Track token usage
+
+                # 跟踪令牌使用情况
                 if hasattr(response, 'usage') and response.usage:
                     self._total_tokens_used += response.usage.total_tokens
                 
@@ -147,33 +147,33 @@ class ArkLLM(LLMProvider):
         timeout_s: float = 30.0,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> T:
-        """Complete with structured JSON output.
-        
-        Args:
-            system: System prompt
-            user: User prompt
-            schema: Pydantic model for response validation
-            temperature: Sampling temperature
-            timeout_s: Request timeout in seconds
-            metadata: Optional metadata for logging
-            
-        Returns:
-            Validated Pydantic model instance
+        """使用结构化 JSON 输出完成。
+
+        参数：
+            system：系统提示
+            user：用户提示
+            schema：用于响应验证的 Pydantic 模型
+            temperature：采样温度
+            timeout_s：请求超时时间（秒）
+            metadata：可选的日志记录元数据
+
+        返回：
+            验证的 Pydantic 模型实例
         """
         client = self._get_client()
-        
-        # Build a cleaner schema description for the prompt
+
+        # 从 Pydantic 模型构建更清晰的 schema 描述
         json_schema = schema.model_json_schema()
         required_fields = json_schema.get("required", [])
         properties = json_schema.get("properties", {})
-        
-        # Create a simplified schema hint
+
+        # 创建简化的 schema 提示
         schema_hint = {
-            k: v.get("type", v.get("anyOf", [{}])[0].get("type", "string")) 
+            k: v.get("type", v.get("anyOf", [{}])[0].get("type", "string"))
             for k, v in properties.items()
         }
-        
-        # Enhance prompt with strict JSON instructions
+
+        # 使用严格的 JSON 指令增强提示
         enhanced_system = (
             f"{system}\n\n"
             f"【重要】你必须严格按照以下JSON格式返回结果，不要添加任何额外的包装或解释：\n"
@@ -197,12 +197,12 @@ class ArkLLM(LLMProvider):
                 )
                 
                 content = response.choices[0].message.content
-                
-                # Track token usage
+
+                # 跟踪令牌使用情况
                 if hasattr(response, 'usage') and response.usage:
                     self._total_tokens_used += response.usage.total_tokens
-                
-                # Parse JSON with multiple strategies
+
+                # 使用多种策略解析 JSON
                 data = self._parse_json_response(content, schema)
                 
                 return schema.model_validate(data)
@@ -211,40 +211,40 @@ class ArkLLM(LLMProvider):
                 last_error = e
                 logger.warning(f"Attempt {attempt + 1}/{self.max_retries} failed: {e}")
                 if attempt < self.max_retries - 1:
-                    # Exponential backoff
+                    # 指数退避
                     sleep_time = (2 ** attempt) * 0.5
                     time.sleep(sleep_time)
         
         raise RuntimeError(f"All {self.max_retries} attempts failed. Last error: {last_error}")
     
     def _parse_json_response(self, content: str, schema: Type[T]) -> Dict[str, Any]:
-        """Parse JSON from LLM response with multiple fallback strategies."""
+        """使用多种回退策略从 LLM 响应解析 JSON。"""
         import re
-        
-        # Strategy 1: Direct parse
+
+        # 策略 1：直接解析
         try:
             data = json.loads(content)
-            # Check if data is wrapped in schema name
+            # 检查数据是否包装在 schema 名称中
             schema_name = schema.__name__
             if isinstance(data, dict):
                 if schema_name in data:
                     return data[schema_name]
-                # Check for common wrapper patterns
+                # 检查常见的包装模式
                 for key in list(data.keys()):
                     if key.lower() == schema_name.lower():
                         return data[key]
-                    # If only one key and it's a dict, unwrap it
+                    # 如果只有一个键且是字典，解包它
                     if len(data) == 1 and isinstance(data[key], dict):
                         inner = data[key]
-                        # Check if inner has required fields
+                        # 检查 inner 是否有必填字段
                         required = schema.model_json_schema().get("required", [])
                         if any(r in inner for r in required):
                             return inner
                 return data
         except json.JSONDecodeError:
             pass
-        
-        # Strategy 2: Extract from markdown code block
+
+        # 策略 2：从 markdown 代码块提取
         match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
         if match:
             try:
@@ -252,8 +252,8 @@ class ArkLLM(LLMProvider):
                 return self._unwrap_if_needed(data, schema)
             except json.JSONDecodeError:
                 pass
-        
-        # Strategy 3: Find JSON object in content
+
+        # 策略 3：在内容中查找 JSON 对象
         match = re.search(r'\{[\s\S]*\}', content)
         if match:
             try:
@@ -261,11 +261,11 @@ class ArkLLM(LLMProvider):
                 return self._unwrap_if_needed(data, schema)
             except json.JSONDecodeError:
                 pass
-        
+
         raise ValueError(f"Could not extract valid JSON from response: {content[:300]}")
     
     def _unwrap_if_needed(self, data: Dict[str, Any], schema: Type[T]) -> Dict[str, Any]:
-        """Unwrap nested data if wrapped in schema name."""
+        """如果包装在 schema 名称中，则解包嵌套数据。"""
         if not isinstance(data, dict):
             return data
         schema_name = schema.__name__
@@ -285,9 +285,9 @@ class ArkLLM(LLMProvider):
         max_tokens: int = 2048,
         timeout_s: float = 30.0,
     ) -> str:
-        """Complete with plain text output.
-        
-        Useful for free-form generation like summaries and narratives.
+        """使用纯文本输出完成。
+
+        适用于摘要和叙述等自由形式的生成。
         """
         client = self._get_client()
         
@@ -304,22 +304,22 @@ class ArkLLM(LLMProvider):
         
         if hasattr(response, 'usage') and response.usage:
             self._total_tokens_used += response.usage.total_tokens
-        
+
         return response.choices[0].message.content
-    
+
     @property
     def total_tokens_used(self) -> int:
-        """Total tokens used across all requests."""
+        """所有请求中使用的总令牌数。"""
         return self._total_tokens_used
-    
+
     def reset_token_counter(self) -> None:
-        """Reset the token counter."""
+        """重置令牌计数器。"""
         self._total_tokens_used = 0
 
 
 class ArkLLMWithFallback(LLMProvider):
-    """Ark LLM with MockLLM fallback for graceful degradation."""
-    
+    """Ark LLM 与 MockLLM 回退，用于优雅降级。"""
+
     def __init__(
         self,
         api_key: Optional[str] = None,
@@ -328,14 +328,14 @@ class ArkLLMWithFallback(LLMProvider):
     ):
         self._primary: Optional[ArkLLM] = None
         self._fallback = None
-        
+
         if api_key:
             try:
                 self._primary = ArkLLM(api_key=api_key, model=model, **kwargs)
             except Exception as e:
                 logger.warning(f"Failed to initialize ArkLLM: {e}")
-        
-        # Lazy import fallback
+
+        # 延迟导入回退
         from .mock import MockLLM
         self._fallback = MockLLM()
     
@@ -350,7 +350,7 @@ class ArkLLMWithFallback(LLMProvider):
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Generate text completion with fallback support."""
+        """使用回退支持生成文本补全。"""
         if self._primary:
             try:
                 return self._primary.complete(
@@ -364,7 +364,7 @@ class ArkLLMWithFallback(LLMProvider):
                 )
             except Exception as e:
                 logger.warning(f"Primary LLM complete() failed, using fallback: {e}")
-        
+
         return self._fallback.complete(
             prompt,
             system=system,

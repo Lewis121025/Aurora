@@ -1,5 +1,5 @@
 """
-Tests for AURORA Coherence Module
+AURORA 连贯性模块的测试
 """
 
 from __future__ import annotations

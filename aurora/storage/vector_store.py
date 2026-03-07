@@ -1,10 +1,10 @@
 """
-Vector Store Abstraction Layer
+向量存储抽象层
 ==============================
 
-Provides abstract interface for vector storage:
-- InMemoryVectorStore: Development/testing
-- PgvectorStore: Production PostgreSQL + pgvector with HNSW indexing
+提供向量存储的抽象接口：
+- InMemoryVectorStore：开发/测试
+- PgvectorStore：生产级 PostgreSQL + pgvector，带 HNSW 索引
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class VectorRecord:
-    """A vector record with metadata."""
+    """带有元数据的向量记录。"""
     id: str
     vector: np.ndarray
     kind: str
@@ -34,7 +34,7 @@ class VectorRecord:
 
 
 class VectorStore(ABC):
-    """Abstract vector store interface."""
+    """抽象向量存储接口。"""
     
     @abstractmethod
     async def add(
@@ -90,8 +90,8 @@ class VectorStore(ABC):
 
 
 class InMemoryVectorStore(VectorStore):
-    """In-memory vector store for development and testing."""
-    
+    """用于开发和测试的内存向量存储。"""
+
     def __init__(self, dim: int):
         self.dim = dim
         self._records: Dict[str, VectorRecord] = {}
@@ -120,7 +120,7 @@ class InMemoryVectorStore(VectorStore):
             for rec in records:
                 vec = rec.vector.astype(np.float32)
                 if vec.shape != (self.dim,):
-                    logger.warning(f"Skipping record {rec.id}: dimension mismatch")
+                    logger.warning(f"跳过记录 {rec.id}：维度不匹配")
                     continue
                 self._records[rec.id] = VectorRecord(
                     id=rec.id, vector=vec, kind=rec.kind, user_id=rec.user_id,
@@ -188,8 +188,8 @@ class InMemoryVectorStore(VectorStore):
 
 
 class PgvectorStore(VectorStore):
-    """PostgreSQL + pgvector production vector store with HNSW indexing."""
-    
+    """PostgreSQL + pgvector 生产级向量存储，带 HNSW 索引。"""
+
     def __init__(
         self,
         dsn: str,
@@ -202,7 +202,7 @@ class PgvectorStore(VectorStore):
         self.table_name = table_name
         self.pool_size = pool_size
         self._pool = None
-    
+
     async def _ensure_pool(self):
         if self._pool is None:
             try:
@@ -212,7 +212,7 @@ class PgvectorStore(VectorStore):
                 )
             except ImportError:
                 raise ImportError("asyncpg required. Install: pip install asyncpg")
-    
+
     async def _init_schema(self) -> None:
         await self._ensure_pool()
         async with self._pool.acquire() as conn:
@@ -228,12 +228,12 @@ class PgvectorStore(VectorStore):
                 )
             """)
             await conn.execute(f"""
-                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_hnsw 
-                ON {self.table_name} USING hnsw (embedding vector_cosine_ops) 
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_hnsw
+                ON {self.table_name} USING hnsw (embedding vector_cosine_ops)
                 WITH (m = 16, ef_construction = 64)
             """)
             await conn.execute(f"""
-                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_user_kind 
+                CREATE INDEX IF NOT EXISTS idx_{self.table_name}_user_kind
                 ON {self.table_name} (user_id, kind)
             """)
     
@@ -370,7 +370,7 @@ class PgvectorStore(VectorStore):
 
 
 def create_vector_store(backend: str = "memory", dim: int = 1024, **kwargs) -> VectorStore:
-    """Factory to create vector store."""
+    """用于创建向量存储的工厂函数。"""
     if backend == "memory":
         return InMemoryVectorStore(dim=dim)
     elif backend == "pgvector":

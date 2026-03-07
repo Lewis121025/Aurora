@@ -1,5 +1,5 @@
 """
-Tests for AURORA Causal Inference Module
+AURORA 因果推理模块的测试
 """
 
 from __future__ import annotations
