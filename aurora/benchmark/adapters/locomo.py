@@ -1,55 +1,55 @@
 """
-LOCOMO Benchmark Adapter
+LOCOMO 基准适配器
 ========================
 
-Adapter for LOCOMO (ACL 2024) - Long-term Conversation Memory benchmark.
+LOCOMO (ACL 2024) - 长期对话记忆基准的适配器。
 
-Dataset: GitHub `snap-research/locomo`
-- 32+ session conversations
-- ~300 turns per conversation, ~9000 tokens
-- Based on persona and temporal event graph
+数据集: GitHub `snap-research/locomo`
+- 32+ 个会话对话
+- 每个对话约 300 轮，约 9000 个 token
+- 基于角色和时间事件图
 
-Evaluation tasks:
-1. Question Answering (QA)
-   - Single-hop reasoning
-   - Multi-hop reasoning
-   - Temporal reasoning
-   - Commonsense reasoning
-   - World knowledge reasoning
+评估任务:
+1. 问答 (QA)
+   - 单跳推理
+   - 多跳推理
+   - 时间推理
+   - 常识推理
+   - 世界知识推理
 
-2. Event Summarization
-   - Generate coherent event summaries
-   - AURORA implementation: Story narrative + NarratorEngine
+2. 事件总结
+   - 生成连贯的事件摘要
+   - AURORA 实现: 故事叙述 + NarratorEngine
 
-3. Multimodal Dialogue (optional)
-   - Image sharing contexts
-   - Initial version can skip
+3. 多模态对话 (可选)
+   - 图像共享上下文
+   - 初始版本可跳过
 
-Design principles:
-- Zero hard-coded thresholds: Configurable evaluation parameters
-- Deterministic reproducibility: Seeded random operations
-- Complete type annotations
-- LLM-as-judge evaluation support
+设计原则:
+- 零硬编码阈值: 可配置的评估参数
+- 确定性可重现性: 有种子的随机操作
+- 完整的类型注解
+- LLM-as-judge 评估支持
 
-Usage:
+使用示例:
     from aurora.benchmark.adapters.locomo import LOCOMOAdapter, LOCOMOTaskType
     from aurora.algorithms.aurora_core import AuroraMemory
-    
+
     adapter = LOCOMOAdapter(llm_provider=my_llm)
     instances = adapter.load_dataset("path/to/locomo")
-    
+
     memory = AuroraMemory(seed=42)
     results = []
-    
+
     for instance in instances:
-        # Prepare memory with conversation history
+        # 使用对话历史准备内存
         adapter.prepare_memory(instance.conversation_history, memory)
-        
-        # Evaluate
+
+        # 评估
         result = adapter.evaluate(instance, memory)
         results.append(result)
-    
-    # Aggregate results by reasoning type
+
+    # 按推理类型聚合结果
     metrics = adapter.aggregate_results(results)
 """
 
@@ -95,14 +95,14 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 class LOCOMOReasoningType(Enum):
-    """Types of reasoning required for LOCOMO QA tasks.
-    
-    Each type tests different memory capabilities:
-    - SINGLE_HOP: Direct fact retrieval
-    - MULTI_HOP: Combining multiple facts
-    - TEMPORAL: Time-based reasoning
-    - COMMONSENSE: Common knowledge inference
-    - WORLD_KNOWLEDGE: External world knowledge
+    """LOCOMO QA 任务所需的推理类型。
+
+    每种类型测试不同的内存能力:
+    - SINGLE_HOP: 直接事实检索
+    - MULTI_HOP: 组合多个事实
+    - TEMPORAL: 基于时间的推理
+    - COMMONSENSE: 常识推理
+    - WORLD_KNOWLEDGE: 外部世界知识
     """
     SINGLE_HOP = "single_hop"
     MULTI_HOP = "multi_hop"
@@ -112,7 +112,7 @@ class LOCOMOReasoningType(Enum):
     
     @classmethod
     def from_string(cls, s: str) -> "LOCOMOReasoningType":
-        """Parse reasoning type from string."""
+        """从字符串解析推理类型。"""
         mapping = {
             "single-hop": cls.SINGLE_HOP,
             "single_hop": cls.SINGLE_HOP,
@@ -132,11 +132,11 @@ class LOCOMOReasoningType(Enum):
 
 
 class LOCOMOTaskType(Enum):
-    """Types of tasks in LOCOMO benchmark.
-    
-    QUESTION_ANSWERING: Answer questions about conversation history
-    EVENT_SUMMARIZATION: Generate coherent event summaries
-    DIALOGUE_GENERATION: Generate appropriate dialogue responses (optional)
+    """LOCOMO 基准中的任务类型。
+
+    QUESTION_ANSWERING: 回答关于对话历史的问题
+    EVENT_SUMMARIZATION: 生成连贯的事件摘要
+    DIALOGUE_GENERATION: 生成适当的对话响应 (可选)
     """
     QUESTION_ANSWERING = "qa"
     EVENT_SUMMARIZATION = "summarization"
@@ -144,7 +144,7 @@ class LOCOMOTaskType(Enum):
     
     @classmethod
     def from_string(cls, s: str) -> "LOCOMOTaskType":
-        """Parse task type from string."""
+        """从字符串解析任务类型。"""
         mapping = {
             "qa": cls.QUESTION_ANSWERING,
             "question_answering": cls.QUESTION_ANSWERING,
@@ -165,13 +165,13 @@ class LOCOMOTaskType(Enum):
 
 if PYDANTIC_AVAILABLE:
     class QAEvaluationResult(BaseModel):
-        """LLM-as-judge evaluation result for QA tasks."""
+        """QA 任务的 LLM-as-judge 评估结果。"""
         is_correct: bool = Field(description="Whether the answer is correct")
         score: float = Field(ge=0.0, le=1.0, description="Confidence score [0, 1]")
         explanation: str = Field(description="Brief explanation of the evaluation")
-        
+
     class SummarizationEvaluationResult(BaseModel):
-        """LLM-as-judge evaluation result for summarization tasks."""
+        """总结任务的 LLM-as-judge 评估结果。"""
         coherence_score: float = Field(ge=0.0, le=1.0, description="Coherence of summary")
         coverage_score: float = Field(ge=0.0, le=1.0, description="Coverage of key events")
         accuracy_score: float = Field(ge=0.0, le=1.0, description="Factual accuracy")
@@ -189,14 +189,14 @@ else:
 
 @dataclass
 class LOCOMOTurn:
-    """A single turn in a LOCOMO conversation.
-    
-    Attributes:
-        turn_id: Unique turn identifier
-        speaker: Speaker identifier (e.g., "user1", "user2")
-        text: Turn text content
-        timestamp: Optional timestamp
-        metadata: Additional turn metadata
+    """LOCOMO 对话中的单个轮次。
+
+    属性:
+        turn_id: 唯一的轮次标识符
+        speaker: 说话者标识符 (例如, "user1", "user2")
+        text: 轮次文本内容
+        timestamp: 可选的时间戳
+        metadata: 额外的轮次元数据
     """
     turn_id: str
     speaker: str
@@ -205,7 +205,7 @@ class LOCOMOTurn:
     metadata: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for memory ingestion."""
+        """转换为字典以供内存摄入。"""
         return {
             "id": self.turn_id,
             "speaker": self.speaker,
@@ -217,14 +217,14 @@ class LOCOMOTurn:
 
 @dataclass
 class LOCOMOSession:
-    """A LOCOMO conversation session.
-    
-    Attributes:
-        session_id: Unique session identifier
-        turns: List of conversation turns
-        personas: Persona information for participants
-        events: Temporal event graph
-        metadata: Session metadata
+    """LOCOMO 对话会话。
+
+    属性:
+        session_id: 唯一的会话标识符
+        turns: 对话轮次列表
+        personas: 参与者的角色信息
+        events: 时间事件图
+        metadata: 会话元数据
     """
     session_id: str
     turns: List[LOCOMOTurn]
@@ -235,15 +235,15 @@ class LOCOMOSession:
 
 @dataclass
 class LOCOMOQuestion:
-    """A LOCOMO evaluation question.
-    
-    Attributes:
-        question_id: Unique question identifier
-        session_id: Associated session
-        question: Question text
-        answer: Ground truth answer
-        reasoning_type: Type of reasoning required
-        evidence_turns: Turn IDs containing evidence
+    """LOCOMO 评估问题。
+
+    属性:
+        question_id: 唯一的问题标识符
+        session_id: 关联的会话
+        question: 问题文本
+        answer: 真实答案
+        reasoning_type: 所需的推理类型
+        evidence_turns: 包含证据的轮次 ID
     """
     question_id: str
     session_id: str
@@ -259,32 +259,32 @@ class LOCOMOQuestion:
 # =============================================================================
 
 class LOCOMOAdapter(BenchmarkAdapter):
-    """Adapter for LOCOMO benchmark evaluation.
-    
-    LOCOMO (Long-term Conversation Memory) is an ACL 2024 benchmark
-    designed to evaluate long-term dialogue memory systems.
-    
-    Key features:
-    - Multi-session dialogues with ~300 turns, ~9000 tokens
-    - Five reasoning types for QA evaluation
-    - Event summarization tasks
-    - Persona and temporal event graphs
-    
-    AURORA capability mapping:
-    - Accurate retrieval: query() + FieldRetriever
-    - Multi-hop reasoning: Graph traversal + attractor tracing
-    - Temporal reasoning: Story timeline + temporal edges
-    - Summarization: Story narrative + NarratorEngine
-    
-    Attributes:
-        llm: Optional LLM provider for LLM-as-judge evaluation
-        evaluation_method: Method for answer evaluation
-        use_narrator_for_summary: Whether to use NarratorEngine for summaries
-        
-    Usage:
+    """LOCOMO 基准评估适配器。
+
+    LOCOMO (长期对话记忆) 是一个 ACL 2024 基准，
+    旨在评估长期对话记忆系统。
+
+    主要特性:
+    - 多会话对话，约 300 轮，约 9000 个 token
+    - 五种推理类型用于 QA 评估
+    - 事件总结任务
+    - 角色和时间事件图
+
+    AURORA 能力映射:
+    - 准确检索: query() + FieldRetriever
+    - 多跳推理: 图遍历 + 吸引子追踪
+    - 时间推理: 故事时间线 + 时间边
+    - 总结: 故事叙述 + NarratorEngine
+
+    属性:
+        llm: 用于 LLM-as-judge 评估的可选 LLM 提供者
+        evaluation_method: 答案评估方法
+        use_narrator_for_summary: 是否使用 NarratorEngine 进行总结
+
+    使用示例:
         adapter = LOCOMOAdapter(llm_provider=my_llm)
         instances = adapter.load_dataset("path/to/locomo")
-        
+
         for instance in instances:
             result = adapter.evaluate(instance, memory)
     """
@@ -295,7 +295,7 @@ class LOCOMOAdapter(BenchmarkAdapter):
     
     @property
     def name(self) -> str:
-        """Return the benchmark name."""
+        """返回基准名称。"""
         return "LOCOMO"
     
     # Evaluation prompts
@@ -340,15 +340,15 @@ Respond with your evaluation."""
         f1_threshold: float = 0.5,
         fuzzy_threshold: float = 0.7,
     ):
-        """Initialize the LOCOMO adapter.
-        
-        Args:
-            llm_provider: Optional LLM provider for LLM-as-judge evaluation
-            seed: Random seed for reproducibility
-            evaluation_method: Method for evaluating predictions
-            use_narrator_for_summary: Whether to use NarratorEngine for summaries
-            f1_threshold: Threshold for F1-based correctness
-            fuzzy_threshold: Threshold for fuzzy matching
+        """初始化 LOCOMO 适配器。
+
+        参数:
+            llm_provider: 用于 LLM-as-judge 评估的可选 LLM 提供者
+            seed: 用于可重现性的随机种子
+            evaluation_method: 用于评估预测的方法
+            use_narrator_for_summary: 是否使用 NarratorEngine 进行总结
+            f1_threshold: F1 基础正确性的阈值
+            fuzzy_threshold: 模糊匹配的阈值
         """
         super().__init__(llm_provider=llm_provider, seed=seed)
         
@@ -377,20 +377,20 @@ Respond with your evaluation."""
         subset: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[BenchmarkInstance]:
-        """Load LOCOMO dataset from local path or remote source.
-        
-        Supports multiple data formats:
-        - JSON files with sessions and questions
-        - Directory containing session files
-        - GitHub repository URL (will download)
-        
-        Args:
-            path: Path to dataset (local or GitHub URL)
-            subset: Optional subset ("train", "test", "val", or reasoning type)
-            limit: Optional limit on number of instances
-            
-        Returns:
-            List of BenchmarkInstance objects
+        """从本地路径或远程源加载 LOCOMO 数据集。
+
+        支持多种数据格式:
+        - 包含会话和问题的 JSON 文件
+        - 包含会话文件的目录
+        - GitHub 仓库 URL (将下载)
+
+        参数:
+            path: 数据集路径 (本地或 GitHub URL)
+            subset: 可选子集 ("train", "test", "val", 或推理类型)
+            limit: 可选的实例数量限制
+
+        返回:
+            BenchmarkInstance 对象列表
         """
         logger.info(f"Loading LOCOMO dataset from {path}")
         
@@ -413,7 +413,7 @@ Respond with your evaluation."""
         subset: Optional[str],
         limit: Optional[int],
     ) -> List[BenchmarkInstance]:
-        """Load dataset from a single JSON file."""
+        """从单个 JSON 文件加载数据集。"""
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         
@@ -425,7 +425,7 @@ Respond with your evaluation."""
         subset: Optional[str],
         limit: Optional[int],
     ) -> List[BenchmarkInstance]:
-        """Load dataset from a directory of files."""
+        """从文件目录加载数据集。"""
         instances: List[BenchmarkInstance] = []
         
         # Look for standard LOCOMO file structure
@@ -466,9 +466,9 @@ Respond with your evaluation."""
         subset: Optional[str],
         limit: Optional[int],
     ) -> List[BenchmarkInstance]:
-        """Load dataset from GitHub repository.
-        
-        Note: Requires network access. Falls back to local cache if available.
+        """从 GitHub 仓库加载数据集。
+
+        注意: 需要网络访问。如果可用，将回退到本地缓存。
         """
         try:
             import urllib.request
@@ -515,7 +515,7 @@ Respond with your evaluation."""
         subset: Optional[str],
         limit: Optional[int],
     ) -> List[BenchmarkInstance]:
-        """Parse dataset JSON into BenchmarkInstance objects."""
+        """将数据集 JSON 解析为 BenchmarkInstance 对象。"""
         instances: List[BenchmarkInstance] = []
         
         # Parse sessions
@@ -601,7 +601,7 @@ Respond with your evaluation."""
         return instances
     
     def _parse_session(self, data: Dict[str, Any]) -> LOCOMOSession:
-        """Parse session data into LOCOMOSession object."""
+        """将会话数据解析为 LOCOMOSession 对象。"""
         session_id = data.get("session_id", data.get("dialogue_id", str(self.rng.integers(10000))))
         
         # Parse turns
@@ -641,7 +641,7 @@ Respond with your evaluation."""
         )
     
     def _parse_question(self, data: Dict[str, Any]) -> LOCOMOQuestion:
-        """Parse question data into LOCOMOQuestion object."""
+        """将问题数据解析为 LOCOMOQuestion 对象。"""
         reasoning_str = data.get("reasoning_type", data.get("type", data.get("category", "single_hop")))
         
         return LOCOMOQuestion(
@@ -658,15 +658,15 @@ Respond with your evaluation."""
         )
     
     def _parse_conversation(self, conversation: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Parse LOCOMO conversation format into list of turns.
-        
-        Handles various LOCOMO conversation formats.
-        
-        Args:
-            conversation: Raw conversation data
-            
-        Returns:
-            List of turn dictionaries
+        """将 LOCOMO 对话格式解析为轮次列表。
+
+        处理各种 LOCOMO 对话格式。
+
+        参数:
+            conversation: 原始对话数据
+
+        返回:
+            轮次字典列表
         """
         if isinstance(conversation, list):
             return conversation
@@ -697,14 +697,13 @@ Respond with your evaluation."""
         sessions: List[Dict[str, Any]],
         memory,
     ) -> None:
-        """Prepare memory from multiple conversation sessions.
-        
-        For LOCOMO's multi-session format, this ingests turns
-        with appropriate temporal and speaker context.
-        
-        Args:
-            sessions: List of session data
-            memory: AURORA memory instance
+        """从多个对话会话准备内存。
+
+        对于 LOCOMO 的多会话格式，这会摄入具有适当时间和说话者上下文的轮次。
+
+        参数:
+            sessions: 会话数据列表
+            memory: AURORA 内存实例
         """
         for session in sessions:
             session_id = session.get("session_id", session.get("dialogue_id"))
@@ -734,13 +733,13 @@ Respond with your evaluation."""
         conversation_history: List[Dict[str, Any]],
         memory,
     ) -> None:
-        """Prepare memory by ingesting conversation history.
-        
-        Overrides base implementation for LOCOMO-specific format.
-        
-        Args:
-            conversation_history: List of conversation turns
-            memory: AURORA memory instance
+        """通过摄入对话历史来准备内存。
+
+        覆盖基类实现以适应 LOCOMO 特定格式。
+
+        参数:
+            conversation_history: 对话轮次列表
+            memory: AURORA 内存实例
         """
         for turn in conversation_history:
             text = turn.get("text", turn.get("content", str(turn)))
@@ -770,17 +769,17 @@ Respond with your evaluation."""
         memory,
         **kwargs,
     ) -> BenchmarkResult:
-        """Evaluate a single benchmark instance.
-        
-        Routes to task-specific evaluation based on instance type.
-        
-        Args:
-            instance: The benchmark instance to evaluate
-            memory: AURORA memory instance
-            **kwargs: Additional evaluation parameters
-            
-        Returns:
-            BenchmarkResult with evaluation outcome
+        """评估单个基准实例。
+
+        根据实例类型路由到特定任务的评估。
+
+        参数:
+            instance: 要评估的基准实例
+            memory: AURORA 内存实例
+            **kwargs: 额外的评估参数
+
+        返回:
+            包含评估结果的 BenchmarkResult
         """
         task_type = LOCOMOTaskType.from_string(instance.task_type)
         
@@ -808,18 +807,18 @@ Respond with your evaluation."""
         memory,
         reasoning_type: LOCOMOReasoningType,
     ) -> BenchmarkResult:
-        """Evaluate question answering task.
-        
-        Uses AURORA's query system to retrieve relevant memories
-        and generates an answer based on retrieved context.
-        
-        Args:
-            instance: QA benchmark instance
-            memory: AURORA memory instance
-            reasoning_type: Type of reasoning required
-            
-        Returns:
-            BenchmarkResult with QA evaluation
+        """评估问答任务。
+
+        使用 AURORA 的查询系统检索相关记忆
+        并基于检索的上下文生成答案。
+
+        参数:
+            instance: QA 基准实例
+            memory: AURORA 内存实例
+            reasoning_type: 所需的推理类型
+
+        返回:
+            包含 QA 评估的 BenchmarkResult
         """
         start_time = time.perf_counter()
         reasoning_trace: List[str] = []
@@ -905,15 +904,15 @@ Respond with your evaluation."""
         context: List[str],
         reasoning_type: LOCOMOReasoningType,
     ) -> str:
-        """Generate QA answer using LLM.
-        
-        Args:
-            question: The question to answer
-            context: Retrieved context from memory
-            reasoning_type: Type of reasoning required
-            
-        Returns:
-            Generated answer string
+        """使用 LLM 生成 QA 答案。
+
+        参数:
+            question: 要回答的问题
+            context: 从内存检索的上下文
+            reasoning_type: 所需的推理类型
+
+        返回:
+            生成的答案字符串
         """
         if self.llm is None:
             return context[0] if context else ""
@@ -967,15 +966,15 @@ Be concise and answer directly."""
         ground_truth: str,
         question: str,
     ) -> Tuple[float, bool]:
-        """Evaluate QA answer against ground truth.
-        
-        Args:
-            prediction: Model's answer
-            ground_truth: Expected answer
-            question: Original question
-            
-        Returns:
-            Tuple of (score, is_correct)
+        """根据真实答案评估 QA 答案。
+
+        参数:
+            prediction: 模型的答案
+            ground_truth: 预期答案
+            question: 原始问题
+
+        返回:
+            (分数, 是否正确) 的元组
         """
         self._eval_stats["total_evals"] += 1
         
@@ -1028,17 +1027,17 @@ Be concise and answer directly."""
         instance: BenchmarkInstance,
         memory,
     ) -> BenchmarkResult:
-        """Evaluate event summarization task.
-        
-        Uses AURORA's NarratorEngine to generate story summaries
-        and compares against ground truth.
-        
-        Args:
-            instance: Summarization benchmark instance
-            memory: AURORA memory instance
-            
-        Returns:
-            BenchmarkResult with summarization evaluation
+        """评估事件总结任务。
+
+        使用 AURORA 的 NarratorEngine 生成故事摘要
+        并与真实答案进行比较。
+
+        参数:
+            instance: 总结基准实例
+            memory: AURORA 内存实例
+
+        返回:
+            包含总结评估的 BenchmarkResult
         """
         start_time = time.perf_counter()
         reasoning_trace: List[str] = []
@@ -1096,14 +1095,14 @@ Be concise and answer directly."""
         memory,
         instance: BenchmarkInstance,
     ) -> str:
-        """Generate summary using AURORA's NarratorEngine.
-        
-        Args:
-            memory: AURORA memory instance
-            instance: Benchmark instance
-            
-        Returns:
-            Generated summary text
+        """使用 AURORA 的 NarratorEngine 生成摘要。
+
+        参数:
+            memory: AURORA 内存实例
+            instance: 基准实例
+
+        返回:
+            生成的摘要文本
         """
         try:
             from aurora.algorithms.narrator import NarratorEngine
@@ -1143,14 +1142,14 @@ Be concise and answer directly."""
         memory,
         instance: BenchmarkInstance,
     ) -> str:
-        """Generate simple summary without NarratorEngine.
-        
-        Args:
-            memory: AURORA memory instance
-            instance: Benchmark instance
-            
-        Returns:
-            Generated summary text
+        """不使用 NarratorEngine 生成简单摘要。
+
+        参数:
+            memory: AURORA 内存实例
+            instance: 基准实例
+
+        返回:
+            生成的摘要文本
         """
         # Get story summaries
         summaries: List[str] = []
@@ -1178,14 +1177,14 @@ Be concise and answer directly."""
         prediction: str,
         ground_truth: str,
     ) -> Tuple[float, Dict[str, float]]:
-        """Evaluate summary against ground truth.
-        
-        Args:
-            prediction: Generated summary
-            ground_truth: Expected summary
-            
-        Returns:
-            Tuple of (overall_score, metrics_dict)
+        """根据真实答案评估摘要。
+
+        参数:
+            prediction: 生成的摘要
+            ground_truth: 预期摘要
+
+        返回:
+            (总体分数, 指标字典) 的元组
         """
         self._eval_stats["total_evals"] += 1
         
@@ -1241,14 +1240,14 @@ Be concise and answer directly."""
         instance: BenchmarkInstance,
         memory,
     ) -> BenchmarkResult:
-        """Evaluate dialogue generation task (optional).
-        
-        Args:
-            instance: Dialogue benchmark instance
-            memory: AURORA memory instance
-            
-        Returns:
-            BenchmarkResult with dialogue evaluation
+        """评估对话生成任务 (可选)。
+
+        参数:
+            instance: 对话基准实例
+            memory: AURORA 内存实例
+
+        返回:
+            包含对话评估的 BenchmarkResult
         """
         # Dialogue generation is optional for initial version
         # Implement basic response relevance evaluation
@@ -1309,19 +1308,19 @@ Be concise and answer directly."""
         self,
         results: List[BenchmarkResult],
     ) -> Dict[str, float]:
-        """Aggregate results with LOCOMO-specific breakdown.
-        
-        Provides metrics broken down by:
-        - Task type (QA, summarization, dialogue)
-        - Reasoning type (single-hop, multi-hop, temporal, etc.)
-        
-        Also returns an EvaluationMetrics object via get_evaluation_metrics().
-        
-        Args:
-            results: List of BenchmarkResult objects
-            
-        Returns:
-            Dict mapping metric names to values
+        """使用 LOCOMO 特定的分解聚合结果。
+
+        提供按以下方式分解的指标:
+        - 任务类型 (QA, 总结, 对话)
+        - 推理类型 (单跳, 多跳, 时间等)
+
+        也通过 get_evaluation_metrics() 返回 EvaluationMetrics 对象。
+
+        参数:
+            results: BenchmarkResult 对象列表
+
+        返回:
+            将指标名称映射到值的字典
         """
         if not results:
             return {"accuracy": 0.0, "mean_latency_ms": 0.0}
@@ -1384,13 +1383,13 @@ Be concise and answer directly."""
         return metrics
     
     def get_evaluation_metrics(self, results: Optional[List[BenchmarkResult]] = None) -> EvaluationMetrics:
-        """Get EvaluationMetrics object from results.
-        
-        Args:
-            results: List of results (uses last evaluated if None)
-            
-        Returns:
-            EvaluationMetrics object with detailed breakdown
+        """从结果获取 EvaluationMetrics 对象。
+
+        参数:
+            results: 结果列表 (如果为 None 则使用最后评估的)
+
+        返回:
+            具有详细分解的 EvaluationMetrics 对象
         """
         if results is None:
             results = getattr(self, '_last_results', [])
@@ -1434,10 +1433,10 @@ Be concise and answer directly."""
         )
     
     def get_evaluation_stats(self) -> Dict[str, int]:
-        """Get statistics about evaluation methods used.
-        
-        Returns:
-            Dictionary with evaluation statistics
+        """获取关于所使用评估方法的统计信息。
+
+        返回:
+            包含评估统计信息的字典
         """
         return dict(self._eval_stats)
 
@@ -1451,15 +1450,15 @@ def create_locomo_adapter(
     seed: int = 0,
     use_llm_judge: bool = True,
 ) -> LOCOMOAdapter:
-    """Factory function to create LOCOMO adapter.
-    
-    Args:
-        llm_provider: Optional LLM provider
-        seed: Random seed
-        use_llm_judge: Whether to use LLM-as-judge evaluation
-        
-    Returns:
-        Configured LOCOMOAdapter instance
+    """创建 LOCOMO 适配器的工厂函数。
+
+    参数:
+        llm_provider: 可选的 LLM 提供者
+        seed: 随机种子
+        use_llm_judge: 是否使用 LLM-as-judge 评估
+
+    返回:
+        配置好的 LOCOMOAdapter 实例
     """
     evaluation_method = (
         EvaluationMethod.LLM_JUDGE if use_llm_judge and llm_provider

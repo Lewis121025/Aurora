@@ -1,14 +1,14 @@
 """
-Tests for aurora/benchmark/adapters/locomo.py
+aurora/benchmark/adapters/locomo.py 的测试
 =============================================
 
-Tests the LOCOMO benchmark adapter:
-- Adapter initialization
-- Session parsing
-- Memory preparation from sessions
-- QA evaluation (single-hop, multi-hop, temporal)
-- Summarization evaluation
-- Results aggregation
+测试 LOCOMO 基准适配器：
+- 适配器初始化
+- 会话解析
+- 从会话准备内存
+- QA 评估（单跳、多跳、时间）
+- 总结评估
+- 结果聚合
 """
 
 from __future__ import annotations
@@ -96,7 +96,7 @@ MOCK_LOCOMO_QUESTIONS = [
 # =============================================================================
 
 class MockMemory:
-    """Mock AURORA memory for testing."""
+    """用于测试的模拟 AURORA 内存。"""
     
     def __init__(self):
         self.plots = {}
@@ -146,7 +146,7 @@ class MockMemory:
 
 
 class MockGraph:
-    """Mock graph for testing."""
+    """用于测试的模拟图。"""
     
     def __init__(self, plots):
         self._plots = plots
@@ -160,10 +160,10 @@ class MockGraph:
 # =============================================================================
 
 class TestAdapterInitialization:
-    """Tests for LOCOMOAdapter initialization."""
+    """LOCOMOAdapter 初始化的测试。"""
     
     def test_basic_initialization(self):
-        """Test basic adapter initialization."""
+        """测试基本适配器初始化。"""
         adapter = LOCOMOAdapter()
         
         assert adapter.name == "LOCOMO"
@@ -171,14 +171,14 @@ class TestAdapterInitialization:
         assert adapter.evaluation_method == EvaluationMethod.LLM_JUDGE
     
     def test_initialization_with_llm(self):
-        """Test initialization with LLM provider."""
+        """测试使用 LLM 提供者的初始化。"""
         mock_llm = MagicMock()
         adapter = LOCOMOAdapter(llm_provider=mock_llm)
         
         assert adapter.llm is mock_llm
     
     def test_initialization_with_seed(self):
-        """Test initialization with seed for reproducibility."""
+        """测试使用 seed 进行可重复初始化。"""
         adapter1 = LOCOMOAdapter(seed=42)
         adapter2 = LOCOMOAdapter(seed=42)
         
@@ -188,13 +188,13 @@ class TestAdapterInitialization:
         assert val1 == val2
     
     def test_initialization_with_evaluation_method(self):
-        """Test initialization with custom evaluation method."""
+        """测试使用自定义评估方法的初始化。"""
         adapter = LOCOMOAdapter(evaluation_method=EvaluationMethod.FUZZY)
         
         assert adapter.evaluation_method == EvaluationMethod.FUZZY
     
     def test_initialization_with_thresholds(self):
-        """Test initialization with custom thresholds."""
+        """测试使用自定义阈值的初始化。"""
         adapter = LOCOMOAdapter(
             f1_threshold=0.6,
             fuzzy_threshold=0.8,
@@ -204,14 +204,14 @@ class TestAdapterInitialization:
         assert adapter.fuzzy_threshold == 0.8
     
     def test_factory_function(self):
-        """Test create_locomo_adapter factory function."""
+        """测试 create_locomo_adapter 工厂函数。"""
         adapter = create_locomo_adapter(seed=42)
         
         assert isinstance(adapter, LOCOMOAdapter)
         assert adapter.evaluation_method == EvaluationMethod.FUZZY  # No LLM provided
     
     def test_factory_with_llm(self):
-        """Test factory function with LLM."""
+        """测试使用 LLM 的工厂函数。"""
         mock_llm = MagicMock()
         adapter = create_locomo_adapter(llm_provider=mock_llm, use_llm_judge=True)
         
@@ -223,10 +223,10 @@ class TestAdapterInitialization:
 # =============================================================================
 
 class TestParseSession:
-    """Tests for session parsing functionality."""
+    """会话解析功能的测试。"""
     
     def test_parse_basic_session(self):
-        """Test parsing basic session data."""
+        """测试解析基本会话数据。"""
         adapter = LOCOMOAdapter()
         
         session = adapter._parse_session(MOCK_LOCOMO_SESSION)
@@ -237,7 +237,7 @@ class TestParseSession:
         assert session.turns[0].text == "Hello, I'm Bob."
     
     def test_parse_session_with_metadata(self):
-        """Test parsing session with personas and events."""
+        """测试解析包含角色和事件的会话。"""
         adapter = LOCOMOAdapter()
         
         session = adapter._parse_session(MOCK_LOCOMO_SESSION_FULL)
@@ -248,7 +248,7 @@ class TestParseSession:
         assert len(session.events) == 2
     
     def test_parse_session_string_turns(self):
-        """Test parsing session with string turns."""
+        """测试解析字符串形式的会话轮次。"""
         adapter = LOCOMOAdapter()
         
         session_data = {
@@ -262,7 +262,7 @@ class TestParseSession:
         assert session.turns[0].text == "Hello"
     
     def test_locomo_turn_to_dict(self):
-        """Test LOCOMOTurn.to_dict() method."""
+        """测试 LOCOMOTurn.to_dict() 方法。"""
         turn = LOCOMOTurn(
             turn_id="turn_001",
             speaker="user",
@@ -284,10 +284,10 @@ class TestParseSession:
 # =============================================================================
 
 class TestPrepareMemoryFromSessions:
-    """Tests for memory preparation from LOCOMO sessions."""
+    """从 LOCOMO 会话准备内存的测试。"""
     
     def test_prepare_memory_basic(self):
-        """Test basic memory preparation from conversation history."""
+        """测试从对话历史进行基本内存准备。"""
         adapter = LOCOMOAdapter()
         memory = MockMemory()
         
@@ -302,7 +302,7 @@ class TestPrepareMemoryFromSessions:
         assert len(memory._ingested) == 2
     
     def test_prepare_memory_formats_user_turns(self):
-        """Test that user turns are formatted correctly."""
+        """测试用户轮次格式化正确。"""
         adapter = LOCOMOAdapter()
         memory = MockMemory()
         
@@ -316,7 +316,7 @@ class TestPrepareMemoryFromSessions:
         assert "用户" in memory._ingested[0] or "Hello" in memory._ingested[0]
     
     def test_prepare_memory_multiple_sessions(self):
-        """Test preparing memory from multiple sessions."""
+        """测试从多个会话准备内存。"""
         adapter = LOCOMOAdapter()
         memory = MockMemory()
         
@@ -341,10 +341,10 @@ class TestPrepareMemoryFromSessions:
 # =============================================================================
 
 class TestEvaluateQASingleHop:
-    """Tests for single-hop QA evaluation."""
+    """单跳 QA 评估的测试。"""
     
     def test_evaluate_single_hop_basic(self):
-        """Test basic single-hop QA evaluation."""
+        """测试基本单跳 QA 评估。"""
         adapter = LOCOMOAdapter(seed=42, evaluation_method=EvaluationMethod.FUZZY)
         memory = MockMemory()
         
@@ -370,7 +370,7 @@ class TestEvaluateQASingleHop:
         assert result.latency_ms >= 0
     
     def test_evaluate_single_hop_records_trace(self):
-        """Test that evaluation records reasoning trace."""
+        """测试评估记录推理轨迹。"""
         adapter = LOCOMOAdapter(seed=42, evaluation_method=EvaluationMethod.FUZZY)
         memory = MockMemory()
         
@@ -393,10 +393,10 @@ class TestEvaluateQASingleHop:
 # =============================================================================
 
 class TestEvaluateQAMultiHop:
-    """Tests for multi-hop QA evaluation."""
+    """多跳 QA 评估的测试。"""
     
     def test_evaluate_multi_hop_basic(self):
-        """Test basic multi-hop QA evaluation."""
+        """测试基本多跳 QA 评估。"""
         adapter = LOCOMOAdapter(seed=42, evaluation_method=EvaluationMethod.FUZZY)
         memory = MockMemory()
         
@@ -427,10 +427,10 @@ class TestEvaluateQAMultiHop:
 # =============================================================================
 
 class TestEvaluateQATemporal:
-    """Tests for temporal QA evaluation."""
+    """时间 QA 评估的测试。"""
     
     def test_evaluate_temporal_basic(self):
-        """Test basic temporal QA evaluation."""
+        """测试基本时间 QA 评估。"""
         adapter = LOCOMOAdapter(seed=42, evaluation_method=EvaluationMethod.FUZZY)
         memory = MockMemory()
         
@@ -457,10 +457,10 @@ class TestEvaluateQATemporal:
 # =============================================================================
 
 class TestEvaluateSummarization:
-    """Tests for event summarization evaluation."""
+    """事件总结评估的测试。"""
     
     def test_evaluate_summarization_basic(self):
-        """Test basic summarization evaluation."""
+        """测试基本总结评估。"""
         adapter = LOCOMOAdapter(
             seed=42, 
             evaluation_method=EvaluationMethod.FUZZY,
@@ -489,7 +489,7 @@ class TestEvaluateSummarization:
         assert result.task_type == "summarization"
     
     def test_evaluate_summarization_returns_metrics(self):
-        """Test that summarization returns evaluation metrics."""
+        """测试总结返回评估指标。"""
         adapter = LOCOMOAdapter(
             seed=42,
             evaluation_method=EvaluationMethod.FUZZY,
@@ -517,10 +517,10 @@ class TestEvaluateSummarization:
 # =============================================================================
 
 class TestAggregateResults:
-    """Tests for results aggregation."""
+    """结果聚合的测试。"""
     
     def test_aggregate_empty_results(self):
-        """Test aggregation with empty results."""
+        """测试空结果的聚合。"""
         adapter = LOCOMOAdapter()
         
         metrics = adapter.aggregate_results([])
@@ -529,7 +529,7 @@ class TestAggregateResults:
         assert metrics["mean_latency_ms"] == 0.0
     
     def test_aggregate_single_result(self):
-        """Test aggregation with single result."""
+        """测试单个结果的聚合。"""
         adapter = LOCOMOAdapter()
         
         results = [
@@ -550,7 +550,7 @@ class TestAggregateResults:
         assert metrics["accuracy"] == 1.0
     
     def test_aggregate_multiple_results(self):
-        """Test aggregation with multiple results."""
+        """测试多个结果的聚合。"""
         adapter = LOCOMOAdapter()
         
         results = [
@@ -587,7 +587,7 @@ class TestAggregateResults:
         assert 0.6 < metrics["accuracy"] < 0.7
     
     def test_aggregate_by_reasoning_type(self):
-        """Test aggregation includes reasoning type breakdown."""
+        """测试按推理类型的聚合。"""
         adapter = LOCOMOAdapter()
         
         results = [
@@ -623,7 +623,7 @@ class TestAggregateResults:
         assert metrics["qa_multi_hop_accuracy"] == 0.0  # 0/1 correct
     
     def test_aggregate_includes_latency_percentiles(self):
-        """Test that aggregation includes latency percentiles."""
+        """测试聚合包含延迟百分位数。"""
         adapter = LOCOMOAdapter()
         
         results = [
@@ -639,7 +639,7 @@ class TestAggregateResults:
         assert "p99_latency_ms" in metrics
     
     def test_get_evaluation_metrics_object(self):
-        """Test getting EvaluationMetrics object."""
+        """测试获取 EvaluationMetrics 对象。"""
         adapter = LOCOMOAdapter()
         
         results = [
@@ -668,10 +668,10 @@ class TestAggregateResults:
 # =============================================================================
 
 class TestLOCOMOReasoningType:
-    """Tests for LOCOMOReasoningType enum."""
+    """LOCOMOReasoningType 枚举的测试。"""
     
     def test_reasoning_type_values(self):
-        """Test reasoning type values."""
+        """测试推理类型值。"""
         assert LOCOMOReasoningType.SINGLE_HOP.value == "single_hop"
         assert LOCOMOReasoningType.MULTI_HOP.value == "multi_hop"
         assert LOCOMOReasoningType.TEMPORAL.value == "temporal"
@@ -688,7 +688,7 @@ class TestLOCOMOReasoningType:
         assert LOCOMOReasoningType.from_string("multi-hop") == LOCOMOReasoningType.MULTI_HOP
     
     def test_from_string_unknown_defaults(self):
-        """Test from_string returns single_hop for unknown."""
+        """测试 from_string 对未知值返回默认值。"""
         assert LOCOMOReasoningType.from_string("unknown") == LOCOMOReasoningType.SINGLE_HOP
 
 
@@ -697,16 +697,16 @@ class TestLOCOMOReasoningType:
 # =============================================================================
 
 class TestLOCOMOTaskType:
-    """Tests for LOCOMOTaskType enum."""
+    """LOCOMOTaskType 枚举的测试。"""
     
     def test_task_type_values(self):
-        """Test task type values."""
+        """测试任务类型值。"""
         assert LOCOMOTaskType.QUESTION_ANSWERING.value == "qa"
         assert LOCOMOTaskType.EVENT_SUMMARIZATION.value == "summarization"
         assert LOCOMOTaskType.DIALOGUE_GENERATION.value == "dialogue"
     
     def test_from_string_variations(self):
-        """Test from_string handles variations."""
+        """测试 from_string 处理变体。"""
         assert LOCOMOTaskType.from_string("qa") == LOCOMOTaskType.QUESTION_ANSWERING
         assert LOCOMOTaskType.from_string("question_answering") == LOCOMOTaskType.QUESTION_ANSWERING
         
@@ -719,10 +719,10 @@ class TestLOCOMOTaskType:
 # =============================================================================
 
 class TestDatasetLoading:
-    """Tests for dataset loading functionality."""
+    """数据集加载功能的测试。"""
     
     def test_load_from_json_file(self, tmp_path):
-        """Test loading from a JSON file."""
+        """测试从 JSON 文件加载。"""
         adapter = LOCOMOAdapter()
         
         # Create test data
@@ -741,7 +741,7 @@ class TestDatasetLoading:
         assert instances[0].id == "q_001"
     
     def test_load_from_directory(self, tmp_path):
-        """Test loading from a directory with split files."""
+        """测试从包含分割文件的目录加载。"""
         adapter = LOCOMOAdapter()
         
         # Create sessions file
@@ -758,7 +758,7 @@ class TestDatasetLoading:
         assert len(instances) == 2
     
     def test_load_with_subset_filter(self, tmp_path):
-        """Test loading with reasoning type filter."""
+        """测试使用推理类型过滤加载。"""
         adapter = LOCOMOAdapter()
         
         test_data = {
@@ -777,7 +777,7 @@ class TestDatasetLoading:
         assert instances[0].reasoning_type == "single_hop"
     
     def test_load_with_limit(self, tmp_path):
-        """Test loading with instance limit."""
+        """测试使用实例限制加载。"""
         adapter = LOCOMOAdapter()
         
         test_data = {
@@ -794,7 +794,7 @@ class TestDatasetLoading:
         assert len(instances) == 1
     
     def test_load_includes_summarization_tasks(self, tmp_path):
-        """Test that loading includes summarization tasks."""
+        """测试加载包含总结任务。"""
         adapter = LOCOMOAdapter()
         
         test_data = {
@@ -825,10 +825,10 @@ class TestDatasetLoading:
 # =============================================================================
 
 class TestEvaluationStats:
-    """Tests for evaluation statistics tracking."""
+    """评估统计跟踪的测试。"""
     
     def test_get_evaluation_stats(self):
-        """Test getting evaluation statistics."""
+        """测试获取评估统计。"""
         adapter = LOCOMOAdapter(evaluation_method=EvaluationMethod.FUZZY)
         
         stats = adapter.get_evaluation_stats()
@@ -838,7 +838,7 @@ class TestEvaluationStats:
         assert "fallback_evals" in stats
     
     def test_stats_increment_after_evaluation(self):
-        """Test that stats increment after evaluation."""
+        """测试评估后统计增加。"""
         adapter = LOCOMOAdapter(
             seed=42,
             evaluation_method=EvaluationMethod.FUZZY,
@@ -868,10 +868,10 @@ class TestEvaluationStats:
 # =============================================================================
 
 class TestErrorHandling:
-    """Tests for error handling in evaluation."""
+    """评估中错误处理的测试。"""
     
     def test_evaluate_handles_memory_error(self):
-        """Test that evaluation handles memory errors gracefully."""
+        """测试评估优雅处理内存错误。"""
         adapter = LOCOMOAdapter(seed=42, evaluation_method=EvaluationMethod.FUZZY)
         
         # Create a memory that raises errors
@@ -896,7 +896,7 @@ class TestErrorHandling:
         assert result.error_message is not None
     
     def test_load_nonexistent_file(self):
-        """Test loading non-existent file raises error."""
+        """测试加载不存在的文件抛出错误。"""
         adapter = LOCOMOAdapter()
         
         with pytest.raises(FileNotFoundError):
