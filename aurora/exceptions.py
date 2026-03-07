@@ -1,22 +1,22 @@
-"""AURORA Custom Exceptions.
+"""AURORA 自定义异常。
 
-This module defines a hierarchy of custom exceptions for the AURORA memory system.
-All exceptions inherit from AuroraError to allow broad catching when needed.
+该模块为 AURORA 内存系统定义了一个自定义异常的层次结构。
+所有异常都继承自 AuroraError，以便在需要时进行广泛的捕获。
 """
 
 
 class AuroraError(Exception):
-    """Base exception for all AURORA errors."""
+    """所有 AURORA 错误的基础异常。"""
 
     pass
 
 
 class MemoryNotFoundError(AuroraError):
-    """Memory element (Plot, Story, Theme) not found.
+    """内存元素（Plot、Story、Theme）未找到。
 
     Args:
-        kind: Type of memory element ('plot', 'story', 'theme')
-        element_id: The ID that was not found
+        kind: 内存元素的类型（'plot'、'story'、'theme'）
+        element_id: 未找到的 ID
     """
 
     def __init__(self, kind: str, element_id: str):
@@ -26,36 +26,36 @@ class MemoryNotFoundError(AuroraError):
 
 
 class ConfigurationError(AuroraError):
-    """Invalid configuration."""
+    """无效的配置。"""
 
     pass
 
 
 class SerializationError(AuroraError):
-    """Serialization or deserialization failed."""
+    """序列化或反序列化失败。"""
 
     pass
 
 
 class EmbeddingError(AuroraError):
-    """Embedding generation failed."""
+    """Embedding 生成失败。"""
 
     pass
 
 
 class LLMError(AuroraError):
-    """LLM call failed."""
+    """LLM 调用失败。"""
 
     pass
 
 
 class StorageError(AuroraError):
-    """Storage operation failed."""
+    """存储操作失败。"""
 
     pass
 
 
 class ValidationError(AuroraError):
-    """Input validation failed."""
+    """输入验证失败。"""
 
     pass
