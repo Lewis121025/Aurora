@@ -1,13 +1,13 @@
 """
-AURORA Tension Manager Tests
+AURORA 张力管理器测试
 ============================
 
-Tests for the TensionManager component.
+TensionManager 组件的测试。
 
-Tests cover:
-- Tension detection between elements
-- Tension classification (action_blocking, identity_threatening, adaptive, developmental)
-- Tension resolution strategies
+测试覆盖：
+- 元素䭋间的张力检测
+- 张力分类（action_blocking, identity_threatening, adaptive, developmental）
+- 张力解决策略
 """
 
 from __future__ import annotations
@@ -21,13 +21,13 @@ from aurora.utils.time_utils import now_ts
 
 @pytest.fixture
 def tension_manager() -> TensionManager:
-    """Create a TensionManager instance."""
+    """创建一个TensionManager实例。"""
     return TensionManager(seed=42)
 
 
 @pytest.fixture
 def sample_element_a() -> dict:
-    """Create sample element A."""
+    """创建示例元素A。"""
     return {
         "id": "plot_001",
         "type": "plot",
@@ -37,7 +37,7 @@ def sample_element_a() -> dict:
 
 @pytest.fixture
 def sample_element_b() -> dict:
-    """Create sample element B with contradiction."""
+    """创建有矛盾期的示例元素B。"""
     return {
         "id": "plot_002",
         "type": "plot",
@@ -47,7 +47,7 @@ def sample_element_b() -> dict:
 
 @pytest.fixture
 def sample_element_c() -> dict:
-    """Create sample element C without contradiction."""
+    """创建不有矛盾期的示例元素C。"""
     return {
         "id": "plot_003",
         "type": "plot",
@@ -56,33 +56,33 @@ def sample_element_c() -> dict:
 
 
 class TestTensionDetection:
-    """Tests for tension detection."""
+    """张力检测的测试。"""
     
     def test_detect_tension_logical_contradiction(
         self, tension_manager, sample_element_a, sample_element_b
     ):
-        """Test detection of logical contradiction."""
+        """测试逻辑矛盾的检测。"""
         tension = tension_manager.detect_tension(
             sample_element_a, sample_element_b
         )
         
-        # Should detect tension due to "应该" vs "不应该"
+        # 应检测到"应该"vs"不应该"引起的张力
         assert tension is not None
         assert "矛盾" in tension.description
     
     def test_detect_no_tension(
         self, tension_manager, sample_element_a, sample_element_c
     ):
-        """Test no tension detected for non-contradictory elements."""
+        """测试对于非矛盾的元素不检测到张力。"""
         tension = tension_manager.detect_tension(
             sample_element_a, sample_element_c
         )
         
-        # No obvious contradiction
+        # 没有明显的矛盾
         assert tension is None
     
     def test_detect_tension_with_embeddings(self, tension_manager):
-        """Test tension detection with semantic embeddings."""
+        """测试使用语义嵌入的张力检测。"""
         rng = np.random.default_rng(42)
         
         emb_a = rng.standard_normal(64).astype(np.float32)

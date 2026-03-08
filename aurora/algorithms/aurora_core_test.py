@@ -1,15 +1,15 @@
 """
-AURORA Core Tests
+AURORA 核心测试
 =================
 
-Tests for the AuroraMemory core class.
+AuroraMemory 核心类的测试。
 
-Tests cover:
-- Ingest with relationship-centric processing
-- Query with identity activation
-- Feedback and learning
-- Evolution and consolidation
-- Serialization and deserialization
+测试覆盖：
+- 使用以关系为中心的处理进行摄入
+- 使用身份激活进行查询
+- 反馈和学习
+- 演化和合并
+- 序列化和反序列化
 """
 
 from __future__ import annotations
@@ -23,10 +23,10 @@ from aurora.exceptions import MemoryNotFoundError, ValidationError
 
 
 class TestAuroraMemoryIngest:
-    """Tests for AuroraMemory.ingest() method."""
+    """AuroraMemory.ingest() 方法的测试。"""
     
     def test_ingest_creates_plot(self, aurora_memory: AuroraMemory):
-        """Test that ingest creates a plot with proper structure."""
+        """测试 ingest 会创建有正确结构的情节。"""
         plot = aurora_memory.ingest(
             "用户：你好！助理：你好，有什么可以帮你的？",
             actors=("user", "assistant"),
@@ -39,19 +39,19 @@ class TestAuroraMemoryIngest:
         assert plot.embedding.shape == (64,)
     
     def test_ingest_extracts_relational_context(self, aurora_memory: AuroraMemory):
-        """Test that ingest extracts relational context."""
+        """测试 ingest 会提取关系上下文。"""
         plot = aurora_memory.ingest(
             "用户：帮我解释一下递归。助理：递归是函数调用自身的过程。",
             actors=("user", "assistant"),
         )
         
-        # Plot may or may not be stored (probabilistic), but should have relational context
+        # 情节可能不会被存储（概率性），但应该有关系上下文
         assert plot.relational is not None
         assert plot.relational.with_whom == "user"
         assert plot.relational.my_role_in_relation is not None
     
     def test_ingest_computes_signals(self, aurora_memory: AuroraMemory):
-        """Test that ingest computes all signal values."""
+        """测试 ingest 计算所有信号值。"""
         plot = aurora_memory.ingest(
             "用户：这是一个测试。助理：好的。",
             actors=("user", "assistant"),
@@ -64,54 +64,54 @@ class TestAuroraMemoryIngest:
         assert hasattr(plot, 'tension')
     
     def test_ingest_updates_kde(self, aurora_memory: AuroraMemory):
-        """Test that ingest updates the KDE density estimator."""
+        """测试 ingest 更新 KDE 密度估计业。"""
         initial_count = len(aurora_memory.kde._vecs)
         
-        aurora_memory.ingest("用户：测试1。助理：收到。", actors=("user", "assistant"))
-        aurora_memory.ingest("用户：测试2。助理：收到。", actors=("user", "assistant"))
-        aurora_memory.ingest("用户：测试3。助理：收到。", actors=("user", "assistant"))
+        aurora_memory.ingest("用户：测试f1。助理：接到。", actors=("user", "assistant"))
+        aurora_memory.ingest("用户：测试2。助理：接到。", actors=("user", "assistant"))
+        aurora_memory.ingest("用户：测试3。助理：接到。", actors=("user", "assistant"))
         
-        # KDE should be updated regardless of storage decision
+        # 无论是否做出存储决定，KDE 都应该更新
         assert len(aurora_memory.kde._vecs) >= initial_count
     
     def test_ingest_with_context(self, aurora_memory: AuroraMemory):
-        """Test ingest with context text affects goal relevance."""
+        """测试带有上下文文本的 ingest 会影响目标相关性。"""
         plot = aurora_memory.ingest(
             "用户：帮我写一个排序算法。助理：好的，我来帮你实现。",
             actors=("user", "assistant"),
             context_text="编程任务",
         )
         
-        # Goal relevance should be computed when context is provided
+        # 提供上下文时应该计算目标相关性
         assert plot.goal_relevance >= 0
     
     def test_ingest_creates_relationship_story(self, aurora_memory: AuroraMemory):
-        """Test that repeated interactions create a relationship story."""
-        # Ingest multiple interactions with same user
+        """测试重复与同一用户的互动会创建关系故事。"""
+        # 与同一用户进行多次互动
         for i in range(5):
             aurora_memory.ingest(
-                f"用户：问题{i}。助理：回答{i}。",
+                f"用户：问題{i}。助理：回答{i}。",
                 actors=("user", "assistant"),
             )
         
-        # Should have created relationship story if plots were stored
+        # 如果情节被存储，应该创建关系故事
         if aurora_memory.plots:
             relationship_story = aurora_memory.get_relationship_story("user")
-            # May or may not exist depending on storage decisions
+            # 可能存在也可能不存在，取决于存储决定
             if relationship_story:
                 assert relationship_story.relationship_with == "user"
 
 
 class TestAuroraMemoryIngestBatch:
-    """Tests for AuroraMemory.ingest_batch() method."""
+    """AuroraMemory.ingest_batch() 方法的测试。"""
     
     def test_ingest_batch_empty(self, aurora_memory: AuroraMemory):
-        """Test that ingest_batch handles empty input."""
+        """测试 ingest_batch 处理空输入。"""
         plots = aurora_memory.ingest_batch([])
         assert plots == []
     
     def test_ingest_batch_creates_plots(self, aurora_memory: AuroraMemory):
-        """Test that ingest_batch creates plots for all inputs."""
+        """测试 ingest_batch 为所有输入创建情节。"""
         interactions = [
             {"text": "用户：你好！助理：你好，有什么可以帮你的？"},
             {"text": "用户：帮我解释递归。助理：递归是函数调用自身。"},
@@ -127,7 +127,7 @@ class TestAuroraMemoryIngestBatch:
             assert plot.embedding is not None
     
     def test_ingest_batch_with_actors(self, aurora_memory: AuroraMemory):
-        """Test that ingest_batch handles custom actors."""
+        """测试 ingest_batch 处理自定义演员。"""
         interactions = [
             {"text": "Alice: Hi Bob!", "actors": ("Alice", "Bob")},
             {"text": "Bob: Hello Alice!", "actors": ("Bob", "Alice")},
@@ -140,7 +140,7 @@ class TestAuroraMemoryIngestBatch:
         assert plots[1].actors == ("Bob", "Alice")
     
     def test_ingest_batch_with_context(self, aurora_memory: AuroraMemory):
-        """Test that ingest_batch handles context_text."""
+        """测试 ingest_batch 处理 context_text。"""
         interactions = [
             {"text": "用户：帮我写排序算法", "context_text": "编程任务"},
             {"text": "用户：天气怎么样", "context_text": "闲聊"},
@@ -149,12 +149,12 @@ class TestAuroraMemoryIngestBatch:
         plots = aurora_memory.ingest_batch(interactions)
         
         assert len(plots) == 2
-        # Goal relevance should be computed when context is provided
+        # 提供上下文时应该计算目标相关性
         for plot in plots:
             assert plot.goal_relevance >= 0
     
     def test_ingest_batch_with_event_ids(self, aurora_memory: AuroraMemory):
-        """Test that ingest_batch supports deterministic event_ids."""
+        """测试 ingest_batch 支持确定性的 event_ids。"""
         interactions = [
             {"text": "测试1", "event_id": "batch-evt-001"},
             {"text": "测试2", "event_id": "batch-evt-002"},
@@ -163,8 +163,8 @@ class TestAuroraMemoryIngestBatch:
         plots = aurora_memory.ingest_batch(interactions)
         
         assert len(plots) == 2
-        # IDs should be deterministic (same event_id -> same plot.id)
-        # Run again and verify same IDs
+        # ID 应该是确定性的（相同的 event_id -> 相同的 plot.id）
+        # 再次运行并验证相同的 ID
         from aurora.algorithms.aurora_core import AuroraMemory as AM
         from aurora.algorithms.models.config import MemoryConfig as MC
         mem2 = AM(cfg=MC(dim=64, max_plots=100), seed=42)
@@ -173,18 +173,18 @@ class TestAuroraMemoryIngestBatch:
         assert plots[1].id == plots2[1].id
     
     def test_ingest_batch_updates_kde(self, aurora_memory: AuroraMemory):
-        """Test that ingest_batch updates KDE for all plots."""
+        """测试 ingest_batch 更新所有情节的 KDE。"""
         initial_count = len(aurora_memory.kde._vecs)
         
-        interactions = [{"text": f"测试交互 {i}"} for i in range(10)]
+        interactions = [{"文本": f"测试互动 {i}"} for i in range(10)]
         aurora_memory.ingest_batch(interactions)
         
-        # KDE should be updated regardless of storage decision
+        # 无论是否做出存储决定，KDE 都应该更新
         assert len(aurora_memory.kde._vecs) >= initial_count
     
     def test_ingest_batch_progress_callback(self, aurora_memory: AuroraMemory):
-        """Test that progress callback is called correctly."""
-        interactions = [{"text": f"测试 {i}"} for i in range(5)]
+        """测试进度回调是否被正确调用。"""
+        interactions = [{"文本": f"测试 {i}"} for i in range(5)]
         
         progress_calls = []
         def callback(current, total, plot):
@@ -199,29 +199,29 @@ class TestAuroraMemoryIngestBatch:
             assert plot_id == plots[i].id
     
     def test_ingest_batch_validates_empty_text(self, aurora_memory: AuroraMemory):
-        """Test that ingest_batch validates empty text."""
+        """测试 ingest_batch 验证空文本。"""
         interactions = [
-            {"text": "valid text"},
-            {"text": ""},  # Invalid
-            {"text": "another valid"},
+            {"文本": "有效怎女"},
+            {"文本": ""},  # 无效
+            {"文本": "另一个有效"},
         ]
         
         with pytest.raises(ValidationError):
             aurora_memory.ingest_batch(interactions)
     
     def test_ingest_batch_determinism(self):
-        """Test that batch ingest is deterministic with same seed."""
+        """测试使用相同種子的批餅摄入是确定性的。"""
         cfg = MemoryConfig(dim=64, max_plots=100)
         interactions = [
             {"text": f"测试交互 {i}", "event_id": f"evt-{i}"} 
             for i in range(10)
         ]
         
-        # First run
+        # 使用相同種子的第一次运行
         mem1 = AuroraMemory(cfg=cfg, seed=42)
         plots1 = mem1.ingest_batch(interactions)
         
-        # Second run with same seed
+        # 使用相同種子的第二次运行
         mem2 = AuroraMemory(cfg=cfg, seed=42)
         plots2 = mem2.ingest_batch(interactions)
         
@@ -232,19 +232,19 @@ class TestAuroraMemoryIngestBatch:
             assert np.allclose(p1.embedding, p2.embedding)
     
     def test_ingest_batch_benchmark_mode(self):
-        """Test that benchmark_mode stores all plots."""
+        """测试 benchmark_mode 会存储所有情节。"""
         cfg = MemoryConfig(dim=64, max_plots=1000)
         mem = AuroraMemory(cfg=cfg, seed=42, benchmark_mode=True)
         
         interactions = [{"text": f"测试交互 {i}"} for i in range(20)]
         plots = mem.ingest_batch(interactions)
         
-        # In benchmark mode, all plots should be stored
+        # 在 benchmark 模式下，所有情节都应该被存储
         stored_count = sum(1 for p in plots if p.id in mem.plots)
         assert stored_count == 20
     
     def test_ingest_batch_with_date(self, aurora_memory: AuroraMemory):
-        """Test that ingest_batch handles date field correctly."""
+        """测试 ingest_batch 正确处理日期一欽。"""
         interactions = [
             {"text": "User: Hello", "date": "2023/01/08 (Sun) 12:04"},
             {"text": "User: I went hiking", "date": "2023/01/09 (Mon) 09:30"},
@@ -254,57 +254,57 @@ class TestAuroraMemoryIngestBatch:
         plots = aurora_memory.ingest_batch(interactions)
         
         assert len(plots) == 3
-        # First two should have date prefix
+        # 前两个应该带有日期前缀
         assert plots[0].text == "[2023/01/08 (Sun) 12:04] User: Hello"
         assert plots[1].text == "[2023/01/09 (Mon) 09:30] User: I went hiking"
-        # Third should be unchanged
+        # 第三个应该保持不变
         assert plots[2].text == "User: No date here"
     
     def test_ingest_batch_date_affects_embedding(self):
-        """Test that date prefix affects embedding for time-aware retrieval."""
+        """测试日期前缀对底体幻桂会造成不同的幻桂。"""
         cfg = MemoryConfig(dim=64, max_plots=100)
         mem = AuroraMemory(cfg=cfg, seed=42, benchmark_mode=True)
         
-        # Same text, different dates should produce different embeddings
+        # 相同的文本，不同的日期应该产生不同的幻桂
         interactions_with_dates = [
-            {"text": "User: I went to the park", "date": "2023/01/08 (Sun)"},
-            {"text": "User: I went to the park", "date": "2023/06/15 (Thu)"},
+            {"文本": "用户：我去了公园", "date": "2023/01/08 (Sun)"},
+            {"文本": "用户：我去了公园", "date": "2023/06/15 (Thu)"},
         ]
         plots = mem.ingest_batch(interactions_with_dates)
         
-        # Texts should be different due to date prefix
+        # 由於日期前缀的原因，文本应该不同
         assert plots[0].text != plots[1].text
         assert "2023/01/08" in plots[0].text
         assert "2023/06/15" in plots[1].text
     
     def test_ingest_batch_date_backward_compatible(self, aurora_memory: AuroraMemory):
-        """Test that date field is optional and backward compatible."""
-        # Existing code that doesn't use date field should still work
+        """测试日期不子是可选的且与代码向后兼容。"""
+        # 没有使用日期不子的旧代码应该仍然正常工作
         interactions = [
-            {"text": "用户：你好", "actors": ("user", "assistant")},
-            {"text": "用户：再见", "context_text": "闲聊"},
+            {"文本": "用户：你好", "actors": ("user", "assistant")},
+            {"文本": "用户：再觑", "context_text": "闲聂"},
         ]
         
         plots = aurora_memory.ingest_batch(interactions)
         
         assert len(plots) == 2
-        # Without date field, text should be unchanged
+        # 没有日期不子时，文本应该保持不变
         assert plots[0].text == "用户：你好"
         assert plots[1].text == "用户：再见"
     
     def test_ingest_batch_equivalent_to_serial(self):
-        """Test that batch ingest produces same results as serial ingest."""
+        """测试批摄入会产生与序列摄入相同的结果。"""
         cfg = MemoryConfig(dim=64, max_plots=100)
         interactions = [
             {"text": "用户：你好", "actors": ("user", "assistant"), "event_id": "evt-1"},
             {"text": "用户：再见", "actors": ("user", "assistant"), "event_id": "evt-2"},
         ]
         
-        # Batch ingest
+        # 批摄入
         mem_batch = AuroraMemory(cfg=cfg, seed=42, benchmark_mode=True)
         plots_batch = mem_batch.ingest_batch(interactions)
         
-        # Serial ingest
+        # 序列摄入
         mem_serial = AuroraMemory(cfg=cfg, seed=42, benchmark_mode=True)
         plots_serial = [
             mem_serial.ingest(
@@ -315,7 +315,7 @@ class TestAuroraMemoryIngestBatch:
             for item in interactions
         ]
         
-        # Should produce identical results
+        # 应会产生相同的结果
         assert len(plots_batch) == len(plots_serial)
         for pb, ps in zip(plots_batch, plots_serial):
             assert pb.id == ps.id
@@ -324,10 +324,10 @@ class TestAuroraMemoryIngestBatch:
 
 
 class TestAuroraMemoryQuery:
-    """Tests for AuroraMemory.query() method."""
+    """AuroraMemory.query() 方法的测试。"""
     
     def test_query_returns_trace(self, populated_memory: AuroraMemory):
-        """Test that query returns a proper RetrievalTrace."""
+        """测试 query 返回正常的 RetrievalTrace。"""
         trace = populated_memory.query("递归是什么？", k=3)
         
         assert trace is not None
@@ -336,7 +336,7 @@ class TestAuroraMemoryQuery:
         assert len(trace.query_emb) == 64
     
     def test_query_with_asker_id(self, populated_memory: AuroraMemory):
-        """Test query with asker_id activates relationship context."""
+        """测试使用 asker_id 的 query 会激活关系上下文。"""
         trace = populated_memory.query(
             "帮我解释一下",
             k=3,
@@ -346,7 +346,7 @@ class TestAuroraMemoryQuery:
         assert trace.asker_id == "user"
     
     def test_query_updates_access_stats(self, populated_memory: AuroraMemory):
-        """Test that query updates access statistics on retrieved items."""
+        """测试 query 会更新检索项目的访问统计。"""
         if not populated_memory.plots:
             pytest.skip("No plots stored")
         
@@ -368,10 +368,10 @@ class TestAuroraMemoryQuery:
 
 
 class TestAuroraMemoryFeedback:
-    """Tests for AuroraMemory.feedback_retrieval() method."""
+    """AuroraMemory.feedback_retrieval() 方法的测试。"""
     
     def test_feedback_positive(self, populated_memory: AuroraMemory):
-        """Test positive feedback updates beliefs."""
+        """测试积极反馈会更新信念。"""
         if not populated_memory.plots:
             pytest.skip("No plots stored")
         
@@ -386,7 +386,7 @@ class TestAuroraMemoryFeedback:
         )
     
     def test_feedback_negative(self, populated_memory: AuroraMemory):
-        """Test negative feedback updates beliefs."""
+        """测试消极反馈会更新信念。"""
         if not populated_memory.plots:
             pytest.skip("No plots stored")
         
@@ -401,34 +401,34 @@ class TestAuroraMemoryFeedback:
 
 
 class TestAuroraMemoryEvolution:
-    """Tests for AuroraMemory.evolve() method."""
+    """AuroraMemory.evolve() 方法的测试。"""
     
     def test_evolve_runs_without_error(self, populated_memory: AuroraMemory):
-        """Test that evolve() runs without errors."""
+        """测试 evolve() 是否能不出错地运行。"""
         # Should not raise
         populated_memory.evolve()
     
     def test_evolve_updates_story_statuses(self, populated_memory: AuroraMemory):
-        """Test that evolve may update story statuses."""
+        """测试 evolve 是否会更新故事状态。"""
         # Run multiple evolution cycles
         for _ in range(3):
             populated_memory.evolve()
         
-        # Check stories exist and have valid statuses
+        # 检查故事是否存在且具有有效的状态
         for story in populated_memory.stories.values():
             assert story.status in ("developing", "resolved", "abandoned")
     
     def test_evolve_handles_empty_memory(self, aurora_memory: AuroraMemory):
-        """Test that evolve handles empty memory gracefully."""
-        # Should not raise on empty memory
+        """测试 evolve 是否能正常处理空内存。"""
+        # 不应该屆空的内存把字或不檤
         aurora_memory.evolve()
 
 
 class TestAuroraMemorySerialization:
-    """Tests for AuroraMemory serialization."""
+    """AuroraMemory 序列化的测试。"""
     
     def test_to_state_dict(self, populated_memory: AuroraMemory):
-        """Test serialization to state dict."""
+        """测试序列化为状态字典。"""
         state = populated_memory.to_state_dict()
         
         assert "version" in state
@@ -438,22 +438,22 @@ class TestAuroraMemorySerialization:
         assert "themes" in state
     
     def test_from_state_dict(self, populated_memory: AuroraMemory):
-        """Test deserialization from state dict."""
-        # Serialize
+        """测试从状态字典反序列化。"""
+        # 序列化
         state = populated_memory.to_state_dict()
         
-        # Deserialize
+        # 反序列化
         restored = AuroraMemory.from_state_dict(state)
         
         assert len(restored.plots) == len(populated_memory.plots)
         assert len(restored.stories) == len(populated_memory.stories)
     
     def test_round_trip_preserves_data(self, populated_memory: AuroraMemory):
-        """Test that serialization round-trip preserves data."""
+        """测试序列化往返过程是否能保留数据。"""
         state = populated_memory.to_state_dict()
         restored = AuroraMemory.from_state_dict(state)
         
-        # Check plots are preserved
+        # 检查情节是否被保留
         for pid, plot in populated_memory.plots.items():
             assert pid in restored.plots
             restored_plot = restored.plots[pid]
@@ -462,10 +462,10 @@ class TestAuroraMemorySerialization:
 
 
 class TestAuroraMemoryIdentity:
-    """Tests for identity-related functionality."""
+    """u8eab份相关功能的测试。"""
     
     def test_get_identity_summary(self, populated_memory: AuroraMemory):
-        """Test getting identity summary."""
+        """测试获取身份汇总。"""
         summary = populated_memory.get_identity_summary()
         
         assert "identity_dimensions" in summary
@@ -474,29 +474,29 @@ class TestAuroraMemoryIdentity:
         assert "total_interactions" in summary
     
     def test_identity_dimensions_accumulate(self, aurora_memory: AuroraMemory):
-        """Test that identity dimensions accumulate over time."""
-        # Ingest interactions that reinforce identity
+        """测试身份维度在一段時間内的累积。"""
+        # 攻入加增身份的互动
         for i in range(10):
             aurora_memory.ingest(
-                f"用户：帮我解释问题{i}。助理：好的，让我来解释。",
+                f"用户：帮我解餇问题{i}。助理：好的，让我来解餇。",
                 actors=("user", "assistant"),
             )
         
-        # Identity dimensions should have some values
-        # (may be empty if no plots were stored)
+        # 身份维度应该有一些值
+        # （如果没有情节被存储，可能为int）
         summary = aurora_memory.get_identity_summary()
         assert isinstance(summary["identity_dimensions"], dict)
 
 
 class TestAuroraMemoryPressure:
-    """Tests for memory pressure management."""
+    """u5185存压力管理的测试。"""
     
     def test_pressure_manage_respects_capacity(self):
-        """Test that pressure management respects max_plots."""
+        """测试压力管理是否会遵守最大情节数的限制。"""
         config = MemoryConfig(dim=64, max_plots=10)
         memory = AuroraMemory(cfg=config, seed=42)
         
-        # Ingest many interactions
+        # 摄入许多互动
         for i in range(30):
             memory.ingest(
                 f"用户：测试{i}。助理：收到{i}。",

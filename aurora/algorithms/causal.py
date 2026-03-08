@@ -1,15 +1,15 @@
 """
-AURORA Causal Inference Module
+AURORA 因果推理模块
 ==============================
 
-Causal reasoning without hard-coded thresholds.
-All causal judgments are probabilistic and learned from data.
+没有硬上限的因果理由。
+所有因果判断都是概率性的且是一透过从数据中学习的。
 
-Key components:
-- CausalEdgeBelief: Extended edge with causal direction/strength posteriors
-- CausalDiscovery: Infer causal direction from observational data
-- InterventionEngine: do-calculus implementation
-- CounterfactualReasoner: "What if" queries
+核心组件：
+- CausalEdgeBelief: 擴展邊界且符有因果方向/強度後驗
+- CausalDiscovery: 从观察数据推断因果方向
+- InterventionEngine: do-演算法實現
+- CounterfactualReasoner: "平失輸並"查詢
 """
 
 from __future__ import annotations
@@ -37,43 +37,43 @@ from aurora.utils.time_utils import now_ts
 
 @dataclass
 class CausalEdgeBelief(EdgeBelief):
-    """Extended EdgeBelief with causal inference capabilities.
+    """扩展的EdgeBelief，具有因果推理功能。
     
-    All causal properties are Beta posteriors - no thresholds.
+    所有因果属性都是Beta后验 - 没有10上限。
     """
-    # Causal direction belief: P(source→target) = dir_a / (dir_a + dir_b)
+    # 因果方向信念: P(source→target) = dir_a / (dir_a + dir_b)
     dir_a: float = 1.0
     dir_b: float = 1.0
     
-    # Causal strength posterior
+    # 因果强度后验
     str_a: float = 1.0
     str_b: float = 1.0
     
-    # Confounding probability: P(∃ common cause)
+    # 混淆概率: P(存在共同原因)
     conf_a: float = 1.0
-    conf_b: float = 9.0  # Prior: low confounding probability
+    conf_b: float = 9.0  # 先验: 低混淆概率
     
-    # Causal mechanism embedding (for generalization)
+    # 因果机制嵌入 (用于泛化)
     mechanism_emb: Optional[np.ndarray] = None
     
-    # Evidence counts
+    # 证据计数
     intervention_count: int = 0
     observation_count: int = 0
     
     def direction_belief(self) -> float:
-        """P(source → target)"""
+        """P(source -> target)"""
         return self.dir_a / (self.dir_a + self.dir_b)
     
     def causal_strength(self) -> float:
-        """Expected causal strength"""
+        """预期的因果强度"""
         return self.str_a / (self.str_a + self.str_b)
     
     def confound_prob(self) -> float:
-        """P(exists confounding factor)"""
+        """P(存在混淆因素)"""
         return self.conf_a / (self.conf_a + self.conf_b)
     
     def effective_causal_weight(self) -> float:
-        """Effective weight = direction × strength × (1 - confound)"""
+        """有效权重 = 方向 x 强度 x (1 - 混淆)"""
         return (
             self.direction_belief() *
             self.causal_strength() *
@@ -81,12 +81,12 @@ class CausalEdgeBelief(EdgeBelief):
         )
     
     def sample_direction(self, rng: np.random.Generator) -> bool:
-        """Thompson sampling for causal direction"""
+        """Thompson采样因果方向"""
         sampled = rng.beta(self.dir_a, self.dir_b)
         return sampled > 0.5
     
     def update_direction_evidence(self, forward: bool, weight: float = 1.0) -> None:
-        """Update direction belief with new evidence"""
+        """用新证据更新方向信念"""
         if forward:
             self.dir_a += weight
         else:
@@ -94,17 +94,17 @@ class CausalEdgeBelief(EdgeBelief):
         self.observation_count += 1
     
     def update_intervention_evidence(self, effect_observed: bool, weight: float = 1.0) -> None:
-        """Update strength belief from intervention results"""
+        """从干预策略结果更新强度信念"""
         if effect_observed:
             self.str_a += weight
         else:
             self.str_b += weight
         self.intervention_count += 1
-        # Interventions reduce confounding uncertainty
+        # 干预减少混淆不确定性
         self.conf_b += 0.5 * weight
     
     def update_confound_evidence(self, confound_detected: bool, weight: float = 1.0) -> None:
-        """Update confounding belief"""
+        """更新混淆信念"""
         if confound_detected:
             self.conf_a += weight
         else:

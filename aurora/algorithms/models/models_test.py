@@ -1,14 +1,14 @@
 """
-AURORA Data Models Tests
+AURORA 数据模型测试
 ========================
 
-Tests for the core data models in aurora.algorithms.models.
+auroraalgoritms.models 中核心数据模型的测试。
 
-Tests cover:
-- Plot: Atomic memory unit with relational and identity layers
-- StoryArc: Mesoscale relationship narrative
-- Theme: Identity dimension / macroscale pattern
-- RetrievalTrace, EvolutionSnapshot: Trace and snapshot structures
+测试覆盖：
+- Plot: 具有关系层和身份层的原子内存单位
+- StoryArc: 中观级的关系叙事
+- Theme: 身份维度/宏观级的模式
+- RetrievalTrace、EvolutionSnapshot: 跟踪和快照结构
 """
 
 from __future__ import annotations
@@ -34,10 +34,10 @@ from aurora.utils.id_utils import det_id
 # =============================================================================
 
 class TestRelationalContext:
-    """Tests for RelationalContext dataclass."""
+    """RelationalContext 数据类的测试。"""
     
     def test_create_relational_context(self):
-        """Test basic creation of RelationalContext."""
+        """测试 RelationalContext 的基本创建。"""
         ctx = RelationalContext(
             with_whom="user_001",
             my_role_in_relation="helpful assistant",
@@ -51,7 +51,7 @@ class TestRelationalContext:
         assert ctx.what_this_says_about_us == "We have a good working relationship"
     
     def test_relational_context_round_trip(self):
-        """Test serialization round-trip preserves data."""
+        """测试序列化往返过程保留数据。"""
         ctx = RelationalContext(
             with_whom="user_002",
             my_role_in_relation="mentor",
@@ -68,7 +68,7 @@ class TestRelationalContext:
         assert restored.what_this_says_about_us == ctx.what_this_says_about_us
     
     def test_relational_context_backward_compat_alias(self):
-        """Test that to_dict/from_dict aliases work."""
+        """测试 to_dict/from_dict 别名能够正常工作。"""
         ctx = RelationalContext(
             with_whom="user",
             my_role_in_relation="assistant",
@@ -90,10 +90,10 @@ class TestRelationalContext:
 # =============================================================================
 
 class TestIdentityImpact:
-    """Tests for IdentityImpact dataclass."""
+    """IdentityImpact 数据类的测试。"""
     
     def test_create_identity_impact(self):
-        """Test basic creation of IdentityImpact."""
+        """测试 IdentityImpact 的基本创建。"""
         ts = now_ts()
         impact = IdentityImpact(
             when_formed=ts,
@@ -109,7 +109,7 @@ class TestIdentityImpact:
         assert len(impact.evolution_history) == 0
     
     def test_identity_impact_update_meaning(self):
-        """Test that update_meaning records evolution history."""
+        """测试 update_meaning 记录演化历史。"""
         ts = now_ts()
         impact = IdentityImpact(
             when_formed=ts,
@@ -128,7 +128,7 @@ class TestIdentityImpact:
         assert impact.evolution_history[0][1] == "A failure"  # Old meaning in history
     
     def test_identity_impact_no_update_when_same(self):
-        """Test that update_meaning does not record history when meaning unchanged."""
+        """测试含义未变化时 update_meaning 不记录历史。"""
         ts = now_ts()
         impact = IdentityImpact(
             when_formed=ts,
@@ -143,7 +143,7 @@ class TestIdentityImpact:
         assert len(impact.evolution_history) == 0
     
     def test_identity_impact_round_trip(self):
-        """Test serialization round-trip preserves data."""
+        """测试序列化往返保留数据。"""
         ts = now_ts()
         impact = IdentityImpact(
             when_formed=ts,
@@ -168,18 +168,18 @@ class TestIdentityImpact:
 # =============================================================================
 
 class TestPlot:
-    """Tests for Plot dataclass."""
+    """Plot 数据类的测试。"""
     
     @pytest.fixture
     def sample_embedding(self) -> np.ndarray:
-        """Create a normalized sample embedding."""
+        """创建归一化的样本嵌入。"""
         rng = np.random.default_rng(42)
         emb = rng.standard_normal(64).astype(np.float32)
         return emb / np.linalg.norm(emb)
     
     @pytest.fixture
     def basic_plot(self, sample_embedding: np.ndarray) -> Plot:
-        """Create a basic plot without relational/identity layers."""
+        """创建没有关系层/身份层的基本情节。"""
         return Plot(
             id=det_id("plot", "basic_test"),
             ts=now_ts(),
@@ -190,7 +190,7 @@ class TestPlot:
     
     @pytest.fixture
     def full_plot(self, sample_embedding: np.ndarray) -> Plot:
-        """Create a plot with all layers populated."""
+        """创建所有层都已填充的情节。"""
         ts = now_ts()
         return Plot(
             id=det_id("plot", "full_test"),
@@ -221,7 +221,7 @@ class TestPlot:
         )
     
     def test_plot_creation(self, basic_plot: Plot):
-        """Test basic plot creation."""
+        """测试基本情节创建。"""
         assert basic_plot.id is not None
         assert basic_plot.ts > 0
         assert basic_plot.text.startswith("用户")
@@ -230,46 +230,46 @@ class TestPlot:
         assert basic_plot.status == "active"
     
     def test_plot_has_identity_impact_false(self, basic_plot: Plot):
-        """Test has_identity_impact returns False when no impact."""
+        """测试当没有影响时 has_identity_impact 返回 False。"""
         assert basic_plot.has_identity_impact() is False
     
     def test_plot_has_identity_impact_true(self, full_plot: Plot):
-        """Test has_identity_impact returns True when impact present."""
+        """测试当有影响时 has_identity_impact 返回 True。"""
         assert full_plot.has_identity_impact() is True
     
     def test_plot_get_relationship_entity_none(self, basic_plot: Plot):
-        """Test get_relationship_entity returns None when no relational context."""
+        """测试当没有关系上下文时 get_relationship_entity 返回 None。"""
         assert basic_plot.get_relationship_entity() is None
     
     def test_plot_get_relationship_entity(self, full_plot: Plot):
-        """Test get_relationship_entity returns correct entity."""
+        """测试 get_relationship_entity 返回正确的实体。"""
         assert full_plot.get_relationship_entity() == "user"
     
     def test_plot_get_my_role_default(self, basic_plot: Plot):
-        """Test get_my_role returns default when no relational context."""
+        """测试当没有关系上下文时 get_my_role 返回默认值。"""
         assert basic_plot.get_my_role() == "assistant"
     
     def test_plot_get_my_role(self, full_plot: Plot):
-        """Test get_my_role returns correct role."""
+        """测试 get_my_role 返回正确的角色。"""
         assert full_plot.get_my_role() == "teacher"
     
     def test_plot_get_identity_dimensions(self, full_plot: Plot):
-        """Test get_identity_dimensions returns affected dimensions."""
+        """测试 get_identity_dimensions 返回受影响的维度。"""
         dims = full_plot.get_identity_dimensions()
         assert "作为解释者的我" in dims
     
     def test_plot_get_identity_dimensions_empty(self, basic_plot: Plot):
-        """Test get_identity_dimensions returns empty list when no impact."""
+        """测试当没有影响时 get_identity_dimensions 返回空列表。"""
         dims = basic_plot.get_identity_dimensions()
         assert dims == []
     
     def test_plot_mass_positive(self, full_plot: Plot):
-        """Test mass computation returns positive value."""
+        """测试质量计算返回正值。"""
         mass = full_plot.mass()
         assert mass > 0
     
     def test_plot_round_trip_basic(self, basic_plot: Plot):
-        """Test serialization round-trip for basic plot."""
+        """测试基本情节的序列化往返。"""
         state = basic_plot.to_state_dict()
         restored = Plot.from_state_dict(state)
         
@@ -281,7 +281,7 @@ class TestPlot:
         assert restored.status == basic_plot.status
     
     def test_plot_round_trip_full(self, full_plot: Plot):
-        """Test serialization round-trip for full plot with all layers."""
+        """测试包含所有层的完整情节的序列化往返。"""
         state = full_plot.to_state_dict()
         restored = Plot.from_state_dict(state)
         
@@ -309,10 +309,10 @@ class TestPlot:
 # =============================================================================
 
 class TestRelationshipMoment:
-    """Tests for RelationshipMoment dataclass."""
+    """RelationshipMoment 数据类的测试。"""
     
     def test_create_relationship_moment(self):
-        """Test basic creation of RelationshipMoment."""
+        """测试 RelationshipMoment 的基本创建。"""
         ts = now_ts()
         moment = RelationshipMoment(
             ts=ts,
@@ -328,7 +328,7 @@ class TestRelationshipMoment:
         assert moment.quality_delta == 0.1
     
     def test_relationship_moment_round_trip(self):
-        """Test serialization round-trip."""
+        """测试序列化往返。"""
         ts = now_ts()
         moment = RelationshipMoment(
             ts=ts,
@@ -353,18 +353,18 @@ class TestRelationshipMoment:
 # =============================================================================
 
 class TestStoryArc:
-    """Tests for StoryArc dataclass."""
+    """StoryArc 数据类的测试。"""
     
     @pytest.fixture
     def sample_centroid(self) -> np.ndarray:
-        """Create a sample centroid embedding."""
+        """创建样本重心嵌入。"""
         rng = np.random.default_rng(42)
         emb = rng.standard_normal(64).astype(np.float32)
         return emb / np.linalg.norm(emb)
     
     @pytest.fixture
     def basic_story(self, sample_centroid: np.ndarray) -> StoryArc:
-        """Create a basic story."""
+        """创建基本故事。"""
         ts = now_ts()
         return StoryArc(
             id=det_id("story", "basic"),
@@ -375,7 +375,7 @@ class TestStoryArc:
     
     @pytest.fixture
     def relationship_story(self, sample_centroid: np.ndarray) -> StoryArc:
-        """Create a relationship-centric story."""
+        """创建以关系为中心的故事。"""
         ts = now_ts()
         story = StoryArc(
             id=det_id("story", "rel_user"),
@@ -404,22 +404,22 @@ class TestStoryArc:
         return story
     
     def test_story_creation(self, basic_story: StoryArc):
-        """Test basic story creation."""
+        """测试基本故事创建。"""
         assert basic_story.id is not None
         assert basic_story.created_ts > 0
         assert basic_story.status == "developing"
         assert basic_story.plot_ids == []
     
     def test_story_is_relationship_story_false(self, basic_story: StoryArc):
-        """Test is_relationship_story returns False for non-relationship story."""
+        """测试非关系故事的 is_relationship_story 返回 False。"""
         assert basic_story.is_relationship_story() is False
     
     def test_story_is_relationship_story_true(self, relationship_story: StoryArc):
-        """Test is_relationship_story returns True for relationship story."""
+        """测试关系故事的 is_relationship_story 返回 True。"""
         assert relationship_story.is_relationship_story() is True
     
     def test_add_relationship_moment(self, relationship_story: StoryArc):
-        """Test adding relationship moments."""
+        """测试添加关系時刻。"""
         initial_count = len(relationship_story.relationship_arc)
         
         relationship_story.add_relationship_moment(
@@ -435,7 +435,7 @@ class TestStoryArc:
         assert last_moment.trust_level == 0.8
     
     def test_add_relationship_moment_updates_health(self, basic_story: StoryArc):
-        """Test that adding moments updates relationship health."""
+        """测试添加時刻会更新关系健康度。"""
         initial_health = basic_story.relationship_health
         
         # Positive quality delta should increase health
@@ -449,12 +449,12 @@ class TestStoryArc:
         assert basic_story.relationship_health > initial_health
     
     def test_activity_probability(self, basic_story: StoryArc):
-        """Test activity probability is in valid range."""
+        """测试活动概率上圸有效范围内。"""
         prob = basic_story.activity_probability()
         assert 0 < prob <= 1.0
     
     def test_activity_probability_decreases_with_idle(self, basic_story: StoryArc):
-        """Test that activity probability decreases as story becomes idle."""
+        """测试随着故事变为空闲，活动概率会下降。"""
         # Fresh story
         prob_fresh = basic_story.activity_probability()
         
@@ -465,17 +465,17 @@ class TestStoryArc:
         assert prob_idle < prob_fresh
     
     def test_get_current_trust(self, relationship_story: StoryArc):
-        """Test get_current_trust returns last trust level."""
+        """测试 get_current_trust 返回最后的信任等级。"""
         trust = relationship_story.get_current_trust()
         assert trust == 0.7  # Last added moment had trust_level=0.7
     
     def test_get_current_trust_default(self, basic_story: StoryArc):
-        """Test get_current_trust returns default when no moments."""
+        """测试当没有時刻时 get_current_trust 返回默认值。"""
         trust = basic_story.get_current_trust()
         assert trust == 0.5  # Neutral default
     
     def test_get_trust_trend(self, relationship_story: StoryArc):
-        """Test trust trend calculation."""
+        """测试信任趋势计算。"""
         # Add more moments to test trend
         for i in range(4):
             relationship_story.add_relationship_moment(
@@ -488,7 +488,7 @@ class TestStoryArc:
         assert trend > 0  # Should be positive (increasing)
     
     def test_add_lesson(self, relationship_story: StoryArc):
-        """Test adding lessons to relationship."""
+        """测试为关系中添加课程。"""
         relationship_story.add_lesson("Patience is key")
         relationship_story.add_lesson("Clear communication helps")
         

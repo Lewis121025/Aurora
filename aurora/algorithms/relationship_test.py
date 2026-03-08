@@ -1,16 +1,16 @@
 """
-AURORA Relationship Module Tests
+AURORA 关系模块测试
 =================================
 
-Tests for the RelationshipMixin functionality in aurora/algorithms/relationship.py.
+RelationshipMixin功能的测试，详见aurora/algorithms/relationship.py。
 
-Tests cover:
-- Relationship entity identification
-- Identity relevance assessment
-- Relational context extraction
-- Identity impact extraction
-- Relationship story management
-- Identity dimension updates
+测试覆盖：
+- 关系实体识别
+- 身份相关性评估
+- 关系上下文提取
+- 身份影响提取
+- 关系故事管理
+- 身份维度更新
 """
 
 from __future__ import annotations
@@ -28,10 +28,10 @@ from aurora.utils.time_utils import now_ts
 
 
 class TestIdentifyRelationshipEntity:
-    """Tests for relationship entity identification."""
+    """关系实体识别的测试。"""
 
     def test_identify_relationship_entity_with_user(self, aurora_memory: AuroraMemory):
-        """Test entity identification with user actor."""
+        """测试有用户actor的实体识别。"""
         entity = aurora_memory._identify_relationship_entity(
             actors=("user", "assistant"),
             text="用户：你好！助理：你好！",
@@ -40,17 +40,17 @@ class TestIdentifyRelationshipEntity:
         assert entity == "user"
 
     def test_identify_relationship_entity_filters_system(self, aurora_memory: AuroraMemory):
-        """Test that system/assistant actors are filtered."""
+        """测试系统/助理actor是否被噚销。"""
         entity = aurora_memory._identify_relationship_entity(
             actors=("assistant", "system"),
             text="测试文本",
         )
         
-        # Should default to "user" when no other entity
+        # 当没有其他实体时应默认为user
         assert entity == "user"
 
     def test_identify_relationship_entity_named_user(self, aurora_memory: AuroraMemory):
-        """Test entity identification with named user."""
+        """测试有具名用户的实体识别。"""
         entity = aurora_memory._identify_relationship_entity(
             actors=("张三", "assistant"),
             text="张三问了一个问题",
@@ -59,17 +59,17 @@ class TestIdentifyRelationshipEntity:
         assert entity == "张三"
 
     def test_identify_relationship_entity_multiple_actors(self, aurora_memory: AuroraMemory):
-        """Test entity identification with multiple non-system actors."""
+        """测试有多个非系统 actor 的实体识别。"""
         entity = aurora_memory._identify_relationship_entity(
             actors=("李四", "王五", "assistant"),
             text="多人对话",
         )
         
-        # Should return first non-system actor
+        # 应返回第一个非系统 actor
         assert entity == "李四"
 
     def test_identify_relationship_entity_case_insensitive(self, aurora_memory: AuroraMemory):
-        """Test that system actor filtering is case insensitive."""
+        """测试系统 actor 筛选是否不区分大小写。"""
         entity = aurora_memory._identify_relationship_entity(
             actors=("Agent", "System", "real_user"),
             text="测试",
@@ -79,10 +79,10 @@ class TestIdentifyRelationshipEntity:
 
 
 class TestAssessIdentityRelevance:
-    """Tests for identity relevance assessment."""
+    """身份相关性评估的测试。"""
 
     def test_assess_identity_relevance_empty_themes(self, aurora_memory: AuroraMemory):
-        """Test identity relevance when no themes exist."""
+        """测试当没有主题时的身份相关性。"""
         rng = np.random.default_rng(42)
         emb = rng.standard_normal(64).astype(np.float32)
         emb = emb / np.linalg.norm(emb)
@@ -97,10 +97,10 @@ class TestAssessIdentityRelevance:
         assert relevance >= 0
 
     def test_assess_identity_relevance_with_themes(self, aurora_memory: AuroraMemory):
-        """Test identity relevance with existing themes."""
+        """测试有现有主题时的身份相关性。"""
         rng = np.random.default_rng(42)
         
-        # Create theme with prototype
+        # 创建一个主题程窗
         theme_emb = rng.standard_normal(64).astype(np.float32)
         theme_emb = theme_emb / np.linalg.norm(theme_emb)
         

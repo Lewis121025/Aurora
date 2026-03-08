@@ -1,148 +1,148 @@
 """
-AURORA Algorithm Constants
+AURORA 算法常数
 ==========================
 
-Centralized constants for the AURORA memory system.
-All magic numbers are extracted here for maintainability and documentation.
+AURORA 内存系统的集中式常数。
+所有魔法数字都在此提取，用于可维护性和文档记录。
 
-Naming conventions:
-- UPPERCASE_WITH_UNDERSCORES for constants
-- Group by category with section comments
+命名约定：
+- 用于常数的大写加下划线
+- 按类别和部分注释分组
 """
 
 from __future__ import annotations
 
 # =============================================================================
-# Identity & Relationship Weights
+# 身份和关系权重
 # =============================================================================
 
-# Weights for identity relevance computation
-# Reinforcement helps AR: familiar topics get stored reliably
+# 身份相关性计算的权重
+# 强化帮助AR：熟悉主题可靠存储
 REINFORCEMENT_WEIGHT = 0.35
-# Challenge helps TTL/CR: contradictory or new rules get attention
+# 挑战帮助TTL/CR：矛盾或新规则获得关注
 CHALLENGE_WEIGHT = 0.45
-# Novelty helps AR/LRU: new information is preserved
+# 新颖性帮助AR/LRU：保留新信息
 NOVELTY_WEIGHT = 0.35
 
-# Weights for storage decision (identity vs VOI)
-# Benchmark optimization: balance identity with information value
-# - Lower identity weight improves AR (factual info matters more)
-# - Higher VOI weight improves CR (conflict detection via pred_error)
+# 存储决策权重（身份 vs VOI）
+# 基准优化：平衡身份和信息值
+# - 较低的身份权重改进AR（事实信息更重要）
+# - 较高的VOI权重改进CR（通过pred_error进行冲突检测）
 IDENTITY_RELEVANCE_WEIGHT = 0.45
 VOI_DECISION_WEIGHT = 0.55
 
-# Relationship contribution weights
+# 关系贡献权重
 RELATIONSHIP_HEALTH_WEIGHT = 0.3
 RELATIONSHIP_RECENCY_WEIGHT = 0.4
 RELATIONSHIP_POSITION_WEIGHT = 0.3
 
 # =============================================================================
-# Similarity Thresholds
+# 相似性阈值
 # =============================================================================
 
-# For identity challenge detection
+# 用于身份挑战检测
 MODERATE_SIMILARITY_MIN = 0.3
 MODERATE_SIMILARITY_MAX = 0.6
 
-# For role consistency
+# 用于角色一致性
 ROLE_CONSISTENCY_THRESHOLD = 0.6
 
-# For identity impact filtering
+# 用于身份影响筛选
 IDENTITY_RELEVANCE_THRESHOLD = 0.2
 
-# For identity tension analysis
+# 用于身份张力分析
 TENSION_SIMILARITY_MIN = 0.2
 TENSION_SIMILARITY_MAX = 0.6
 HARMONY_SIMILARITY_MIN = 0.7
 
 # =============================================================================
-# Cold Start Protection
+# 冷启动保护
 # =============================================================================
 
-# Number of initial plots to force-store regardless of VOI decision
-# This prevents critical early information (names, locations, preferences) from being lost
+# 无论VOI决策如何都强制存储的初始情节数
+# 这可防止关键早期信息（名称、位置、首选项）丢失
 COLD_START_FORCE_STORE_COUNT = 10
 
-# Minimum KDE samples for reliable density estimation
-# Below this threshold, use default surprise value instead of KDE estimate
+# 用于可靠密度估计的最小KDE样本
+# 低于此阈值，使用默认惊喜值而不是KDE估计
 DENSITY_MIN_SAMPLES = 5
 
-# Default surprise value when KDE has insufficient samples
-# Set to a moderately high value to encourage storage during cold start
+# KDE样本不足时的默认惊喜值
+# 设置为相对较高的值，以鼓励冷启动期间的存储
 DEFAULT_COLD_START_SURPRISE = 8.0
 
 # =============================================================================
-# Storage Gate Parameters
+# 存储门参数
 # =============================================================================
 
-# Minimum storage probability floor for Thompson sampling gate
-# Ensures a baseline storage rate even for low-value features
-# With COLD_START_FORCE_STORE_COUNT=10 forcing first 10 plots,
-# MIN_STORE_PROB=0.6 for remaining plots achieves ~73% overall storage rate
-# Formula: (10*1.0 + 20*0.6) / 30 = 22/30 = 73.3% expected
+# Thompson抽样门的最小存储概率下限
+# 即使对低价值特征也确保基线存储率
+# 使用 COLD_START_FORCE_STORE_COUNT=10 强制前10个情节
+# MIN_STORE_PROB=0.6 对其余情节实现约73%的整体存储率
+# 公式：(10*1.0 + 20*0.6) / 30 = 22/30 = 73.3% 预期
 MIN_STORE_PROB = 0.6
 
 # =============================================================================
-# Capacity & Window Sizes
+# 容量和窗口大小
 # =============================================================================
 
-# Recent encoded plots window
+# 最近编码情节窗口
 RECENT_ENCODED_PLOTS_WINDOW = 200
 
-# For retrieval
+# 用于检索
 MAX_RECENT_PLOTS_FOR_RETRIEVAL = 50
 RECENT_PLOTS_FOR_FEEDBACK = 20
 
-# Identity dimensions limit
+# 身份维度限制
 MAX_IDENTITY_DIMENSIONS = 3
 
 # =============================================================================
-# Time Thresholds (in days unless specified)
+# 时间阈值（除非指定，否则以天为单位）
 # =============================================================================
 
-# For meaning reframe triggers
+# 用于意义重新框架触发
 REFRAME_AGE_DAYS_THRESHOLD = 7
 REFRAME_ACCESS_COUNT_THRESHOLD = 5
 
-# For periodic reflection
+# 用于定期反思
 PERIODIC_REFLECTION_AGE_DAYS = 30
 PERIODIC_REFLECTION_ACCESS_COUNT = 3
 
-# Growth hindrance check (seconds)
-GROWTH_HINDRANCE_AGE_SECONDS = 30 * 24 * 3600  # 30 days
+# 成长阻碍检查（秒）
+GROWTH_HINDRANCE_AGE_SECONDS = 30 * 24 * 3600  # 30 天
 
 # =============================================================================
-# Story Boundary Detection
+# 故事边界检测
 # =============================================================================
 
-# Abandonment threshold (days without activity)
+# 放弃阈值（无活动的天数）
 STORY_ABANDONMENT_THRESHOLD_DAYS = 30.0
 
-# Climax detection - tension peak window
+# 高潮检测 - 张力峰值窗口
 CLIMAX_TENSION_WINDOW = 5
-CLIMAX_DECLINE_RATIO = 0.3  # Peak must be at least 30% higher than current
+CLIMAX_DECLINE_RATIO = 0.3  # 峰值必须至少比当前高30%
 
-# Resolution detection - conflict resolution threshold
-RESOLUTION_TENSION_DROP_RATIO = 0.5  # Tension drops by at least 50%
-RESOLUTION_MIN_ARC_LENGTH = 5  # Minimum arc length to consider resolution
-
-# =============================================================================
-# Graph Structure Cleanup
-# =============================================================================
-
-# Edge cleanup
-WEAK_EDGE_MIN_WEIGHT = 0.1  # Edges below this weight are candidates for removal
-WEAK_EDGE_MIN_SUCCESSES = 2  # Minimum successes to keep an edge
-
-# Node merging
-NODE_MERGE_SIMILARITY_THRESHOLD = 0.95  # Nodes above this similarity may be merged
-
-# Archival
-ARCHIVE_STALE_DAYS_THRESHOLD = 90.0  # Content unused for this long may be archived
-ARCHIVE_MIN_ACCESS_COUNT = 0  # Content with access count <= this may be archived
+# 分辨率检测 - 冲突分辨阈值
+RESOLUTION_TENSION_DROP_RATIO = 0.5  # 张力下降至少50%
+RESOLUTION_MIN_ARC_LENGTH = 5  # 考虑分辨率的最小弧长
 
 # =============================================================================
-# Numerical Stability
+# 图结构清理
+# =============================================================================
+
+# 边清理
+WEAK_EDGE_MIN_WEIGHT = 0.1  # 权重低于此值的边是移除候选
+WEAK_EDGE_MIN_SUCCESSES = 2  # 保持边的最小成功次数
+
+# 节点合并
+NODE_MERGE_SIMILARITY_THRESHOLD = 0.95  # 相似性高于此值的节点可能被合并
+
+# 归档
+ARCHIVE_STALE_DAYS_THRESHOLD = 90.0  # 未使用此长时间的内容可能被归档
+ARCHIVE_MIN_ACCESS_COUNT = 0  # 访问计数 <= 此值的内容可能被归档
+
+# =============================================================================
+# 数值稳定性
 # =============================================================================
 
 EPSILON = 1e-12
