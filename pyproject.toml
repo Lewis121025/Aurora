@@ -63,6 +63,7 @@ dev = [
   "mypy>=1.8",
   "types-redis>=4.6",
   "ruff>=0.1",
+  "radon>=6.0",
 ]
 # Production bundle with all storage backends
 production = [

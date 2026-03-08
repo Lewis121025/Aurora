@@ -49,8 +49,23 @@ CONSTANT_TO_MODULE = {
     'DEFAULT_CACHE_MAX_SIZE': 'aurora.core.config.numeric',
     'TRUST_BASE': 'aurora.core.config.numeric',
 
-    # 其他模块的常量映射...
-    # 为简洁起见，这里只展示部分
+    # knowledge.py
+    'KNOWLEDGE_CLASSIFICATION_MIN_CONFIDENCE': 'aurora.core.config.knowledge',
+    'COMPLEMENTARY_TRAIT_SIM_MIN': 'aurora.core.config.knowledge',
+    'COMPLEMENTARY_TRAIT_SIM_MAX': 'aurora.core.config.knowledge',
+    'CONTRADICTORY_TRAIT_SIM_THRESHOLD': 'aurora.core.config.knowledge',
+    'KNOWLEDGE_TYPE_WEIGHT_STATE': 'aurora.core.config.knowledge',
+    'KNOWLEDGE_TYPE_WEIGHT_STATIC': 'aurora.core.config.knowledge',
+    'KNOWLEDGE_TYPE_WEIGHT_TRAIT': 'aurora.core.config.knowledge',
+    'KNOWLEDGE_TYPE_WEIGHT_VALUE': 'aurora.core.config.knowledge',
+    'KNOWLEDGE_TYPE_WEIGHT_PREFERENCE': 'aurora.core.config.knowledge',
+    'KNOWLEDGE_TYPE_WEIGHT_BEHAVIOR': 'aurora.core.config.knowledge',
+    'UPDATE_TIME_GAP_THRESHOLD': 'aurora.core.config.knowledge',
+    'REINFORCEMENT_TIME_WINDOW': 'aurora.core.config.knowledge',
+    'UPDATE_HIGH_SIMILARITY_THRESHOLD': 'aurora.core.config.knowledge',
+    'UPDATE_MODERATE_SIMILARITY_THRESHOLD': 'aurora.core.config.knowledge',
+    'UPDATE_KEYWORDS': 'aurora.core.config.knowledge',
+    'NUMERIC_CHANGE_INDICATORS': 'aurora.core.config.knowledge',
 }
 
 

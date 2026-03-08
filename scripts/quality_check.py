@@ -18,13 +18,18 @@ import sys
 from pathlib import Path
 
 
-def run_command(cmd: list[str], description: str, allow_failure: bool = False) -> bool:
+def run_command(
+    cmd: list[str],
+    description: str,
+    project_root: Path,
+    allow_failure: bool = False,
+) -> bool:
     """运行命令并报告结果"""
     print(f"\n{'='*60}")
     print(f"Running: {description}")
     print(f"{'='*60}")
 
-    result = subprocess.run(cmd, capture_output=False)
+    result = subprocess.run(cmd, cwd=project_root, capture_output=False)
 
     if result.returncode != 0:
         print(f"❌ {description} failed")
@@ -44,20 +49,26 @@ def main():
 
     checks = []
 
-    # 1. 代码风格检查
-    ruff_cmd = ['ruff', 'check', 'aurora', 'tests']
+    # 1. 基础语法检查
+    compile_cmd = [sys.executable, '-m', 'compileall', '-q', 'aurora']
+    checks.append((compile_cmd, 'Python bytecode compilation', False))
+
+    # 2. 代码风格检查
+    ruff_cmd = [sys.executable, '-m', 'ruff', 'check', 'aurora', 'tests']
     if fix:
         ruff_cmd.append('--fix')
     checks.append((ruff_cmd, 'Ruff linting', False))
 
-    # 2. 类型检查
-    mypy_cmd = ['mypy', 'aurora']
+    # 3. 类型检查
+    mypy_cmd = [sys.executable, '-m', 'mypy', 'aurora']
     if strict:
         mypy_cmd.extend(['--strict', '--warn-unreachable'])
     checks.append((mypy_cmd, 'Type checking (mypy)', False))
 
-    # 3. 测试覆盖率
+    # 4. 测试覆盖率
     pytest_cmd = [
+        sys.executable,
+        '-m',
         'pytest',
         'tests/',
         '--cov=aurora',
@@ -67,14 +78,14 @@ def main():
     ]
     checks.append((pytest_cmd, 'Test coverage', False))
 
-    # 4. 复杂度检查
-    radon_cmd = ['radon', 'cc', 'aurora', '-a', '-nb']
+    # 5. 复杂度检查
+    radon_cmd = [sys.executable, '-m', 'radon', 'cc', 'aurora', '-a', '-nb']
     checks.append((radon_cmd, 'Cyclomatic complexity', True))
 
     # 运行所有检查
     failed = []
     for cmd, description, allow_failure in checks:
-        if not run_command(cmd, description, allow_failure):
+        if not run_command(cmd, description, project_root, allow_failure):
             failed.append(description)
 
     # 总结

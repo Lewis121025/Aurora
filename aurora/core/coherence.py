@@ -14,15 +14,16 @@ AURORA 连贯性守护模块
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
-import math
-import numpy as np
-import networkx as nx
 
-from aurora.core.graph.memory_graph import MemoryGraph
-from aurora.core.knowledge_classifier import (
+import networkx as nx
+import numpy as np
+
+from aurora.core.causal import CausalEdgeBelief, CausalMemoryGraph
+from aurora.core.components.metric import LowRankMetric
 from aurora.core.config.coherence import (
     ANTI_CORRELATION_THRESHOLD,
     BELIEF_PROPAGATION_ITERATIONS,
@@ -32,22 +33,21 @@ from aurora.core.config.coherence import (
     OPPOSITION_SCORE_THRESHOLD,
     UNFINISHED_STORY_HOURS,
 )
+from aurora.core.graph.memory_graph import MemoryGraph
+from aurora.core.knowledge_classifier import (
+    ConflictAnalysis,
+    ConflictResolution as KnowledgeConflictResolution,
     KnowledgeClassifier,
     KnowledgeType,
-    ConflictResolution as KnowledgeConflictResolution,
-    ConflictAnalysis,
 )
 from aurora.core.models.plot import Plot
 from aurora.core.models.story import StoryArc
 from aurora.core.models.theme import Theme
+from aurora.core.tension import TensionManager, Tension, TensionResolution, TensionType
 from aurora.core.types import MemoryElement
-from aurora.core.components.metric import LowRankMetric
-from aurora.core.causal import CausalEdgeBelief, CausalMemoryGraph
-from aurora.core.tension import TensionManager, Tension, TensionType, TensionResolution
-
-from aurora.utils.math_utils import l2_normalize, cosine_sim, sigmoid, softmax
-from aurora.utils.time_utils import now_ts
 from aurora.utils.embedding_utils import get_embedding_from_object
+from aurora.utils.math_utils import cosine_sim, l2_normalize, sigmoid, softmax
+from aurora.utils.time_utils import now_ts
 
 # -----------------------------------------------------------------------------
 # 数据结构

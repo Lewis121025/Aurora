@@ -16,15 +16,16 @@ In narrative psychology: re-narration repositions old info as "past self"
 from __future__ import annotations
 
 import time
+
 import numpy as np
 import pytest
 
+from aurora.core.config.knowledge import (
+    REINFORCEMENT_TIME_WINDOW,
+    UPDATE_TIME_GAP_THRESHOLD,
+)
 from aurora.core.memory import AuroraMemory
 from aurora.core.models.config import MemoryConfig
-from aurora.core.constants import (
-    UPDATE_TIME_GAP_THRESHOLD,
-    REINFORCEMENT_TIME_WINDOW,
-)
 
 
 class TestUpdateDetection:

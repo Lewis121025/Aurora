@@ -7,7 +7,7 @@
 
 ## 执行摘要
 
-成功将 595 行的单一 `constants.py` 文件重组为 8 个功能模块，移除了向后兼容层，完成了所有代码的迁移。
+成功将 595 行的单一 `constants.py` 文件重组为 8 个功能模块，并保留了轻量向后兼容层，完成了所有代码的迁移。
 
 ---
 
@@ -17,7 +17,7 @@
 
 ```
 aurora/core/config/
-├── __init__.py           # 模块文档
+├── __init__.py           # 统一导出与兼容入口
 ├── retrieval.py          # 60 行 - 检索参数
 ├── numeric.py            # 40 行 - 数值稳定性
 ├── identity.py           # 60 行 - 身份和关系
@@ -28,10 +28,10 @@ aurora/core/config/
 └── query_types.py        # 150 行 - 查询类型检测
 ```
 
-### 2. 删除旧文件
+### 2. 兼容层收口
 
-- ✅ 删除 `aurora/core/constants.py`（595 行）
-- ✅ 无向后兼容层
+- ✅ 删除旧的 595 行 `aurora/core/constants.py` 实现
+- ✅ 保留轻量兼容层，统一转发到 `aurora.core.config`
 
 ### 3. 自动迁移所有导入
 
