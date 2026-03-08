@@ -39,7 +39,7 @@ except ImportError:
     PROMETHEUS_AVAILABLE = False
 
 if TYPE_CHECKING:
-    from aurora.algorithms.aurora_core import AuroraMemory
+    from aurora.core.memory import AuroraMemory
 
 
 # =============================================================================

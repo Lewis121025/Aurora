@@ -22,6 +22,7 @@ api = [
 ]
 ark = [
   "openai>=1.12",
+  "volcengine-python-sdk[ark]",
 ]
 jobs = [
   "apscheduler>=3.10",
@@ -69,7 +70,7 @@ all = [
 ]
 
 [project.scripts]
-aurora = "aurora.cli:main"
+aurora = "aurora.interfaces.cli:main"
 
 [tool.ruff]
 line-length = 100

@@ -8,4 +8,4 @@ services:
       - ./data:/data
     ports:
       - "8000:8000"
-    command: ["bash", "-lc", "pip install -e '.[api]' && uvicorn aurora.api.app:app --host 0.0.0.0 --port 8000"]
+    command: ["bash", "-lc", "pip install -e '.[api]' && uvicorn aurora.interfaces.api.app:app --host 0.0.0.0 --port 8000"]
