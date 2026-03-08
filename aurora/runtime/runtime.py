@@ -19,9 +19,9 @@ from aurora.integrations.storage.snapshot import Snapshot, SnapshotStore
 from aurora.privacy.pii import redact
 from aurora.runtime.bootstrap import (
     check_embedding_api_keys,
+    create_embedding_provider,
     create_llm_provider,
     create_memory,
-    create_embedding_provider,
 )
 from aurora.runtime.results import CoherenceResult, IngestResult, QueryResult
 from aurora.runtime.settings import AuroraSettings
@@ -30,23 +30,21 @@ from aurora.utils.logging import log_event
 logger = logging.getLogger(__name__)
 
 
-class AuroraTenant:
-    """Per-user runtime wrapper around AuroraMemory."""
+class AuroraRuntime:
+    """单用户聊天场景下的运行时编排器。"""
 
-    def __init__(self, *, user_id: str, settings: AuroraSettings, llm: Optional[LLMProvider] = None):
-        self.user_id = user_id
+    def __init__(self, *, settings: AuroraSettings, llm: Optional[LLMProvider] = None):
         self.settings = settings
         self.llm: LLMProvider = llm or create_llm_provider(settings)
 
         check_embedding_api_keys()
         self._lock = threading.RLock()
 
-        self.user_dir = os.path.join(self.settings.data_dir, f"user_{self.user_id}")
-        os.makedirs(self.user_dir, exist_ok=True)
+        os.makedirs(self.settings.data_dir, exist_ok=True)
 
-        self.event_log = SQLiteEventLog(os.path.join(self.user_dir, self.settings.event_log_filename))
-        self.doc_store = SQLiteDocStore(os.path.join(self.user_dir, "docs.sqlite3"))
-        self.snapshots = SnapshotStore(os.path.join(self.user_dir, self.settings.snapshot_dirname))
+        self.event_log = SQLiteEventLog(os.path.join(self.settings.data_dir, self.settings.event_log_filename))
+        self.doc_store = SQLiteDocStore(os.path.join(self.settings.data_dir, "docs.sqlite3"))
+        self.snapshots = SnapshotStore(os.path.join(self.settings.data_dir, self.settings.snapshot_dirname))
 
         self.last_seq: int = 0
         self.mem: AuroraMemory = self._load_or_init()
@@ -65,10 +63,10 @@ class AuroraTenant:
             state.embedder = create_embedding_provider(self.settings)
             return state
 
-        return create_memory(settings=self.settings, user_id=self.user_id)
+        return create_memory(settings=self.settings)
 
     def _replay(self) -> None:
-        for seq, ev in self.event_log.iter_events(after_seq=self.last_seq, user_id=self.user_id):
+        for seq, ev in self.event_log.iter_events(after_seq=self.last_seq):
             if ev.type != "interaction":
                 continue
             payload = ev.payload
@@ -123,7 +121,6 @@ class AuroraTenant:
                 Event(
                     id=event_id,
                     ts=ts,
-                    user_id=self.user_id,
                     session_id=session_id,
                     type="interaction",
                     payload={
@@ -150,7 +147,7 @@ class AuroraTenant:
                 self._snapshot(logger=logger)
 
             if logger:
-                log_event(logger, "aurora_ingest", user_id=self.user_id, event_id=event_id, plot_id=res.plot_id)
+                log_event(logger, "aurora_ingest", event_id=event_id, plot_id=res.plot_id)
 
             return res
 
@@ -182,7 +179,7 @@ class AuroraTenant:
             self.self_narrative_engine.update_from_themes(list(self.mem.themes.values()))
 
         if logger:
-            log_event(logger, "aurora_evolve", user_id=self.user_id, stories=len(self.mem.stories), themes=len(self.mem.themes))
+            log_event(logger, "aurora_evolve", stories=len(self.mem.stories), themes=len(self.mem.themes))
 
     def check_coherence(self, *, logger: Optional[Any] = None) -> CoherenceResult:
         with self._lock:
@@ -202,7 +199,7 @@ class AuroraTenant:
         )
 
         if logger:
-            log_event(logger, "aurora_coherence_check", user_id=self.user_id, score=result.overall_score, conflicts=result.conflict_count)
+            log_event(logger, "aurora_coherence_check", score=result.overall_score, conflicts=result.conflict_count)
 
         return result
 
@@ -251,7 +248,7 @@ class AuroraTenant:
             self.mem.feedback_retrieval(query_text=query_text, chosen_id=chosen_id, success=success)
             plot = self.mem.plots.get(chosen_id)
             if plot:
-                self.self_narrative_engine.update_from_interaction(plot=plot, success=success, entity_id=entity_id or self.user_id)
+                self.self_narrative_engine.update_from_interaction(plot=plot, success=success, entity_id=entity_id or "self")
 
     def _apply_interaction(
         self,
@@ -280,7 +277,6 @@ class AuroraTenant:
                 Document(
                     id=plot.id,
                     kind="plot",
-                    user_id=self.user_id,
                     ts=ts,
                     body={
                         "schema_version": extraction.schema_version,
@@ -302,7 +298,6 @@ class AuroraTenant:
                 Document(
                     id=f"ingest:{event_id}",
                     kind="ingest_result",
-                    user_id=self.user_id,
                     ts=ts,
                     body={
                         "event_id": event_id,
@@ -355,4 +350,4 @@ class AuroraTenant:
         snap = Snapshot(last_seq=self.last_seq, state=self.mem)
         path = self.snapshots.save(snap)
         if logger:
-            log_event(logger, "aurora_snapshot", user_id=self.user_id, last_seq=self.last_seq, path=path)
+            log_event(logger, "aurora_snapshot", last_seq=self.last_seq, path=path)

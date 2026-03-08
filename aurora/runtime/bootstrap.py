@@ -111,8 +111,12 @@ def build_memory_config(settings: AuroraSettings) -> MemoryConfig:
     )
 
 
-def create_memory(*, settings: AuroraSettings, user_id: str) -> AuroraMemory:
-    seed = abs(hash(user_id)) % (2**32)
+def create_memory(*, settings: AuroraSettings) -> AuroraMemory:
     cfg = build_memory_config(settings)
     embedder = create_embedding_provider(settings)
-    return AuroraMemory(cfg=cfg, seed=int(seed), embedder=embedder, benchmark_mode=cfg.benchmark_mode)
+    return AuroraMemory(
+        cfg=cfg,
+        seed=int(settings.memory_seed),
+        embedder=embedder,
+        benchmark_mode=cfg.benchmark_mode,
+    )

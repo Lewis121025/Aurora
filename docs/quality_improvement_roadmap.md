@@ -18,11 +18,10 @@
 - 缺少 mypy/pyright 严格模式检查
 - 运行时类型错误风险高
 
-### 3. 可观测性（影响：高）
-- 无结构化日志
-- 无 metrics（延迟、吞吐量、错误率）
-- 无 distributed tracing
-- 生产问题定位困难
+### 3. 运行时诊断（影响：中）
+- 关键路径日志粒度还不够稳定
+- 缺少统一的健康检查与状态摘要
+- 快照与回放异常的定位成本偏高
 
 ### 4. 测试质量（影响：中）
 - 边界条件覆盖不足
@@ -57,7 +56,7 @@
 - [ ] 修复核心模块的类型标注
   - `aurora/core/memory/engine.py`
   - `aurora/core/models/*.py`
-  - `aurora/runtime/tenant.py`
+  - `aurora/runtime/runtime.py`
   - `aurora/runtime/bootstrap.py`
 
 - [ ] 替换 `Dict[str, Any]` 为 TypedDict 或 Pydantic 模型
@@ -79,10 +78,10 @@
 
 ---
 
-## 阶段 2：可观测性基础设施
+## 阶段 2：轻量运行时诊断
 
 **目标：** 8.5/10 → 9/10
-**时间：** 1.5 周
+**时间：** 1 周
 **优先级：** 高
 
 ### 任务清单
@@ -100,45 +99,33 @@
               duration_ms=elapsed)
   ```
 
-- [ ] Prometheus metrics
-  ```python
-  # aurora/utils/metrics.py
-  from prometheus_client import Counter, Histogram, Gauge
-
-  INGEST_COUNTER = Counter('aurora_ingest_total', 'Total ingests')
-  INGEST_LATENCY = Histogram('aurora_ingest_duration_seconds', 'Ingest latency')
-  MEMORY_SIZE = Gauge('aurora_memory_plots_total', 'Total plots in memory')
-  ```
-
-- [ ] OpenTelemetry tracing
-  ```python
-  # aurora/utils/tracing.py
-  from opentelemetry import trace
-
-  tracer = trace.get_tracer(__name__)
-
-  @tracer.start_as_current_span("ingest_interaction")
-  def ingest_interaction(...):
-      ...
-  ```
-
-- [ ] 添加可观测性端点
+- [ ] 统一健康检查与运行时摘要
   ```python
   # aurora/interfaces/api/app.py
-  @app.get("/metrics")
-  def metrics():
-      return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-
-  @app.get("/health")
-  def health():
-      return {"status": "healthy", "plots": len(mem.plots)}
+  @app.get("/healthz")
+  def healthz():
+      return {"status": "healthy", "timestamp": time.time()}
   ```
 
-### ��交付成果
-- 所有关键路径有 span tracing
-- Prometheus metrics 导出
-- Grafana dashboard 模板
+- [ ] 快照/回放错误日志标准化
+  ```python
+  logger.warning(
+      "aurora_snapshot_failed",
+      extra={"last_seq": last_seq, "path": path},
+  )
+  ```
+
+- [ ] 添加本地状态诊断命令
+  ```python
+  # aurora/interfaces/cli.py
+  aurora stats
+  aurora coherence
+  ```
+
+### 可交付成果
 - 结构化日志输出
+- `/healthz` 与 CLI 诊断命令保持一致
+- 快照与回放异常可直接定位
 
 ---
 
@@ -448,9 +435,9 @@
 - [ ] 内存占用 < 150MB（1K plots）
 
 ### 可观测性
-- [ ] 所有关键路径有 tracing
+- [ ] 所有关键路径有时延与错误日志
 - [ ] 所有错误有结构化日志
-- [ ] Prometheus metrics 导出正常
+- [ ] 诊断命令与健康检查输出一致
 
 ### 文档
 - [ ] API 文档完整

@@ -1122,7 +1122,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         
         Args:
             instance: Benchmark instance with conversation history
-            memory: AURORA memory instance (AuroraMemory or AuroraTenant)
+            memory: AURORA memory instance (AuroraMemory or AuroraRuntime)
             clear_first: Whether to clear memory before ingestion
         """
         # Clear previous instance's memory to prevent pollution
@@ -1157,7 +1157,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
             role = turn.get("role") or turn.get("speaker", "user")
             
             if has_ingest_interaction:
-                # AuroraTenant style
+                # AuroraRuntime style
                 if role == "user":
                     # Look for next assistant response
                     assistant_response = ""
@@ -1677,7 +1677,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         elif hasattr(memory, "embedder"):
             from aurora.integrations.embeddings.hash import HashEmbedding
             using_hash = isinstance(memory.embedder, HashEmbedding)
-        # Check via mem attribute (AuroraTenant)
+        # Check via mem attribute (AuroraRuntime)
         elif hasattr(memory, "mem") and hasattr(memory.mem, "embedder"):
             from aurora.integrations.embeddings.hash import HashEmbedding
             using_hash = isinstance(memory.mem.embedder, HashEmbedding)
@@ -1704,7 +1704,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
     ) -> Dict[str, Any]:
         """Query AURORA memory and return results.
         
-        Handles both AuroraMemory and AuroraTenant interfaces.
+        Handles both AuroraMemory and AuroraRuntime interfaces.
         
         Args:
             memory: AURORA memory instance

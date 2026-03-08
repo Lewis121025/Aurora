@@ -10,8 +10,8 @@ Claude Desktop、Cursor 和其他 MCP 兼容客户端调用。
 使用方法:
     from aurora.interfaces.mcp import create_mcp_server
 
-    server = create_mcp_server(aurora_hub)
-    await server.serve()
+    server = create_mcp_server(aurora_runtime)
+    await server.serve_stdio()
 """
 
 from __future__ import annotations
@@ -21,11 +21,10 @@ import json
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from aurora.runtime.hub import AuroraHub
-    from aurora.runtime.tenant import AuroraTenant
+    from aurora.runtime.runtime import AuroraRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -180,35 +179,18 @@ class AuroraMCPServer:
 
     def __init__(
         self,
-        hub: Optional["AuroraHub"] = None,
-        tenant: Optional["AuroraTenant"] = None,
-        default_user_id: str = "default",
+        runtime: "AuroraRuntime",
     ):
         """初始化 MCP 服务器。
 
         Args:
-            hub: 用于多租户访问的 AuroraHub
-            tenant: 用于单租户访问的 AuroraTenant
-            default_user_id: 未指定时的默认用户 ID
+            runtime: 单用户 Aurora 运行时
         """
-        self.hub = hub
-        self.tenant = tenant
-        self.default_user_id = default_user_id
+        self.runtime = runtime
 
         # 构建工具和资源注册表
         self.tools = {t.name: t for t in AURORA_TOOLS}
         self.resources = {r.uri: r for r in AURORA_RESOURCES}
-
-    def _get_tenant(self, user_id: Optional[str] = None) -> "AuroraTenant":
-        """获取指定或默认用户的租户。"""
-        user_id = user_id or self.default_user_id
-
-        if self.tenant is not None:
-            return self.tenant
-        elif self.hub is not None:
-            return self.hub.tenant(user_id)
-        else:
-            raise RuntimeError("No hub or tenant configured")
 
     # -------------------------------------------------------------------------
     # MCP 协议方法
@@ -229,7 +211,6 @@ class AuroraMCPServer:
         self,
         name: str,
         arguments: Dict[str, Any],
-        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """调用工具（MCP tools/call）。"""
         if name not in self.tools:
@@ -237,15 +218,15 @@ class AuroraMCPServer:
 
         try:
             if name == "save_memory":
-                return await self._handle_save_memory(arguments, user_id)
+                return await self._handle_save_memory(arguments)
             elif name == "search_memory":
-                return await self._handle_search_memory(arguments, user_id)
+                return await self._handle_search_memory(arguments)
             elif name == "get_narrative":
-                return await self._handle_get_narrative(user_id)
+                return await self._handle_get_narrative()
             elif name == "check_coherence":
-                return await self._handle_check_coherence(user_id)
+                return await self._handle_check_coherence()
             elif name == "provide_feedback":
-                return await self._handle_provide_feedback(arguments, user_id)
+                return await self._handle_provide_feedback(arguments)
             else:
                 return {"error": f"Tool not implemented: {name}"}
         except Exception as e:
@@ -267,7 +248,6 @@ class AuroraMCPServer:
     async def read_resource(
         self,
         uri: str,
-        user_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """读取资源（MCP resources/read）。"""
         if uri not in self.resources:
@@ -275,9 +255,9 @@ class AuroraMCPServer:
 
         try:
             if uri == "aurora://memory/stats":
-                return await self._read_stats(user_id)
+                return await self._read_stats()
             elif uri == "aurora://memory/narrative":
-                return await self._read_narrative(user_id)
+                return await self._read_narrative()
             else:
                 return {"error": f"Resource not implemented: {uri}"}
         except Exception as e:
@@ -291,18 +271,15 @@ class AuroraMCPServer:
     async def _handle_save_memory(
         self,
         args: Dict[str, Any],
-        user_id: Optional[str],
     ) -> Dict[str, Any]:
         """处理 save_memory 工具调用。"""
-        tenant = self._get_tenant(user_id)
-
         # 生成事件 ID
         event_id = str(uuid.uuid4())
         session_id = args.get("session_id", "mcp_session")
 
         # 在线程池中运行以避免阻塞
         def _sync_ingest():
-            return tenant.ingest_interaction(
+            return self.runtime.ingest_interaction(
                 event_id=event_id,
                 session_id=session_id,
                 user_message=args["user_message"],
@@ -326,17 +303,14 @@ class AuroraMCPServer:
     async def _handle_search_memory(
         self,
         args: Dict[str, Any],
-        user_id: Optional[str],
     ) -> Dict[str, Any]:
         """处理 search_memory 工具调用。"""
-        tenant = self._get_tenant(user_id)
-
         query = args["query"]
         k = args.get("k", 8)
 
         # 在线程池中运行
         def _sync_query():
-            return tenant.query(text=query, k=k)
+            return self.runtime.query(text=query, k=k)
 
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _sync_query)
@@ -363,26 +337,20 @@ class AuroraMCPServer:
 
     async def _handle_get_narrative(
         self,
-        user_id: Optional[str],
     ) -> Dict[str, Any]:
         """处理 get_narrative 工具调用。"""
-        tenant = self._get_tenant(user_id)
-
         def _sync_narrative():
-            return tenant.get_self_narrative()
+            return self.runtime.get_self_narrative()
 
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _sync_narrative)
 
     async def _handle_check_coherence(
         self,
-        user_id: Optional[str],
     ) -> Dict[str, Any]:
         """处理 check_coherence 工具调用。"""
-        tenant = self._get_tenant(user_id)
-
         def _sync_coherence():
-            return tenant.check_coherence()
+            return self.runtime.check_coherence()
 
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _sync_coherence)
@@ -397,13 +365,10 @@ class AuroraMCPServer:
     async def _handle_provide_feedback(
         self,
         args: Dict[str, Any],
-        user_id: Optional[str],
     ) -> Dict[str, Any]:
         """处理 provide_feedback 工具调用。"""
-        tenant = self._get_tenant(user_id)
-
         def _sync_feedback():
-            tenant.feedback(
+            self.runtime.feedback(
                 query_text=args["query"],
                 chosen_id=args["chosen_id"],
                 success=args["success"],
@@ -418,12 +383,10 @@ class AuroraMCPServer:
     # 资源处理程序
     # -------------------------------------------------------------------------
 
-    async def _read_stats(self, user_id: Optional[str]) -> Dict[str, Any]:
+    async def _read_stats(self) -> Dict[str, Any]:
         """读取内存统计资源。"""
-        tenant = self._get_tenant(user_id)
-
-        mem = tenant.mem
-        coherence = tenant.check_coherence()
+        mem = self.runtime.mem
+        coherence = self.runtime.check_coherence()
 
         return {
             "contents": [
@@ -441,9 +404,9 @@ class AuroraMCPServer:
             ]
         }
 
-    async def _read_narrative(self, user_id: Optional[str]) -> Dict[str, Any]:
+    async def _read_narrative(self) -> Dict[str, Any]:
         """读取自叙述资源。"""
-        narrative = await self._handle_get_narrative(user_id)
+        narrative = await self._handle_get_narrative()
 
         return {
             "contents": [
@@ -541,22 +504,14 @@ class AuroraMCPServer:
 
 
 def create_mcp_server(
-    hub: Optional["AuroraHub"] = None,
-    tenant: Optional["AuroraTenant"] = None,
-    default_user_id: str = "default",
+    runtime: "AuroraRuntime",
 ) -> AuroraMCPServer:
     """创建 MCP 服务器的工厂函数。
 
     Args:
-        hub: 用于多租户访问的 AuroraHub
-        tenant: 用于单租户访问的 AuroraTenant
-        default_user_id: 默认用户 ID
+        runtime: 单用户 Aurora 运行时
 
     Returns:
         AuroraMCPServer 实例
     """
-    return AuroraMCPServer(
-        hub=hub,
-        tenant=tenant,
-        default_user_id=default_user_id,
-    )
+    return AuroraMCPServer(runtime=runtime)

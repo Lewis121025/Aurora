@@ -3,7 +3,7 @@
 维护者默认阅读顺序：
 1. ``aurora`` 顶层导出
 2. ``aurora.runtime.bootstrap`` 运行时装配
-3. ``aurora.runtime.tenant`` 单租户运行时
+3. ``aurora.runtime.runtime`` 单用户运行时
 4. ``aurora.core.memory`` 核心记忆引擎
 """
 
@@ -22,7 +22,7 @@ from aurora.core.models import (
 )
 
 # 高级集成
-from aurora.runtime.hub import AuroraHub
+from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
 
 # 异常
@@ -49,8 +49,7 @@ __all__ = [
     "Theme",
     "MemoryConfig",
     "RetrievalTrace",
-    # Hub
-    "AuroraHub",
+    "AuroraRuntime",
     "AuroraSettings",
     # 异常
     "AuroraError",

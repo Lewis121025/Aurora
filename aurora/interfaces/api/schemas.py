@@ -12,7 +12,6 @@ Aurora API 模式 (版本化)
 
     request = IngestRequestV1(
         event_id="evt_123",
-        user_id="user_456",
         ...
     )
 
@@ -24,11 +23,10 @@ Aurora API 模式 (版本化)
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 
 # =============================================================================
@@ -78,14 +76,9 @@ class IngestRequestV1(BaseModel):
         description="唯一的事件标识符。如果未提供则自动生成。",
         examples=["evt_abc123"],
     )
-    user_id: str = Field(
-        ...,
-        description="用户标识符，用于多租户隔离。",
-        examples=["user_456"],
-    )
     session_id: str = Field(
-        ...,
-        description="会话标识符，用于分组相关交互。",
+        default="default",
+        description="会话标识符，用于分组相关交互；单用户场景下默认即可。",
         examples=["sess_789"],
     )
     user_message: str = Field(
@@ -120,7 +113,6 @@ class IngestRequestV1(BaseModel):
             "version": "v1",
             "example": {
                 "event_id": "evt_abc123",
-                "user_id": "user_456",
                 "session_id": "sess_789",
                 "user_message": "How do I implement a memory system?",
                 "agent_message": "You can use a narrative memory architecture...",
@@ -132,11 +124,7 @@ class IngestRequestV1(BaseModel):
 
 class QueryRequestV1(BaseModel):
     """V1 查询请求 - 按语义相似性搜索记忆。"""
-    
-    user_id: str = Field(
-        ...,
-        description="用户标识符，用于多租户隔离。",
-    )
+
     text: str = Field(
         ...,
         description="自然语言搜索查询。",
@@ -165,11 +153,7 @@ class QueryRequestV1(BaseModel):
 
 class FeedbackRequestV1(BaseModel):
     """V1 反馈请求 - 提供关于检索质量的反馈。"""
-    
-    user_id: str = Field(
-        ...,
-        description="用户标识符。",
-    )
+
     query_text: str = Field(
         ...,
         description="原始搜索查询。",
@@ -189,23 +173,14 @@ class FeedbackRequestV1(BaseModel):
 
 class EvolveRequestV1(BaseModel):
     """V1 演化请求 - 触发记忆演化。"""
-    
-    user_id: str = Field(
-        ...,
-        description="User identifier.",
-    )
-    
+
     class Config:
         json_schema_extra = {"version": "v1"}
 
 
 class CausalChainRequestV1(BaseModel):
     """V1 因果链请求 - 获取因果关系。"""
-    
-    user_id: str = Field(
-        ...,
-        description="用户标识符。",
-    )
+
     node_id: str = Field(
         ...,
         description="要追踪因果链的节点ID。",

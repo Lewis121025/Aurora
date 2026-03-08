@@ -85,15 +85,15 @@
 
 ### 3.2 我在代码里怎么落地？
 
-- `aurora/runtime/tenant.py`：**AuroraTenant**
+- `aurora/runtime/runtime.py`：**AuroraRuntime**
   - `ingest_interaction()`：幂等 + WAL + 应用核心算法 + 写 doc
   - `query()`：检索并组装返回
   - `feedback()`：把任务成败反馈给核心算法（用于边权/门控/度量学习）
   - `evolve()`：触发后台演化
-  - `snapshot()`：定期快照（pickle）
+  - 自动快照：按事件间隔把状态写入本地 snapshot
 
-- `aurora/runtime/hub.py`：**AuroraHub**
-  - 多租户路由 + LRU 驱逐（避免内存爆炸）
+- `aurora/runtime/bootstrap.py`：provider 装配与内存创建
+  - 创建 LLM provider、embedding provider 与内存实例
 
 - `aurora/integrations/storage/*`：
   - `SQLiteEventLog`（append-only）
@@ -148,7 +148,7 @@
 
 ## 6. 观测与指标（建议你上线就打）
 
-建议的最小指标集（你可以先不接 Prometheus，先打日志也行）：
+建议的最小指标集（先打日志和本地状态摘要就够用）：
 
 - **写入指标**
   - ingest_qps
@@ -172,7 +172,7 @@
 我在工程里给了一个最小的 PII redaction hook：
 
 - `aurora/privacy/pii.py`：email/phone/信用卡（极简 regex）
-- `AuroraTenant.ingest_interaction()` 写入 event log 前可脱敏
+- `AuroraRuntime.ingest_interaction()` 写入 event log 前可脱敏
 
 生产建议：
 - PII detector 用更可靠的库/模型
@@ -206,7 +206,7 @@
 
 ## 9. 你接下来最值得做的 4 个“上线级增强”（按 ROI 排序）
 
-1. **把 embedding provider 替换成生产 embedding**（OpenAI / bge / e5），并把向量放 pgvector  
+1. **把 embedding provider 替换成更强的生产 embedding**（OpenAI / bge / e5）  
 2. **Narrator 加上 story/theme 的 LLM 生成摘要**（写进 doc store）  
 3. **Guardian 做 claim contradiction**（生成 contradiction edge + 条件化 theme）  
 4. **离线评测 harness**：固定一组 query + label，持续回归（不然你永远不知道升级有没有退化）
@@ -215,8 +215,8 @@
 
 ## 10. 文件清单（你下载后能看到）
 
-- `aurora/runtime/tenant.py`：单租户生产封装（幂等/回放/快照）
-- `aurora/runtime/hub.py`：多租户 LRU
+- `aurora/runtime/runtime.py`：单用户运行时封装（幂等/回放/快照）
+- `aurora/runtime/bootstrap.py`：provider 与内存装配
 - `aurora/integrations/storage/event_log.py`：sqlite append-only event log
 - `aurora/integrations/storage/snapshot.py`：pickle snapshot
 - `aurora/integrations/storage/doc_store.py`：sqlite derived doc store
@@ -231,11 +231,11 @@
 
 如果你要继续把它打磨到“完美”，下一步可以继续补齐：
 
-- **pgvector + Postgres** 的 VectorStore（ANN + 索引重建）
-- **Neo4j** 的 GraphStore（或 Postgres adjacency）
+- **FAISS** 的本地向量索引（更大规模记忆时的可选加速）
+- **Neo4j** 的 GraphStore（或其他专用图存储）
 - **分级存储**：hot plots / warm stories / cold archive（对象存储）
 - **审核链路**：每个 Theme/ Self 更新必须能追溯证据 story ids
 - **Prompt/Model 版本管理**：每次 LLM 输出记录 model/prompt hash
 - **A/B**：对比不同 gate/metric/guardian 策略的真实任务成功率
 
-你如果愿意，我也可以在这份工程基础上继续把 **pgvector、Neo4j、OTel/Prometheus、异步演化（celery/apscheduler）、回归评测 harness** 一次性补齐到可部署程度（但我会默认按你现在的接口风格做，不再反复问你确认）。
+你如果愿意，我也可以在这份工程基础上继续把 **更强 embedding provider、本地 FAISS 加速、异步演化调度、回归评测 harness** 一次性补齐到更完整的部署形态（但我会默认按你现在的接口风格做，不再反复问你确认）。

@@ -1126,11 +1126,11 @@ def calculate_narrative_fit(plot: Plot, story: StoryArc) -> float:
 │  └── 成本追踪                                               │
 │                                                             │
 │  持久化：                                                   │
-│  ├── SQLite（开发/轻量级）                                  │
-│  └── PostgreSQL + pgvector（生产）                          │
+│  ├── SQLite（默认本地持久化）                               │
+│  └── FAISS（可选本地向量加速）                              │
 │                                                             │
 │  调度：                                                     │
-│  └── APScheduler（定时任务）                                │
+│  └── 本地周期任务（可选）                                   │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```

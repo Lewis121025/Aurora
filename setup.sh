@@ -26,8 +26,8 @@ echo "升级 pip..."
 pip install --upgrade pip -q
 
 # 安装依赖
-echo "安装 AURORA 及依赖..."
-pip install -e ".[ark,api,dev]" -q
+echo "安装 AURORA 本地开发依赖..."
+pip install -e ".[api,dev]" -q
 
 echo
 echo "✅ 设置完成!"
@@ -35,8 +35,11 @@ echo
 echo "要激活虚拟环境，运行:"
 echo "  source venv/bin/activate"
 echo
-echo "要测试火山方舟集成，运行:"
-echo "  python test_ark_integration.py"
+echo "如需接入火山方舟，额外运行:"
+echo "  pip install -e '.[ark]'"
+echo
+echo "如需本地 FAISS 加速，额外运行:"
+echo "  pip install -e '.[faiss]'"
 echo
 echo "要启动 API 服务，运行:"
 echo "  aurora serve --port 8000"

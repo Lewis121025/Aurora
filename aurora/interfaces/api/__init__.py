@@ -14,8 +14,9 @@ AURORA 记忆系统的FastAPI REST API。
 端点:
     POST /v1/memory/ingest
     POST /v1/memory/query
-    GET  /v1/memory/self-narrative/{user_id}
-    GET  /v1/memory/stats/{user_id}
+    GET  /v1/memory/coherence
+    GET  /v1/memory/self-narrative
+    GET  /v1/memory/stats
     POST /v1/memory/evolve
 """
 

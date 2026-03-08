@@ -11,23 +11,18 @@ class AuroraSettings(BaseSettings):
     Design notes:
     - Hard thresholds are avoided in algorithmic decisions.
     - Here we still need *operational* constraints: storage paths, budgets, intervals, etc.
-    
-    Storage backends:
-    - vector_store_backend: "memory" | "pgvector" | "milvus"
-    - state_store_backend: "memory" | "sqlite" | "redis_postgres"
-    - queue_backend: "memory" | "kafka" | "pulsar"
     """
 
     model_config = SettingsConfigDict(env_prefix="AURORA_", extra="ignore")
 
-    # multi-tenant
+    # single-user runtime
     data_dir: str = "./data"
-    tenant_max_loaded: int = 32  # LRU cap for hot tenants
 
     # event sourcing
     event_log_filename: str = "events.sqlite3"
     snapshot_dirname: str = "snapshots"
     snapshot_every_events: int = 200  # startup vs write cost trade-off
+    memory_seed: int = 42
 
     # privacy
     pii_redaction_enabled: bool = True
@@ -54,78 +49,10 @@ class AuroraSettings(BaseSettings):
     # LowRank Metric 衰减因子 (窗口重置时的衰减)
     metric_decay_factor: float = 0.5
     
-    # --- 向量存储配置 ---
-    
-    # 向量存储后端: "memory" (开发), "pgvector" (生产), "milvus" (备选)
-    vector_store_backend: Literal["memory", "pgvector", "milvus"] = "memory"
-    
-    # PostgreSQL 连接字符串 (pgvector)
-    postgres_dsn: Optional[str] = None
-    
-    # PostgreSQL 连接池大小
-    postgres_pool_size: int = 10
-    
-    # 向量表名
-    vector_table_name: str = "aurora_vectors"
-    
-    # Milvus 配置 (备选)
-    milvus_host: str = "localhost"
-    milvus_port: int = 19530
-    milvus_collection: str = "aurora_vectors"
-    
-    # --- 状态存储配置 ---
-    
-    # 状态存储后端: "memory" (开发), "sqlite" (单机), "redis_postgres" (分布式)
-    state_store_backend: Literal["memory", "sqlite", "redis_postgres"] = "memory"
-    
-    # Redis URL (用于热数据)
-    redis_url: str = "redis://localhost:6379/0"
-    
-    # Redis 键前缀
-    redis_prefix: str = "aurora:state:"
-    
-    # Redis TTL (秒)
-    redis_ttl: int = 86400  # 24 hours
-    
-    # 状态表名 (PostgreSQL 冷数据)
-    state_table_name: str = "aurora_states"
-    
-    # --- 消息队列配置 ---
-    
-    # 队列后端: "memory" (开发), "kafka" (生产), "pulsar" (备选)
-    queue_backend: Literal["memory", "kafka", "pulsar"] = "memory"
-    
-    # Kafka 配置
-    kafka_bootstrap_servers: str = "localhost:9092"
-    kafka_client_id: str = "aurora"
-    kafka_ingest_topic: str = "aurora.ingest"
-    
-    # Pulsar 配置 (备选)
-    pulsar_url: str = "pulsar://localhost:6650"
-    
-    # --- CQRS 模式配置 ---
-    
-    # 是否启用异步模式 (True = 写入队列后立即返回)
-    cqrs_async_mode: bool = False
-    
-    # Worker 数量 (异步模式下)
-    worker_count: int = 4
-    
-    # Worker 批处理大小
-    worker_batch_size: int = 10
-    
-    # --- 可观测性配置 ---
-    
-    # 是否启用 Prometheus 指标
-    metrics_enabled: bool = True
-    
-    # Prometheus 指标端口
-    metrics_port: int = 9090
-    
     # --- 火山方舟 (Volcengine Ark) LLM 配置 ---
     
     # LLM 提供者: "ark" (火山方舟) 或 "mock" (本地测试)
-    llm_provider: Literal["ark", "mock"] = "ark"
+    llm_provider: Literal["ark", "mock"] = "mock"
     
     # 火山方舟 API Key
     ark_api_key: Optional[str] = None
@@ -165,9 +92,6 @@ class AuroraSettings(BaseSettings):
     embedding_cache_size: int = 10000
     
     # --- MCP 服务器配置 ---
-    
-    # MCP 默认用户 ID
-    mcp_default_user_id: str = "default"
     
     # MCP 服务器端口 (HTTP 模式)
     mcp_port: int = 8765

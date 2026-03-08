@@ -5,15 +5,13 @@ from aurora.runtime.bootstrap import (
     build_memory_config,
     create_memory,
 )
-from aurora.runtime.hub import AuroraHub
+from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.results import CoherenceResult, IngestResult, QueryResult
 from aurora.runtime.settings import AuroraSettings
-from aurora.runtime.tenant import AuroraTenant
 
 __all__ = [
-    'AuroraHub',
+    'AuroraRuntime',
     'AuroraSettings',
-    'AuroraTenant',
     'IngestResult',
     'QueryResult',
     'CoherenceResult',

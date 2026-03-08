@@ -472,7 +472,7 @@ class MemoryGraph:
 class VectorIndex:
     """Brute-force vector index with kind filtering.
 
-    Replace with FAISS/pgvector for production.
+    Replace with FAISS for larger local corpora when needed.
     """
     def __init__(self, dim: int):
         self.dim = dim
@@ -1135,7 +1135,7 @@ if __name__ == "__main__":
 
 1. **替换 HashEmbedding**：接入你们实际 embedding 服务（OpenAI / BGE / text-embedding-3-large 等）。
 2. **Plot 结构化抽取**：用 LLM 抽取 actors/action/context/outcome（这会显著提升因果与一致性模块的上限）。
-3. **向量索引**：把 `VectorIndex` 换成 FAISS/HNSW/pgvector。
+3. **向量索引**：把 `VectorIndex` 换成 FAISS/HNSW。
 4. **一致性守护**：在 Plot/Story/Theme 上抽取 claim triples + contradiction classifier，把 `contradiction` 边纳入 Beta 后验更新。
 5. **元学习层**：对 `story_alpha / theme_alpha / mean_shift_steps / pagerank_damping` 用 bandit 做自动调参，而不是写死。
 

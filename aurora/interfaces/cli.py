@@ -7,15 +7,15 @@ import time
 from typing import Optional
 
 from aurora.runtime.settings import AuroraSettings
-from aurora.runtime.hub import AuroraHub
+from aurora.runtime.runtime import AuroraRuntime
 from aurora.utils.logging import setup_logging
 import logging
 
 
-def _get_hub(data_dir: Optional[str] = None) -> AuroraHub:
-    """获取或创建hub实例"""
+def _get_runtime(data_dir: Optional[str] = None) -> AuroraRuntime:
+    """获取或创建单用户运行时实例"""
     settings = AuroraSettings(data_dir=data_dir or os.environ.get("AURORA_DATA_DIR", "./data"))
-    return AuroraHub(settings=settings)
+    return AuroraRuntime(settings=settings)
 
 
 def _cmd_demo() -> None:
@@ -24,10 +24,7 @@ def _cmd_demo() -> None:
     logger = logging.getLogger("aurora-demo")
 
     settings = AuroraSettings(data_dir=os.environ.get("AURORA_DATA_DIR", "./demo_data"))
-    hub = AuroraHub(settings=settings)
-
-    user_id = "u1"
-    t = hub.tenant(user_id)
+    runtime = AuroraRuntime(settings=settings)
 
     events = [
         ("e1", "s1", "我想做一个记忆系统。", "好的，我们先定义需求与评估指标。"),
@@ -43,16 +40,16 @@ def _cmd_demo() -> None:
 
     print("1. 摄入交互...")
     for eid, sid, um, am in events:
-        r = t.ingest_interaction(event_id=eid, session_id=sid, user_message=um, agent_message=am, logger=logger)
+        r = runtime.ingest_interaction(event_id=eid, session_id=sid, user_message=um, agent_message=am, logger=logger)
         print(f"   - {eid}: plot={r.plot_id}, encoded={r.encoded}, tension={r.tension:.2f}")
 
     print("\n2. 运行演化...")
-    t.evolve(logger=logger)
-    print(f"   - Stories: {len(t.mem.stories)}, Themes: {len(t.mem.themes)}")
+    runtime.evolve(logger=logger)
+    print(f"   - Stories: {len(runtime.mem.stories)}, Themes: {len(runtime.mem.themes)}")
 
     print("\n3. 查询记忆...")
     q = "如何避免硬编码阈值并实现叙事检索？"
-    res = t.query(text=q, k=6)
+    res = runtime.query(text=q, k=6)
     print(f"   Query: {q}")
     print(f"   Attractor path length: {res.attractor_path_len}")
     for i, hit in enumerate(res.hits[:3]):
@@ -62,11 +59,11 @@ def _cmd_demo() -> None:
 
     if res.hits:
         chosen = res.hits[0].id
-        t.feedback(query_text=q, chosen_id=chosen, success=True)
+        runtime.feedback(query_text=q, chosen_id=chosen, success=True)
         print(f"\n4. 记录反馈: chosen={chosen}, success=True")
 
     print("\n5. 检查一致性...")
-    coherence = t.check_coherence()
+    coherence = runtime.check_coherence()
     print(f"   Overall score: {coherence.overall_score:.2f}")
     print(f"   Conflicts: {coherence.conflict_count}")
     if coherence.recommendations:
@@ -75,7 +72,7 @@ def _cmd_demo() -> None:
             print(f"      - {rec}")
 
     print("\n6. 自我叙事...")
-    narrative = t.get_self_narrative()
+    narrative = runtime.get_self_narrative()
     print(f"   Identity: {narrative['identity_statement']}")
     print(f"   Coherence: {narrative['coherence_score']:.2f}")
     if narrative['capabilities']:
@@ -91,13 +88,12 @@ def _cmd_demo() -> None:
 def _cmd_ingest(args: argparse.Namespace) -> None:
     """摄入单个交互"""
     setup_logging("INFO")
-    hub = _get_hub(args.data_dir)
-    t = hub.tenant(args.user_id)
+    runtime = _get_runtime(args.data_dir)
 
     event_id = args.event_id or f"evt_{int(time.time() * 1000)}"
     session_id = args.session_id or "cli_session"
     
-    result = t.ingest_interaction(
+    result = runtime.ingest_interaction(
         event_id=event_id,
         session_id=session_id,
         user_message=args.user_message,
@@ -117,10 +113,9 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 def _cmd_query(args: argparse.Namespace) -> None:
     """查询记忆"""
     setup_logging("WARNING")
-    hub = _get_hub(args.data_dir)
-    t = hub.tenant(args.user_id)
+    runtime = _get_runtime(args.data_dir)
     
-    result = t.query(text=args.query, k=args.k)
+    result = runtime.query(text=args.query, k=args.k)
     
     output = {
         "query": result.query,
@@ -143,29 +138,25 @@ def _cmd_evolve(args: argparse.Namespace) -> None:
     """触发演化"""
     setup_logging("INFO")
     logger = logging.getLogger("aurora-evolve")
-    hub = _get_hub(args.data_dir)
-    t = hub.tenant(args.user_id)
+    runtime = _get_runtime(args.data_dir)
     
-    t.evolve(logger=logger)
+    runtime.evolve(logger=logger)
     
     print(json.dumps({
-        "user_id": args.user_id,
-        "plots": len(t.mem.plots),
-        "stories": len(t.mem.stories),
-        "themes": len(t.mem.themes),
+        "plots": len(runtime.mem.plots),
+        "stories": len(runtime.mem.stories),
+        "themes": len(runtime.mem.themes),
     }, ensure_ascii=False, indent=2))
 
 
 def _cmd_coherence(args: argparse.Namespace) -> None:
     """检查一致性"""
     setup_logging("WARNING")
-    hub = _get_hub(args.data_dir)
-    t = hub.tenant(args.user_id)
+    runtime = _get_runtime(args.data_dir)
     
-    result = t.check_coherence()
+    result = runtime.check_coherence()
     
     print(json.dumps({
-        "user_id": args.user_id,
         "overall_score": result.overall_score,
         "conflict_count": result.conflict_count,
         "unfinished_story_count": result.unfinished_story_count,
@@ -176,10 +167,9 @@ def _cmd_coherence(args: argparse.Namespace) -> None:
 def _cmd_narrative(args: argparse.Namespace) -> None:
     """获取自我叙事"""
     setup_logging("WARNING")
-    hub = _get_hub(args.data_dir)
-    t = hub.tenant(args.user_id)
+    runtime = _get_runtime(args.data_dir)
     
-    narrative = t.get_self_narrative()
+    narrative = runtime.get_self_narrative()
     
     if args.full:
         print(narrative["full_narrative"])
@@ -196,17 +186,15 @@ def _cmd_narrative(args: argparse.Namespace) -> None:
 def _cmd_stats(args: argparse.Namespace) -> None:
     """获取记忆统计"""
     setup_logging("WARNING")
-    hub = _get_hub(args.data_dir)
-    t = hub.tenant(args.user_id)
+    runtime = _get_runtime(args.data_dir)
     
-    coherence = t.check_coherence()
-    narrative = t.get_self_narrative()
+    coherence = runtime.check_coherence()
+    narrative = runtime.get_self_narrative()
     
     print(json.dumps({
-        "user_id": args.user_id,
-        "plot_count": len(t.mem.plots),
-        "story_count": len(t.mem.stories),
-        "theme_count": len(t.mem.themes),
+        "plot_count": len(runtime.mem.plots),
+        "story_count": len(runtime.mem.stories),
+        "theme_count": len(runtime.mem.themes),
         "coherence_score": coherence.overall_score,
         "self_narrative_coherence": narrative["coherence_score"],
         "capability_count": len(narrative["capabilities"]),
@@ -217,10 +205,9 @@ def _cmd_stats(args: argparse.Namespace) -> None:
 def _cmd_causal(args: argparse.Namespace) -> None:
     """获取因果链"""
     setup_logging("WARNING")
-    hub = _get_hub(args.data_dir)
-    t = hub.tenant(args.user_id)
+    runtime = _get_runtime(args.data_dir)
     
-    chain = t.get_causal_chain(args.node_id, args.direction)
+    chain = runtime.get_causal_chain(args.node_id, args.direction)
     
     print(json.dumps({
         "node_id": args.node_id,
@@ -234,7 +221,7 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     try:
         import uvicorn
     except ImportError:
-        print("错误: uvicorn未安装。使用以下命令安装: pip install uvicorn")
+        print("错误: uvicorn未安装。使用以下命令安装: pip install -e '.[api]'")
         return
 
     os.environ["AURORA_DATA_DIR"] = args.data_dir or "./data"
@@ -262,7 +249,6 @@ def main() -> None:
 
     # 摄入命令
     ingest_p = sub.add_parser("ingest", help="摄入一个交互")
-    ingest_p.add_argument("--user-id", "-u", required=True, help="用户ID")
     ingest_p.add_argument("--user-message", "-m", required=True, help="用户消息")
     ingest_p.add_argument("--agent-message", "-a", required=True, help="代理消息")
     ingest_p.add_argument("--event-id", "-e", help="事件ID (如果未提供则自动生成)")
@@ -270,30 +256,24 @@ def main() -> None:
 
     # 查询命令
     query_p = sub.add_parser("query", help="查询记忆")
-    query_p.add_argument("--user-id", "-u", required=True, help="用户ID")
     query_p.add_argument("--query", "-q", required=True, help="查询文本")
     query_p.add_argument("--k", "-k", type=int, default=8, help="返回结果数量")
 
     # 演化命令
     evolve_p = sub.add_parser("evolve", help="触发记忆演化")
-    evolve_p.add_argument("--user-id", "-u", required=True, help="用户ID")
 
     # 一致性命令
     coherence_p = sub.add_parser("coherence", help="检查记忆一致性")
-    coherence_p.add_argument("--user-id", "-u", required=True, help="用户ID")
 
     # 叙事命令
     narrative_p = sub.add_parser("narrative", help="获取自我叙事")
-    narrative_p.add_argument("--user-id", "-u", required=True, help="用户ID")
     narrative_p.add_argument("--full", "-f", action="store_true", help="输出完整叙事")
 
     # 统计命令
     stats_p = sub.add_parser("stats", help="获取记忆统计")
-    stats_p.add_argument("--user-id", "-u", required=True, help="用户ID")
 
     # 因果命令
     causal_p = sub.add_parser("causal", help="获取因果链")
-    causal_p.add_argument("--user-id", "-u", required=True, help="用户ID")
     causal_p.add_argument("--node-id", "-n", required=True, help="节点ID")
     causal_p.add_argument("--direction", "-d", choices=["ancestors", "descendants"], default="ancestors")
 
@@ -305,10 +285,6 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # 为需要它的命令在args中存储data_dir
-    if hasattr(args, 'data_dir') is False or args.data_dir is None:
-        args.data_dir = parser.parse_args().data_dir
-    
     if args.cmd == "demo":
         _cmd_demo()
     elif args.cmd == "ingest":

@@ -11,27 +11,18 @@ description: AURORA 代码审查专家。主动用于代码质量审查、冗余
 
 ```
 aurora/
-├── algorithms/           # 核心算法层
-│   ├── aurora_core.py    # 主入口 AuroraMemory（Mixin 架构）
+├── core/                 # 核心算法层
+│   ├── memory/           # 主入口 AuroraMemory（Mixin 架构）
 │   ├── models/           # 数据模型（Plot/Story/Theme）
 │   ├── components/       # 可学习组件（CRP/KDE/Bandit/Metric）
 │   ├── graph/            # 图结构（MemoryGraph/VectorIndex/FAISS）
 │   ├── retrieval/        # 检索算法（FieldRetriever）
-│   ├── narrator.py       # 讲述引擎
-│   ├── tension.py        # 矛盾管理
-│   ├── coherence.py      # 一致性守护
-│   ├── evolution.py      # 演化 Mixin
-│   ├── pressure.py       # 压力管理 Mixin
-│   ├── relationship.py   # 关系处理 Mixin
-│   └── serialization.py  # 序列化 Mixin
-├── benchmark/            # 基准测试适配
-├── embeddings/           # 嵌入提供商
-├── llm/                  # LLM 提供商
-├── services/             # CQRS 服务层
-├── storage/              # 存储后端
-├── api/                  # REST API
-├── mcp/                  # MCP 协议
-└── service.py            # 传统服务层（向后兼容）
+│   └── narrator/         # 讲述与重建
+├── runtime/              # 单用户运行时与 provider 装配
+├── integrations/         # embeddings / llm / 本地 storage
+├── interfaces/           # CLI / API / MCP
+├── benchmarks/           # 基准测试适配
+└── tests/                # 单元与集成测试
 ```
 
 ### 设计原则
@@ -89,7 +80,7 @@ rg "from aurora import" aurora/ | sort | uniq -c | sort -rn
 
 ```python
 # 检测未使用的导出
-rg "^def |^class " aurora/algorithms/*.py
+rg "^def |^class " aurora/core/**/*.py
 rg -l "function_name" aurora/  # 检查是否被引用
 ```
 
@@ -157,11 +148,11 @@ rg -l "function_name" aurora/  # 检查是否被引用
 - 事件日志和快照是否一致
 - 向量索引是否正确清理
 
-### 服务模块
+### 运行时与接口模块
 
-- service.py 和 services/ 是否有重复
-- API 端点是否与服务层对齐
-- 是否有废弃的兼容代码
+- `AuroraRuntime` 与 API/CLI/MCP 是否对齐
+- 是否引入了未接入主路径的抽象层
+- 是否残留废弃兼容代码或预留的工程组件
 
 ### 测试模块
 
@@ -171,7 +162,6 @@ rg -l "function_name" aurora/  # 检查是否被引用
 
 ## 注意事项
 
-- 保留向后兼容代码时添加注释说明原因
 - 清理代码前确认没有外部依赖
 - 大规模重构分步进行，每步可测试
 - 保持 git 历史清晰，便于回溯

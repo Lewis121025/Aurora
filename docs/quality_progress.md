@@ -12,7 +12,7 @@
 #### 1. 类型检查配置
 - [x] 添加 mypy 配置到 `pyproject.toml`
 - [x] 配置严格模式类型检查
-- [x] 添加类型检查依赖（mypy, types-redis, ruff）
+- [x] 添加类型检查依赖（mypy, ruff）
 - [x] 创建 CI 类型检查工作流（`.github/workflows/type-check.yml`）
 
 #### 2. 质量检查工具
@@ -64,7 +64,7 @@
 - [ ] 修复核心模块的类型标注
   - [ ] `aurora/core/memory/engine.py`
   - [ ] `aurora/core/models/*.py`
-  - [ ] `aurora/runtime/tenant.py`
+  - [ ] `aurora/runtime/runtime.py`
   - [ ] `aurora/runtime/bootstrap.py`
 
 - [ ] 替换 `Dict[str, Any]` 为强类型
