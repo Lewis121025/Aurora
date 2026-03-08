@@ -19,6 +19,7 @@ import pytest
 
 from aurora.core.memory import AuroraMemory
 from aurora.core.models.config import MemoryConfig
+from aurora.integrations.embeddings.base import EmbeddingProvider
 from aurora.exceptions import MemoryNotFoundError, ValidationError
 
 
@@ -84,6 +85,36 @@ class TestAuroraMemoryIngest:
         
         # 提供上下文时应该计算目标相关性
         assert plot.goal_relevance >= 0
+
+    def test_ingest_uses_precomputed_embeddings_and_timestamp(self):
+        """测试 replay 场景可以复用外部 embedding 和事件时间戳。"""
+
+        class ExplodingEmbedding(EmbeddingProvider):
+            def embed(self, text: str) -> np.ndarray:
+                raise AssertionError("embed() should not be called")
+
+        cfg = MemoryConfig(dim=64, max_plots=100)
+        mem = AuroraMemory(cfg=cfg, seed=42, embedder=ExplodingEmbedding(), benchmark_mode=True)
+
+        interaction_embedding = np.ones(64, dtype=np.float32)
+        interaction_embedding = interaction_embedding / np.linalg.norm(interaction_embedding)
+        context_embedding = np.arange(1, 65, dtype=np.float32)
+        context_embedding = context_embedding / np.linalg.norm(context_embedding)
+        event_ts = 1_725_000_000.0
+
+        plot = mem.ingest(
+            "用户：请记住我喜欢叙事化设计。助理：我记住了。",
+            actors=("user", "assistant"),
+            context_text="偏好记忆",
+            event_id="evt_precomputed",
+            interaction_embedding=interaction_embedding,
+            context_embedding=context_embedding,
+            ts=event_ts,
+        )
+
+        assert plot.ts == event_ts
+        assert np.allclose(plot.embedding, interaction_embedding)
+        assert plot.goal_relevance >= 0.0
     
     def test_ingest_creates_relationship_story(self, aurora_memory: AuroraMemory):
         """测试重复与同一用户的互动会创建关系故事。"""
@@ -282,7 +313,7 @@ class TestAuroraMemoryIngestBatch:
         # 没有使用日期不子的旧代码应该仍然正常工作
         interactions = [
             {"文本": "用户：你好", "actors": ("user", "assistant")},
-            {"文本": "用户：再觑", "context_text": "闲聂"},
+            {"文本": "用户：再见", "context_text": "闲聊"},
         ]
         
         plots = aurora_memory.ingest_batch(interactions)

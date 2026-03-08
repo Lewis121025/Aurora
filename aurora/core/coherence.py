@@ -736,6 +736,7 @@ class ConflictResolver:
     def _apply_resolution(
         self,
         resolution: Resolution,
+        plots: Dict[str, Plot],
         stories: Dict[str, StoryArc],
         themes: Dict[str, Theme],
     ) -> bool:

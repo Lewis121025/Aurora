@@ -27,6 +27,7 @@ class MockLLM(LLMProvider):
         timeout_s: float = 30.0,
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        max_retries: Optional[int] = None,
     ) -> str:
         """生成简单的模拟文本补全。
 
@@ -79,6 +80,7 @@ class MockLLM(LLMProvider):
         temperature: float = 0.2,
         timeout_s: float = 30.0,
         metadata: Optional[Dict[str, Any]] = None,
+        max_retries: Optional[int] = None,
     ) -> T:
         name = schema.__name__
         if name == "PlotExtraction":

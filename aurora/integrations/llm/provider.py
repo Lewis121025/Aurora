@@ -31,6 +31,7 @@ class LLMProvider(ABC):
         timeout_s: float = 30.0,
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        max_retries: Optional[int] = None,
     ) -> str:
         """为给定的提示生成文本补全。
 
@@ -42,6 +43,8 @@ class LLMProvider(ABC):
             timeout_s：请求超时时间（秒）
             stop：可选的停止序列
             metadata：可选的请求元数据
+            max_retries：可选的重试次数覆盖值。如果为 None，则
+                使用提供者默认配置。
 
         返回：
             生成的文本字符串
@@ -58,6 +61,7 @@ class LLMProvider(ABC):
         temperature: float = 0.2,
         timeout_s: float = 30.0,
         metadata: Optional[Dict[str, Any]] = None,
+        max_retries: Optional[int] = None,
     ) -> T:
         """生成符合 schema 的结构化 JSON 输出。
 
@@ -68,6 +72,8 @@ class LLMProvider(ABC):
             temperature：采样温度 (0.0-1.0)
             timeout_s：请求超时时间（秒）
             metadata：可选的请求元数据
+            max_retries：可选的重试次数覆盖值。如果为 None，则
+                使用提供者默认配置。
 
         返回：
             解析并验证的响应，作为 schema 实例

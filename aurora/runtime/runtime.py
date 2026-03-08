@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import logging
 import os
 import threading
 import time
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+import numpy as np
 
 from aurora.core.causal import CausalEdgeBelief, CausalMemoryGraph
 from aurora.core.coherence import CoherenceGuardian
@@ -28,6 +31,18 @@ from aurora.runtime.settings import AuroraSettings
 from aurora.utils.logging import log_event
 
 logger = logging.getLogger(__name__)
+
+PLOT_EXTRACTION_TIMEOUT_S = 8.0
+PLOT_EXTRACTION_MAX_RETRIES = 1
+
+
+@dataclass(frozen=True)
+class PreparedInteraction:
+    extraction: PlotExtraction
+    interaction_text: str
+    resolved_actors: Tuple[str, ...]
+    interaction_embedding: np.ndarray
+    context_embedding: Optional[np.ndarray]
 
 
 class AuroraRuntime:
@@ -70,6 +85,14 @@ class AuroraRuntime:
             if ev.type != "interaction":
                 continue
             payload = ev.payload
+            prepared = self._prepare_replay_interaction(
+                event_id=ev.id,
+                user_message=payload.get("user_message", ""),
+                agent_message=payload.get("agent_message", ""),
+                actors=payload.get("actors"),
+                context=payload.get("context"),
+                payload=payload,
+            )
             self._apply_interaction(
                 event_id=ev.id,
                 user_message=payload.get("user_message", ""),
@@ -78,7 +101,17 @@ class AuroraRuntime:
                 context=payload.get("context"),
                 ts=ev.ts,
                 persist=False,
+                prepared=prepared,
             )
+            canonical_payload = self._build_event_payload(
+                user_message=payload.get("user_message", ""),
+                agent_message=payload.get("agent_message", ""),
+                actors=payload.get("actors"),
+                context=payload.get("context"),
+                prepared=prepared,
+            )
+            if payload != canonical_payload:
+                self.event_log.update_payload(ev.id, canonical_payload)
             self.last_seq = seq
 
     def ingest_interaction(
@@ -117,18 +150,26 @@ class AuroraRuntime:
                 user_message = redact(user_message).redacted_text
                 agent_message = redact(agent_message).redacted_text
 
+            prepared = self._prepare_live_interaction(
+                user_message=user_message,
+                agent_message=agent_message,
+                actors=actors,
+                context=context,
+            )
+
             seq = self.event_log.append(
                 Event(
                     id=event_id,
                     ts=ts,
                     session_id=session_id,
                     type="interaction",
-                    payload={
-                        "user_message": user_message,
-                        "agent_message": agent_message,
-                        "actors": list(actors) if actors else None,
-                        "context": context,
-                    },
+                    payload=self._build_event_payload(
+                        user_message=user_message,
+                        agent_message=agent_message,
+                        actors=actors,
+                        context=context,
+                        prepared=prepared,
+                    ),
                 )
             )
 
@@ -140,6 +181,7 @@ class AuroraRuntime:
                 context=context,
                 ts=ts,
                 persist=True,
+                prepared=prepared,
             )
             self.last_seq = max(self.last_seq, seq)
 
@@ -260,15 +302,16 @@ class AuroraRuntime:
         context: Optional[str],
         ts: float,
         persist: bool,
+        prepared: PreparedInteraction,
     ) -> IngestResult:
-        extraction = self._extract_plot(user_message=user_message, agent_message=agent_message, context=context)
-        interaction_text = f"USER: {user_message}\nAGENT: {agent_message}\nOUTCOME: {extraction.outcome}".strip()
-
         plot = self.mem.ingest(
-            interaction_text,
-            actors=actors or extraction.actors,
+            prepared.interaction_text,
+            actors=prepared.resolved_actors,
             context_text=context,
             event_id=event_id,
+            interaction_embedding=prepared.interaction_embedding,
+            context_embedding=prepared.context_embedding,
+            ts=ts,
         )
         encoded = plot.id in self.mem.plots
 
@@ -279,17 +322,21 @@ class AuroraRuntime:
                     kind="plot",
                     ts=ts,
                     body={
-                        "schema_version": extraction.schema_version,
-                        "actors": extraction.actors,
-                        "action": extraction.action,
-                        "context": extraction.context,
-                        "outcome": extraction.outcome,
-                        "goal": extraction.goal,
-                        "obstacles": extraction.obstacles,
-                        "decision": extraction.decision,
-                        "emotion_valence": extraction.emotion_valence,
-                        "emotion_arousal": extraction.emotion_arousal,
-                        "claims": [claim.model_dump() for claim in extraction.claims],
+                        "schema_version": prepared.extraction.schema_version,
+                        "actors": prepared.extraction.actors,
+                        "action": prepared.extraction.action,
+                        "context": prepared.extraction.context,
+                        "outcome": prepared.extraction.outcome,
+                        "goal": prepared.extraction.goal,
+                        "obstacles": prepared.extraction.obstacles,
+                        "decision": prepared.extraction.decision,
+                        "emotion_valence": prepared.extraction.emotion_valence,
+                        "emotion_arousal": prepared.extraction.emotion_arousal,
+                        "claims": [claim.model_dump() for claim in prepared.extraction.claims],
+                        "interaction_text": prepared.interaction_text,
+                        "resolved_actors": list(prepared.resolved_actors),
+                        "context_embedding": prepared.context_embedding.tolist() if prepared.context_embedding is not None else None,
+                        "plot_state": plot.to_state_dict(),
                         "raw": {"user_message": user_message, "agent_message": agent_message},
                     },
                 )
@@ -323,7 +370,198 @@ class AuroraRuntime:
             redundancy=float(plot.redundancy),
         )
 
-    def _extract_plot(self, *, user_message: str, agent_message: str, context: Optional[str]) -> PlotExtraction:
+    def _prepare_live_interaction(
+        self,
+        *,
+        user_message: str,
+        agent_message: str,
+        actors: Optional[Sequence[str]],
+        context: Optional[str],
+    ) -> PreparedInteraction:
+        extraction = self._extract_plot(user_message=user_message, agent_message=agent_message, context=context, actors=actors)
+        return self._prepare_interaction(
+            user_message=user_message,
+            agent_message=agent_message,
+            actors=actors,
+            context=context,
+            extraction=extraction,
+            interaction_embedding=None,
+            context_embedding=None,
+        )
+
+    def _prepare_replay_interaction(
+        self,
+        *,
+        event_id: str,
+        user_message: str,
+        agent_message: str,
+        actors: Optional[Sequence[str]],
+        context: Optional[str],
+        payload: Dict[str, Any],
+    ) -> PreparedInteraction:
+        extraction = self._load_plot_extraction(
+            event_id=event_id,
+            payload=payload,
+            user_message=user_message,
+            agent_message=agent_message,
+            actors=actors,
+            context=context,
+        )
+        return self._prepare_interaction(
+            user_message=user_message,
+            agent_message=agent_message,
+            actors=payload.get("resolved_actors") or actors,
+            context=context,
+            extraction=extraction,
+            interaction_embedding=self._deserialize_embedding(payload.get("interaction_embedding")),
+            context_embedding=self._deserialize_embedding(payload.get("context_embedding")),
+            interaction_text=payload.get("interaction_text"),
+        )
+
+    def _prepare_interaction(
+        self,
+        *,
+        user_message: str,
+        agent_message: str,
+        actors: Optional[Sequence[str]],
+        context: Optional[str],
+        extraction: PlotExtraction,
+        interaction_embedding: Optional[np.ndarray],
+        context_embedding: Optional[np.ndarray],
+        interaction_text: Optional[str] = None,
+    ) -> PreparedInteraction:
+        resolved_actors = self._resolve_actors(actors=actors, extraction=extraction)
+        canonical_text = interaction_text or self._build_interaction_text(
+            user_message=user_message,
+            agent_message=agent_message,
+            extraction=extraction,
+        )
+        text_embedding = interaction_embedding
+        if text_embedding is None:
+            text_embedding = self.mem.embedder.embed(canonical_text)
+        ctx_embedding = context_embedding
+        if ctx_embedding is None and context:
+            ctx_embedding = self.mem.embedder.embed(context)
+        return PreparedInteraction(
+            extraction=extraction,
+            interaction_text=canonical_text,
+            resolved_actors=resolved_actors,
+            interaction_embedding=np.asarray(text_embedding, dtype=np.float32),
+            context_embedding=np.asarray(ctx_embedding, dtype=np.float32) if ctx_embedding is not None else None,
+        )
+
+    def _build_event_payload(
+        self,
+        *,
+        user_message: str,
+        agent_message: str,
+        actors: Optional[Sequence[str]],
+        context: Optional[str],
+        prepared: PreparedInteraction,
+    ) -> Dict[str, Any]:
+        return {
+            "user_message": user_message,
+            "agent_message": agent_message,
+            "actors": list(actors) if actors else None,
+            "context": context,
+            "plot_extraction": prepared.extraction.model_dump(),
+            "interaction_text": prepared.interaction_text,
+            "resolved_actors": list(prepared.resolved_actors),
+            "interaction_embedding": prepared.interaction_embedding.tolist(),
+            "context_embedding": prepared.context_embedding.tolist() if prepared.context_embedding is not None else None,
+        }
+
+    def _load_plot_extraction(
+        self,
+        *,
+        event_id: str,
+        payload: Dict[str, Any],
+        user_message: str,
+        agent_message: str,
+        actors: Optional[Sequence[str]],
+        context: Optional[str],
+    ) -> PlotExtraction:
+        stored = payload.get("plot_extraction")
+        if isinstance(stored, dict):
+            try:
+                return PlotExtraction.model_validate(stored)
+            except Exception as exc:
+                logger.warning("Invalid stored plot extraction for event %s: %s", event_id, exc)
+
+        plot_doc = self._load_plot_doc(event_id)
+        if plot_doc is not None:
+            try:
+                return PlotExtraction.model_validate(plot_doc.body)
+            except Exception as exc:
+                logger.warning("Invalid plot document extraction for event %s: %s", event_id, exc)
+
+        return self._build_minimal_plot_extraction(
+            user_message=user_message,
+            agent_message=agent_message,
+            actors=actors,
+            context=context,
+        )
+
+    def _load_plot_doc(self, event_id: str) -> Optional[Document]:
+        ingest_doc = self.doc_store.get(f"ingest:{event_id}")
+        if ingest_doc is None:
+            return None
+        plot_id = ingest_doc.body.get("plot_id")
+        if not plot_id:
+            return None
+        return self.doc_store.get(str(plot_id))
+
+    def _resolve_actors(self, *, actors: Optional[Sequence[str]], extraction: PlotExtraction) -> Tuple[str, ...]:
+        if actors:
+            return tuple(str(actor) for actor in actors)
+        if extraction.actors:
+            return tuple(str(actor) for actor in extraction.actors)
+        return ("user", "agent")
+
+    def _build_interaction_text(
+        self,
+        *,
+        user_message: str,
+        agent_message: str,
+        extraction: PlotExtraction,
+    ) -> str:
+        return f"USER: {user_message}\nAGENT: {agent_message}\nOUTCOME: {extraction.outcome}".strip()
+
+    def _deserialize_embedding(self, raw: Any) -> Optional[np.ndarray]:
+        if raw is None:
+            return None
+        try:
+            arr = np.asarray(raw, dtype=np.float32)
+        except Exception:
+            return None
+        if arr.ndim != 1 or arr.size == 0:
+            return None
+        return arr
+
+    def _build_minimal_plot_extraction(
+        self,
+        *,
+        user_message: str,
+        agent_message: str,
+        actors: Optional[Sequence[str]],
+        context: Optional[str],
+    ) -> PlotExtraction:
+        action_source = user_message or agent_message or "interaction"
+        fallback_actors = list(actors) if actors else ["user", "agent"]
+        return PlotExtraction(
+            action=action_source[:120],
+            actors=fallback_actors,
+            context=context or "",
+        )
+
+    def _extract_plot(
+        self,
+        *,
+        user_message: str,
+        agent_message: str,
+        context: Optional[str],
+        actors: Optional[Sequence[str]],
+    ) -> PlotExtraction:
         from aurora.integrations.llm import prompts
 
         instruction = prompts.instruction("PlotExtraction")
@@ -340,11 +578,17 @@ class AuroraRuntime:
                 user=user_prompt,
                 schema=PlotExtraction,
                 temperature=0.2,
-                timeout_s=20.0,
+                timeout_s=PLOT_EXTRACTION_TIMEOUT_S,
+                max_retries=PLOT_EXTRACTION_MAX_RETRIES,
             )
         except Exception as exc:
             logger.debug("LLM plot extraction failed, using minimal fallback: %s", exc)
-            return PlotExtraction(action=user_message[:120], actors=["user", "agent"])
+            return self._build_minimal_plot_extraction(
+                user_message=user_message,
+                agent_message=agent_message,
+                actors=actors,
+                context=context,
+            )
 
     def _snapshot(self, *, logger: Optional[Any] = None) -> None:
         snap = Snapshot(last_seq=self.last_seq, state=self.mem)

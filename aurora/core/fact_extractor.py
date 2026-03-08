@@ -191,19 +191,18 @@ class FactExtractor:
         
         return unique_facts
     
-    def augment_plot(
-        self, 
-        plot, 
-        embedder=None
-    ) -> None:
+    def augment_plot(self, plot) -> List[ExtractedFact]:
         """为 plot 添加事实索引
         
         提取事实并添加到 plot.fact_keys 字段。
-        可选：为每个事实生成 embedding 用于检索。
+
+        这里刻意不再为 fact key 额外生成 embedding。当前检索链路只使用
+        `fact_keys` 文本匹配，历史实现里生成的 `_fact_embeddings`
+        没有任何读取方，却会在每次 ingest/replay 时引入额外远程嵌入调用。
+        去掉这条死路径可以显著降低真实服务延迟，并保持现有记忆行为不变。
         
         Args:
             plot: Plot 对象（需要添加 fact_keys 字段）
-            embedder: 可选的 embedding 函数，用于为事实生成向量
         """
         facts = self.extract(plot.text)
         
@@ -216,20 +215,5 @@ class FactExtractor:
         else:
             # 如果 Plot 模型还没有 fact_keys 字段，先存储到临时属性
             plot._fact_keys = fact_keys
-        
-        # 可选：为事实生成 embedding（用于向量检索）
-        if embedder is not None and fact_keys:
-            fact_embeddings = []
-            for fact_text in fact_keys:
-                try:
-                    emb = embedder.embed(fact_text)
-                    fact_embeddings.append(emb)
-                except Exception as e:
-                    # 如果 embedding 失败，跳过这个事实
-                    continue
-            
-            if fact_embeddings:
-                # 存储事实 embedding（可选，用于后续检索）
-                plot._fact_embeddings = fact_embeddings
         
         return facts

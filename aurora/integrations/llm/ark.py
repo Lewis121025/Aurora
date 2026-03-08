@@ -85,6 +85,7 @@ class ArkLLM(LLMProvider):
         timeout_s: float = 30.0,
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        max_retries: Optional[int] = None,
     ) -> str:
         """为给定的提示生成文本补全。
 
@@ -108,7 +109,8 @@ class ArkLLM(LLMProvider):
         messages.append({"role": "user", "content": prompt})
         
         last_error = None
-        for attempt in range(self.max_retries):
+        attempt_limit = self.max_retries if max_retries is None else max(1, int(max_retries))
+        for attempt in range(attempt_limit):
             try:
                 kwargs = {
                     "model": self.model,
@@ -130,12 +132,12 @@ class ArkLLM(LLMProvider):
                 
             except Exception as e:
                 last_error = e
-                logger.warning(f"Attempt {attempt + 1}/{self.max_retries} failed: {e}")
-                if attempt < self.max_retries - 1:
+                logger.warning(f"Attempt {attempt + 1}/{attempt_limit} failed: {e}")
+                if attempt < attempt_limit - 1:
                     sleep_time = (2 ** attempt) * 0.5
                     time.sleep(sleep_time)
-        
-        raise RuntimeError(f"All {self.max_retries} attempts failed. Last error: {last_error}")
+
+        raise RuntimeError(f"All {attempt_limit} attempts failed. Last error: {last_error}")
 
     def complete_json(
         self,
@@ -146,6 +148,7 @@ class ArkLLM(LLMProvider):
         temperature: float = 0.2,
         timeout_s: float = 30.0,
         metadata: Optional[Dict[str, Any]] = None,
+        max_retries: Optional[int] = None,
     ) -> T:
         """使用结构化 JSON 输出完成。
 
@@ -187,7 +190,8 @@ class ArkLLM(LLMProvider):
         ]
         
         last_error = None
-        for attempt in range(self.max_retries):
+        attempt_limit = self.max_retries if max_retries is None else max(1, int(max_retries))
+        for attempt in range(attempt_limit):
             try:
                 response = client.chat.completions.create(
                     model=self.model,
@@ -209,13 +213,13 @@ class ArkLLM(LLMProvider):
                 
             except Exception as e:
                 last_error = e
-                logger.warning(f"Attempt {attempt + 1}/{self.max_retries} failed: {e}")
-                if attempt < self.max_retries - 1:
+                logger.warning(f"Attempt {attempt + 1}/{attempt_limit} failed: {e}")
+                if attempt < attempt_limit - 1:
                     # 指数退避
                     sleep_time = (2 ** attempt) * 0.5
                     time.sleep(sleep_time)
-        
-        raise RuntimeError(f"All {self.max_retries} attempts failed. Last error: {last_error}")
+
+        raise RuntimeError(f"All {attempt_limit} attempts failed. Last error: {last_error}")
     
     def _parse_json_response(self, content: str, schema: Type[T]) -> Dict[str, Any]:
         """使用多种回退策略从 LLM 响应解析 JSON。"""
@@ -349,6 +353,7 @@ class ArkLLMWithFallback(LLMProvider):
         timeout_s: float = 30.0,
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        max_retries: Optional[int] = None,
     ) -> str:
         """使用回退支持生成文本补全。"""
         if self._primary:
@@ -361,6 +366,7 @@ class ArkLLMWithFallback(LLMProvider):
                     timeout_s=timeout_s,
                     stop=stop,
                     metadata=metadata,
+                    max_retries=max_retries,
                 )
             except Exception as e:
                 logger.warning(f"Primary LLM complete() failed, using fallback: {e}")
@@ -373,6 +379,7 @@ class ArkLLMWithFallback(LLMProvider):
             timeout_s=timeout_s,
             stop=stop,
             metadata=metadata,
+            max_retries=max_retries,
         )
 
     def complete_json(
@@ -384,6 +391,7 @@ class ArkLLMWithFallback(LLMProvider):
         temperature: float = 0.2,
         timeout_s: float = 30.0,
         metadata: Optional[Dict[str, Any]] = None,
+        max_retries: Optional[int] = None,
     ) -> T:
         if self._primary:
             try:
@@ -394,6 +402,7 @@ class ArkLLMWithFallback(LLMProvider):
                     temperature=temperature,
                     timeout_s=timeout_s,
                     metadata=metadata,
+                    max_retries=max_retries,
                 )
             except Exception as e:
                 logger.warning(f"Primary LLM failed, using fallback: {e}")
@@ -405,4 +414,5 @@ class ArkLLMWithFallback(LLMProvider):
             temperature=temperature,
             timeout_s=timeout_s,
             metadata=metadata,
+            max_retries=max_retries,
         )

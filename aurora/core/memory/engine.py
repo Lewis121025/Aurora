@@ -121,6 +121,14 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+INTERACTION_FIELD_ALIASES: Dict[str, Tuple[str, ...]] = {
+    "text": ("text", "文本"),
+    "actors": ("actors", "参与者"),
+    "context_text": ("context_text", "上下文", "context"),
+    "event_id": ("event_id", "事件ID", "事件id"),
+    "date": ("date", "日期"),
+}
+
 class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, SerializationMixin):
     """AURORA 内存：从第一原理产生的叙事性内存。
 
@@ -624,6 +632,13 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             if entity_conf > 0.5:
                 return 0.0, "update", most_similar_id
 
+        if most_similar_plot is not None:
+            update_signals = self._detect_update_signals(
+                text, most_similar_plot.text, ts, most_similar_plot.ts
+            )
+            if update_signals["is_update"] and max_sim >= 0.3:
+                return 0.0, "update", most_similar_id
+
         # 低相似度 -> 新颖内容（除非实体跟踪器找到匹配）
         if max_sim < UPDATE_MODERATE_SIMILARITY_THRESHOLD:
             return 0.0, "novel", None
@@ -770,7 +785,19 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
 
     def _compute_goal_relevance(self, emb: np.ndarray, context_emb: Optional[np.ndarray]) -> float:
         """计算与当前目标/上下文的相关性。"""
-        return cosine_sim(emb, context_emb) if context_emb is not None else 0.0
+        if context_emb is None:
+            return 0.0
+        return float(max(0.0, min(1.0, cosine_sim(emb, context_emb))))
+
+    def _normalize_interaction_item(self, item: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize localized batch-ingest keys into the canonical schema."""
+        normalized: Dict[str, Any] = {}
+        for canonical, aliases in INTERACTION_FIELD_ALIASES.items():
+            for alias in aliases:
+                if alias in item:
+                    normalized[canonical] = item[alias]
+                    break
+        return normalized
 
     def _compute_pred_error(self, emb: np.ndarray) -> float:
         """计算与最佳匹配的 story 质心的预测误差。"""
@@ -839,6 +866,9 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         actors: Optional[Sequence[str]] = None,
         context_text: Optional[str] = None,
         event_id: Optional[str] = None,
+        interaction_embedding: Optional[np.ndarray] = None,
+        context_embedding: Optional[np.ndarray] = None,
+        ts: Optional[float] = None,
     ) -> Plot:
         """使用关系中心处理摄入交互/事件。
 
@@ -864,6 +894,13 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             event_id：用于可重复 plot ID 生成的可选确定性事件 ID。
                 如果为 None，生成 UUID。对于测试
                 和重放场景很有用。
+            interaction_embedding：交互文本的可选预计算 embedding。
+                提供时会跳过 embedder 调用，适用于 replay 和
+                预处理场景。
+            context_embedding：上下文文本的可选预计算 embedding。
+                提供时会跳过对 `context_text` 的 embedder 调用。
+            ts：plot 的可选确定性时间戳。用于让 event replay
+                保留原始事件时间而不是使用当前时间。
 
         返回：
             创建的 Plot 对象。注意 plot 可能会或可能不会
@@ -892,18 +929,24 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             >>> assert plot.id == "plot-test-event-001"  # 确定性 ID
         """
         if not interaction_text or not interaction_text.strip():
-            raise ValidationError("interaction_text 不能为空")
+            raise ValidationError("interaction_text cannot be empty")
         actors = tuple(actors) if actors else ("user", "agent")
-        emb = self.embedder.embed(interaction_text)
+        emb = self._coerce_embedding(interaction_embedding) if interaction_embedding is not None else self.embedder.embed(interaction_text)
 
         # 使用关系中心处理准备 plot
-        plot = self._prepare_plot(interaction_text, actors, emb, event_id)
+        plot = self._prepare_plot(interaction_text, actors, emb, event_id, ts)
 
         # 无论存储决策如何，更新全局密度（校准）
         self.kde.add(emb)
 
         # 计算传统信号
-        context_emb = self.embedder.embed(context_text) if context_text else None
+        context_emb: Optional[np.ndarray]
+        if context_embedding is not None:
+            context_emb = self._coerce_embedding(context_embedding)
+        elif context_text:
+            context_emb = self.embedder.embed(context_text)
+        else:
+            context_emb = None
         self._compute_plot_signals(plot, emb, context_emb)
 
         # 做出存储决策
@@ -996,11 +1039,13 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         if not interactions:
             return []
 
+        normalized_items = [self._normalize_interaction_item(item) for item in interactions]
+
         # 首先验证所有输入（快速失败）
-        for i, item in enumerate(interactions):
+        for i, item in enumerate(normalized_items):
             text = item.get("text", "")
             if not text or not text.strip():
-                raise ValidationError(f"interaction[{i}].text 不能为空")
+                raise ValidationError(f"interaction[{i}].text cannot be empty")
 
         total = len(interactions)
         logger.info(f"开始批量摄入 {total} 个交互（batch_size={batch_size}）")
@@ -1017,12 +1062,12 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 return f"[{date}] {text}"
             return text
 
-        texts_to_embed = [_prepare_text_with_date(item) for item in interactions]
+        texts_to_embed = [_prepare_text_with_date(item) for item in normalized_items]
 
         # 收集上下文文本（用于目标相关性计算）
         context_texts = []
         context_indices = []
-        for i, item in enumerate(interactions):
+        for i, item in enumerate(normalized_items):
             ctx = item.get("context_text")
             if ctx:
                 context_texts.append(ctx)
@@ -1048,7 +1093,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         plots: List[Plot] = []
         stored_count = 0
 
-        for i, item in enumerate(interactions):
+        for i, item in enumerate(normalized_items):
             # 使用带日期前缀的文本（与用于嵌入的相同）
             text = texts_to_embed[i]
             actors = tuple(item.get("actors", ("user", "agent")))
@@ -1057,7 +1102,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             context_emb = context_embeddings.get(i)
 
             # 使用关系中心处理准备 plot
-            plot = self._prepare_plot(text, actors, emb, event_id)
+            plot = self._prepare_plot(text, actors, emb, event_id, None)
 
             # 无论存储决策如何，更新全局密度（校准）
             self.kde.add(emb)
@@ -1153,6 +1198,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         actors: Tuple[str, ...],
         emb: np.ndarray,
         event_id: Optional[str],
+        ts: Optional[float],
     ) -> Plot:
         """使用关系中心上下文和知识类型分类准备 plot。"""
         # 关系识别
@@ -1178,7 +1224,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
 
         plot = Plot(
             id=det_id("plot", event_id) if event_id else str(uuid.uuid4()),
-            ts=now_ts(),
+            ts=float(ts) if ts is not None else now_ts(),
             text=interaction_text,
             actors=tuple(actors),
             embedding=emb,
@@ -1189,9 +1235,16 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
         )
 
         # 第 5 阶段：提取事实以增强多会话回忆
-        self.fact_extractor.augment_plot(plot, embedder=self.embedder)
+        self.fact_extractor.augment_plot(plot)
 
         return plot
+
+    def _coerce_embedding(self, embedding: np.ndarray) -> np.ndarray:
+        """将外部提供的 embedding 规范化为内部 float32 向量。"""
+        arr = np.asarray(embedding, dtype=np.float32)
+        if arr.ndim != 1:
+            raise ValidationError("embedding must be a one-dimensional vector")
+        return arr
 
     def _compute_plot_signals(
         self, plot: Plot, emb: np.ndarray, context_emb: Optional[np.ndarray]
@@ -1773,7 +1826,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             >>> print(f"检测到的类型：{trace.query_type}")
         """
         if not text or not text.strip():
-            raise ValidationError("query text 不能为空")
+            raise ValidationError("query text cannot be empty")
 
         # 从提示、显式参数或自动检测检测查询类型
         detected_type = query_type

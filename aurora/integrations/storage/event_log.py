@@ -53,6 +53,13 @@ class SQLiteEventLog:
         row = cur.fetchone()
         return int(row[0]) if row else None
 
+    def update_payload(self, event_id: str, payload: Dict[str, Any]) -> None:
+        self._conn.execute(
+            "UPDATE events SET payload = ? WHERE id = ?",
+            (dumps(payload), event_id),
+        )
+        self._conn.commit()
+
     def iter_events(self, *, after_seq: int = 0) -> Iterable[Tuple[int, Event]]:
         cur = self._conn.cursor()
         cur.execute(

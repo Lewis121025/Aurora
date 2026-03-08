@@ -26,7 +26,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # =============================================================================
@@ -70,6 +70,20 @@ class ThemeType(str, Enum):
 
 class IngestRequestV1(BaseModel):
     """V1 摄入请求 - 在记忆中存储新的交互。"""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "version": "v1",
+            "example": {
+                "event_id": "evt_abc123",
+                "session_id": "sess_789",
+                "user_message": "How do I implement a memory system?",
+                "agent_message": "You can use a narrative memory architecture...",
+                "actors": ["user", "agent"],
+                "context": "programming discussion",
+            },
+        }
+    )
     
     event_id: Optional[str] = Field(
         default=None,
@@ -108,22 +122,10 @@ class IngestRequestV1(BaseModel):
         description="交互的Unix时间戳。如果未提供则自动设置。",
     )
     
-    class Config:
-        json_schema_extra = {
-            "version": "v1",
-            "example": {
-                "event_id": "evt_abc123",
-                "session_id": "sess_789",
-                "user_message": "How do I implement a memory system?",
-                "agent_message": "You can use a narrative memory architecture...",
-                "actors": ["user", "agent"],
-                "context": "programming discussion",
-            }
-        }
-
-
 class QueryRequestV1(BaseModel):
     """V1 查询请求 - 按语义相似性搜索记忆。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
     text: str = Field(
         ...,
@@ -147,12 +149,10 @@ class QueryRequestV1(BaseModel):
         description="在响应中包含详细元数据。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 class FeedbackRequestV1(BaseModel):
     """V1 反馈请求 - 提供关于检索质量的反馈。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
     query_text: str = Field(
         ...,
@@ -167,19 +167,16 @@ class FeedbackRequestV1(BaseModel):
         description="检索是否成功/有帮助。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 class EvolveRequestV1(BaseModel):
     """V1 演化请求 - 触发记忆演化。"""
 
-    class Config:
-        json_schema_extra = {"version": "v1"}
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
 
 class CausalChainRequestV1(BaseModel):
     """V1 因果链请求 - 获取因果关系。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
     node_id: str = Field(
         ...,
@@ -190,16 +187,14 @@ class CausalChainRequestV1(BaseModel):
         description="追踪的方向。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 # =============================================================================
 # V1 Response Models
 # =============================================================================
 
 class IngestResponseV1(BaseModel):
     """V1 摄入响应 - 存储交互的结果。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
     event_id: str = Field(
         ...,
@@ -234,10 +229,6 @@ class IngestResponseV1(BaseModel):
         description="与现有情节的冗余度。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 class QueryHitV1(BaseModel):
     """V1 查询命中 - 单个搜索结果。"""
 
@@ -266,6 +257,8 @@ class QueryHitV1(BaseModel):
 class QueryResponseV1(BaseModel):
     """V1 查询响应 - 搜索结果。"""
 
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
+
     query: str = Field(
         ...,
         description="原始搜索查询。",
@@ -283,12 +276,10 @@ class QueryResponseV1(BaseModel):
         description="查询延迟 (毫秒)。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 class CoherenceResponseV1(BaseModel):
     """V1 一致性响应 - 记忆一致性检查结果。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
     overall_score: float = Field(
         ...,
@@ -311,12 +302,10 @@ class CoherenceResponseV1(BaseModel):
         description="改进一致性的推荐行动。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 class SelfNarrativeResponseV1(BaseModel):
     """V1 自我叙事响应 - 代理的自我模型。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
     identity_statement: str = Field(
         ...,
@@ -357,10 +346,6 @@ class SelfNarrativeResponseV1(BaseModel):
         description="完整的叙事文本。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 class CausalChainItemV1(BaseModel):
     """V1 因果链项 - 因果链中的一个节点。"""
 
@@ -376,17 +361,17 @@ class CausalChainItemV1(BaseModel):
 class CausalChainResponseV1(BaseModel):
     """V1 因果链响应 - 因果关系链。"""
 
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
+
     chain: List[CausalChainItemV1] = Field(
         ...,
         description="因果相关节点的列表。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 class MemoryStatsResponseV1(BaseModel):
     """V1 记忆统计响应 - 记忆系统统计。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
     plot_count: int = Field(
         ...,
@@ -427,12 +412,10 @@ class MemoryStatsResponseV1(BaseModel):
         description="故事集群熵。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 class ErrorResponseV1(BaseModel):
     """V1 错误响应 - 标准错误格式。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
     error: str = Field(
         ...,
@@ -447,12 +430,10 @@ class ErrorResponseV1(BaseModel):
         description="附加错误详情。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 class HealthResponseV1(BaseModel):
     """V1 健康响应 - 服务健康检查。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
 
     status: Literal["healthy", "degraded", "unhealthy"] = Field(
         ...,
@@ -471,10 +452,6 @@ class HealthResponseV1(BaseModel):
         description="组件级别的状态。",
     )
     
-    class Config:
-        json_schema_extra = {"version": "v1"}
-
-
 # =============================================================================
 # 类型别名便利
 # =============================================================================
