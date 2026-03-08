@@ -251,6 +251,9 @@ ark = [
     { name = "openai" },
     { name = "volcengine-python-sdk", extra = ["ark"] },
 ]
+bailian = [
+    { name = "openai" },
+]
 benchmark = [
     { name = "datasets" },
     { name = "rouge-score" },
@@ -270,13 +273,12 @@ production = [
     { name = "fastapi" },
     { name = "openai" },
     { name = "uvicorn" },
-    { name = "volcengine-python-sdk", extra = ["ark"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "aurora-memory", extras = ["api", "ark", "faiss"], marker = "extra == 'production'" },
-    { name = "aurora-memory", extras = ["api", "ark", "faiss", "benchmark", "dev"], marker = "extra == 'all'" },
+    { name = "aurora-memory", extras = ["api", "bailian", "ark", "faiss", "benchmark", "dev"], marker = "extra == 'all'" },
+    { name = "aurora-memory", extras = ["api", "bailian", "faiss"], marker = "extra == 'production'" },
     { name = "datasets", marker = "extra == 'benchmark'", specifier = ">=2.14" },
     { name = "faiss-cpu", marker = "extra == 'faiss'", specifier = ">=1.7.4" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.110" },
@@ -284,6 +286,7 @@ requires-dist = [
     { name = "networkx", specifier = ">=3.2" },
     { name = "numpy", specifier = ">=1.24" },
     { name = "openai", marker = "extra == 'ark'", specifier = ">=1.12" },
+    { name = "openai", marker = "extra == 'bailian'", specifier = ">=1.12" },
     { name = "orjson", specifier = ">=3.9" },
     { name = "pydantic", specifier = ">=2.6" },
     { name = "pydantic-settings", specifier = ">=2.2" },
@@ -296,7 +299,7 @@ requires-dist = [
     { name = "uvicorn", marker = "extra == 'api'", specifier = ">=0.27" },
     { name = "volcengine-python-sdk", extras = ["ark"], marker = "extra == 'ark'" },
 ]
-provides-extras = ["api", "ark", "faiss", "benchmark", "dev", "production", "all"]
+provides-extras = ["api", "bailian", "ark", "faiss", "benchmark", "dev", "production", "all"]
 
 [[package]]
 name = "certifi"
