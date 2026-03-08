@@ -18,38 +18,3 @@ AURORA 配置常量模块
     from aurora.core.config.retrieval import INITIAL_SEARCH_K
     from aurora.core.config.identity import IDENTITY_RELEVANCE_WEIGHT
 """
-
-from . import coherence as _coherence
-from . import evolution as _evolution
-from . import identity as _identity
-from . import knowledge as _knowledge
-from . import numeric as _numeric
-from . import query_types as _query_types
-from . import retrieval as _retrieval
-from . import storage as _storage
-from .coherence import *  # noqa: F401,F403
-from .evolution import *  # noqa: F401,F403
-from .identity import *  # noqa: F401,F403
-from .knowledge import *  # noqa: F401,F403
-from .numeric import *  # noqa: F401,F403
-from .query_types import *  # noqa: F401,F403
-from .retrieval import *  # noqa: F401,F403
-from .storage import *  # noqa: F401,F403
-
-
-def _module_exports(module: object) -> list[str]:
-    return [name for name in vars(module) if name.isupper()]
-
-
-__all__ = sorted(
-    {
-        *_module_exports(_coherence),
-        *_module_exports(_evolution),
-        *_module_exports(_identity),
-        *_module_exports(_knowledge),
-        *_module_exports(_numeric),
-        *_module_exports(_query_types),
-        *_module_exports(_retrieval),
-        *_module_exports(_storage),
-    }
-)

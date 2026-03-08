@@ -96,10 +96,18 @@ def migrate_file(file_path: Path, dry_run: bool = False) -> bool:
     if not used_constants:
         return False
 
+    unknown_constants = sorted(c for c in used_constants if c not in CONSTANT_TO_MODULE)
+    if unknown_constants:
+        print(
+            f"Skipping {file_path}: unmapped constants require manual migration: "
+            f"{', '.join(unknown_constants)}"
+        )
+        return False
+
     # 按模块分组常量
     module_to_constants: Dict[str, Set[str]] = {}
     for constant in used_constants:
-        module = CONSTANT_TO_MODULE.get(constant, 'aurora.core.config')
+        module = CONSTANT_TO_MODULE[constant]
         if module not in module_to_constants:
             module_to_constants[module] = set()
         module_to_constants[module].add(constant)
