@@ -27,7 +27,7 @@ pip install --upgrade pip -q
 
 # 安装依赖
 echo "安装 AURORA 本地开发依赖..."
-pip install -e ".[api,dev]" -q
+pip install -e ".[api,bailian,dev]" -q
 
 echo
 echo "✅ 设置完成!"
@@ -35,6 +35,7 @@ echo
 echo "要激活虚拟环境，运行:"
 echo "  source venv/bin/activate"
 echo
+echo "默认已包含百炼依赖。"
 echo "如需接入火山方舟，额外运行:"
 echo "  pip install -e '.[ark]'"
 echo

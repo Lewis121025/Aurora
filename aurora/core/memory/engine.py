@@ -280,7 +280,7 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
 ║  embedding provider:                                                         ║
 ║                                                                              ║
 ║  Option 1: 阿里云百炼 (Bailian)                                              ║
-║    export AURORA_BAILIAN_API_KEY="your-api-key"                              ║
+║    export AURORA_BAILIAN_EMBEDDING_API_KEY="your-api-key"                    ║
 ║    export AURORA_EMBEDDING_PROVIDER="bailian"                                ║
 ║                                                                              ║
 ║  Option 2: 火山方舟 (Volcengine Ark)                                         ║

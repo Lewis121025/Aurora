@@ -13,7 +13,12 @@ class AuroraSettings(BaseSettings):
     - Here we still need *operational* constraints: storage paths, budgets, intervals, etc.
     """
 
-    model_config = SettingsConfigDict(env_prefix="AURORA_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="AURORA_",
+        extra="ignore",
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
 
     # single-user runtime
     data_dir: str = "./data"
@@ -51,8 +56,8 @@ class AuroraSettings(BaseSettings):
     
     # --- 火山方舟 (Volcengine Ark) LLM 配置 ---
     
-    # LLM 提供者: "ark" (火山方舟) 或 "mock" (本地测试)
-    llm_provider: Literal["ark", "mock"] = "mock"
+    # LLM 提供者: "bailian" | "ark" | "mock"
+    llm_provider: Literal["bailian", "ark", "mock"] = "mock"
     
     # 火山方舟 API Key
     ark_api_key: Optional[str] = None
@@ -62,6 +67,15 @@ class AuroraSettings(BaseSettings):
     
     # LLM 模型
     ark_llm_model: str = "doubao-seed-1-8-251228"
+
+    # 百炼 LLM API Key
+    bailian_llm_api_key: Optional[str] = None
+
+    # 百炼 LLM OpenAI 兼容 API 基础 URL
+    bailian_llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    # 百炼文本模型
+    bailian_llm_model: str = "qwen3.5-plus"
     
     # LLM 请求超时 (秒)
     llm_timeout: float = 60.0
@@ -74,14 +88,14 @@ class AuroraSettings(BaseSettings):
     # 嵌入提供者: "bailian" | "ark" | "local" | "hash"
     embedding_provider: Literal["bailian", "ark", "local", "hash"] = "local"
     
-    # 阿里云百炼 API Key
-    bailian_api_key: Optional[str] = None
-    
+    # 阿里云百炼嵌入 API Key
+    bailian_embedding_api_key: Optional[str] = None
+
     # 阿里云百炼嵌入模型
     bailian_embedding_model: str = "text-embedding-v4"
     
-    # 阿里云百炼 API 基础 URL
-    bailian_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    # 阿里云百炼嵌入 OpenAI 兼容 API 基础 URL
+    bailian_embedding_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     
     # --- 嵌入通用配置 ---
     

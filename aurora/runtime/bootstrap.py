@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from aurora.core.memory import AuroraMemory
 from aurora.core.models.config import MemoryConfig
+from aurora.exceptions import ConfigurationError
 from aurora.integrations.embeddings.base import EmbeddingProvider
 from aurora.integrations.llm.mock import MockLLM
 from aurora.integrations.llm.provider import LLMProvider
@@ -18,12 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 def check_embedding_api_keys() -> None:
-    bailian_key = os.environ.get("AURORA_BAILIAN_API_KEY")
+    bailian_key = os.environ.get("AURORA_BAILIAN_EMBEDDING_API_KEY")
     ark_key = os.environ.get("AURORA_ARK_API_KEY")
 
     if bailian_key or ark_key:
         if bailian_key:
-            logger.info("AURORA_BAILIAN_API_KEY is configured")
+            logger.info("AURORA_BAILIAN_EMBEDDING_API_KEY is configured")
         if ark_key:
             logger.info("AURORA_ARK_API_KEY is configured")
         return
@@ -35,12 +36,31 @@ def check_embedding_api_keys() -> None:
 
 
 def create_llm_provider(settings: AuroraSettings) -> LLMProvider:
-    if settings.llm_provider == "ark" and settings.ark_api_key:
+    if settings.llm_provider == "bailian":
+        if not settings.bailian_llm_api_key:
+            raise ConfigurationError("Bailian LLM provider selected but AURORA_BAILIAN_LLM_API_KEY is not set")
         try:
-            from aurora.integrations.llm.ark import ArkLLMWithFallback
+            from aurora.integrations.llm.bailian import BailianLLM
+
+            logger.info("Using Bailian LLM provider with model: %s", settings.bailian_llm_model)
+            return BailianLLM(
+                api_key=settings.bailian_llm_api_key,
+                model=settings.bailian_llm_model,
+                base_url=settings.bailian_llm_base_url,
+                max_retries=settings.llm_max_retries,
+                timeout=settings.llm_timeout,
+            )
+        except Exception as exc:
+            raise ConfigurationError(f"Failed to create Bailian LLM provider: {exc}") from exc
+
+    if settings.llm_provider == "ark":
+        if not settings.ark_api_key:
+            raise ConfigurationError("Ark LLM provider selected but AURORA_ARK_API_KEY is not set")
+        try:
+            from aurora.integrations.llm.ark import ArkLLM
 
             logger.info("Using Ark LLM provider with model: %s", settings.ark_llm_model)
-            return ArkLLMWithFallback(
+            return ArkLLM(
                 api_key=settings.ark_api_key,
                 model=settings.ark_llm_model,
                 base_url=settings.ark_base_url,
@@ -48,9 +68,7 @@ def create_llm_provider(settings: AuroraSettings) -> LLMProvider:
                 timeout=settings.llm_timeout,
             )
         except Exception as exc:
-            logger.warning("Failed to create Ark LLM provider: %s; falling back to mock", exc)
-    elif settings.llm_provider == "ark":
-        logger.warning("Ark LLM provider selected but no API key provided; using mock")
+            raise ConfigurationError(f"Failed to create Ark LLM provider: {exc}") from exc
 
     return MockLLM()
 
@@ -58,35 +76,39 @@ def create_llm_provider(settings: AuroraSettings) -> LLMProvider:
 def create_embedding_provider(settings: AuroraSettings) -> EmbeddingProvider:
     provider = settings.embedding_provider
 
-    if provider == "bailian" and settings.bailian_api_key:
+    if provider == "bailian":
+        if not settings.bailian_embedding_api_key:
+            raise ConfigurationError("Bailian embedding provider selected but AURORA_BAILIAN_EMBEDDING_API_KEY is not set")
         try:
-            from aurora.integrations.embeddings.bailian import BailianEmbeddingWithFallback
+            from aurora.integrations.embeddings.bailian import BailianEmbedding
 
             logger.info("Using Bailian embedding provider with model: %s", settings.bailian_embedding_model)
-            return BailianEmbeddingWithFallback(
-                api_key=settings.bailian_api_key,
+            return BailianEmbedding(
+                api_key=settings.bailian_embedding_api_key,
                 model=settings.bailian_embedding_model,
-                base_url=settings.bailian_base_url,
-                fallback_dim=settings.dim,
+                base_url=settings.bailian_embedding_base_url,
+                dimension=settings.dim,
                 use_cache=settings.embedding_cache_enabled,
                 cache_size=settings.embedding_cache_size,
             )
         except Exception as exc:
-            logger.warning("Failed to create Bailian embedding provider: %s; falling back to local", exc)
+            raise ConfigurationError(f"Failed to create Bailian embedding provider: {exc}") from exc
 
-    if provider == "ark" and settings.ark_api_key:
+    if provider == "ark":
+        if not settings.ark_api_key:
+            raise ConfigurationError("Ark embedding provider selected but AURORA_ARK_API_KEY is not set")
         try:
-            from aurora.integrations.embeddings.ark import ArkEmbeddingWithFallback
+            from aurora.integrations.embeddings.ark import ArkEmbedding
 
             logger.info("Using Ark embedding provider")
-            return ArkEmbeddingWithFallback(
+            return ArkEmbedding(
                 api_key=settings.ark_api_key,
-                fallback_dim=settings.dim,
+                dimension=settings.dim,
                 use_cache=settings.embedding_cache_enabled,
                 cache_size=settings.embedding_cache_size,
             )
         except Exception as exc:
-            logger.warning("Failed to create Ark embedding provider: %s; falling back to local", exc)
+            raise ConfigurationError(f"Failed to create Ark embedding provider: {exc}") from exc
 
     if provider == "hash":
         from aurora.integrations.embeddings.hash import HashEmbedding

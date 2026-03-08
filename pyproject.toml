@@ -20,6 +20,9 @@ api = [
   "fastapi>=0.110",
   "uvicorn>=0.27",
 ]
+bailian = [
+  "openai>=1.12",
+]
 ark = [
   "openai>=1.12",
   "volcengine-python-sdk[ark]",
@@ -39,10 +42,10 @@ dev = [
   "radon>=6.0",
 ]
 production = [
-  "aurora-memory[api,ark,faiss]",
+  "aurora-memory[api,bailian,faiss]",
 ]
 all = [
-  "aurora-memory[api,ark,faiss,benchmark,dev]",
+  "aurora-memory[api,bailian,ark,faiss,benchmark,dev]",
 ]
 
 [project.scripts]

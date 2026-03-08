@@ -25,6 +25,7 @@ pip install -e .
 
 ```bash
 pip install -e '.[api]'
+pip install -e '.[bailian]'
 pip install -e '.[ark]'
 pip install -e '.[faiss]'
 ```
@@ -37,8 +38,8 @@ from aurora import AuroraRuntime, AuroraSettings
 runtime = AuroraRuntime(
     settings=AuroraSettings(
         data_dir="./data",
-        llm_provider="mock",
-        embedding_provider="local",
+        llm_provider="bailian",
+        embedding_provider="bailian",
     )
 )
 
@@ -52,7 +53,20 @@ runtime.ingest_interaction(
 results = runtime.query(text="持续学习的聊天记忆系统", k=5)
 ```
 
-**默认配置**：使用 `LocalSemanticEmbedding` 作为嵌入器，事件日志和派生文档保存在本地 SQLite 中，无需额外基础设施。
+**推荐本地配置**：使用百炼 `qwen3.5-plus` 作为文本模型、`text-embedding-v4` 作为嵌入模型，事件日志和派生文档保存在本地 SQLite 中。
+
+先在项目根目录放一个 `.env`：
+
+```dotenv
+AURORA_LLM_PROVIDER=bailian
+AURORA_EMBEDDING_PROVIDER=bailian
+AURORA_BAILIAN_LLM_API_KEY=你的百炼LLM Key
+AURORA_BAILIAN_EMBEDDING_API_KEY=你的百炼Embedding Key
+AURORA_BAILIAN_LLM_BASE_URL=https://coding.dashscope.aliyuncs.com/v1
+AURORA_BAILIAN_EMBEDDING_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+AURORA_BAILIAN_LLM_MODEL=qwen3.5-plus
+AURORA_BAILIAN_EMBEDDING_MODEL=text-embedding-v4
+```
 
 ## 架构设计
 

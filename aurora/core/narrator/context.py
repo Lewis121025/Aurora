@@ -17,10 +17,15 @@
 from __future__ import annotations
 
 import math
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from aurora.core.config.evolution import (
+    DEFAULT_CAUSAL_DEPTH,
+    MAX_CAUSAL_CHAIN_LENGTH,
+    TURNING_POINT_TENSION_THRESHOLD_BASE,
+)
 from aurora.core.components.metric import LowRankMetric
 
 from aurora.core.graph.memory_graph import MemoryGraph

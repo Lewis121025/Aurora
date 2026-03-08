@@ -1690,7 +1690,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
                 "  - HashEmbedding produces RANDOM vectors, not semantic embeddings.\n"
                 "  - Benchmark results will be UNRELIABLE and near-random.\n"
                 "  - Configure a real embedding provider for accurate evaluation:\n"
-                "    export AURORA_BAILIAN_API_KEY='your-key' or\n"
+                "    export AURORA_BAILIAN_LLM_API_KEY='your-key' or\n"
                 "    export AURORA_ARK_API_KEY='your-key'"
             )
         

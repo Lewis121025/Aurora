@@ -24,6 +24,14 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from aurora.core.config.evolution import (
+    PERSPECTIVE_PRIOR_CHRONOLOGICAL,
+    PERSPECTIVE_PRIOR_RETROSPECTIVE,
+    PERSPECTIVE_PRIOR_CONTRASTIVE,
+    PERSPECTIVE_PRIOR_FOCUSED,
+    PERSPECTIVE_PRIOR_ABSTRACTED,
+)
+
 from aurora.core.components.metric import LowRankMetric
 
 from aurora.core.models.plot import Plot
