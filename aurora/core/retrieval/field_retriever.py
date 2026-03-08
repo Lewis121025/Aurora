@@ -17,15 +17,21 @@ import numpy as np
 from aurora.utils.math_utils import l2_normalize, softmax
 from aurora.core.models.trace import RetrievalTrace
 from aurora.core.components.metric import LowRankMetric
-from aurora.core.constants import (
+
+from aurora.integrations.embeddings.hash import HashEmbedding
+from aurora.core.graph.edge_belief import EdgeBelief
+from aurora.core.graph.memory_graph import MemoryGraph
+from aurora.core.graph.vector_index import VectorIndex
+from aurora.core.retrieval.time_filter import TimeRangeExtractor, TimeRange
+from aurora.core.config.query_types import (
     AGGREGATION_KEYWORDS,
     CAUSAL_KEYWORDS,
     EARLIEST_ANCHOR_KEYWORDS,
-    FACT_KEY_BOOST_MAX,
-    FACT_KEY_MATCH_THRESHOLD,
     FACTUAL_ATTRACTOR_WEIGHT,
     FACTUAL_PLOT_PRIORITY_BOOST,
     FACTUAL_SEMANTIC_WEIGHT,
+    FACT_KEY_BOOST_MAX,
+    FACT_KEY_MATCH_THRESHOLD,
     KEYWORD_MATCH_BOOST,
     KEYWORD_MATCH_MIN_RATIO,
     MULTI_HOP_EXTRA_PAGERANK_ITER,
@@ -40,12 +46,6 @@ from aurora.core.constants import (
     TEMPORAL_SORT_WEIGHT,
     USER_ROLE_PRIORITY_BOOST,
 )
-from aurora.integrations.embeddings.hash import HashEmbedding
-from aurora.core.graph.edge_belief import EdgeBelief
-from aurora.core.graph.memory_graph import MemoryGraph
-from aurora.core.graph.vector_index import VectorIndex
-from aurora.core.retrieval.time_filter import TimeRangeExtractor, TimeRange
-
 
 class QueryType(Enum):
     """用于自适应检索策略的查询类型分类。
@@ -62,7 +62,6 @@ class QueryType(Enum):
     MULTI_HOP = auto()  # 多跳查询：需要图扩展
     CAUSAL = auto()     # 因果查询：需要因果链追踪
     USER_FACT = auto()  # 用户事实查询：需要关键词增强
-
 
 class TimeAnchor(Enum):
     """时间查询的时间锚点分类。
@@ -85,7 +84,6 @@ class TimeAnchor(Enum):
     EARLIEST = auto()   # 最早/第一次：优先返回最早的记忆
     SPAN = auto()       # 历史/一直：返回时间跨度多样的记忆
     NONE = auto()       # 无特定时间锚点
-
 
 class FieldRetriever:
     """具有吸引子追踪和图扩散的两阶段检索。
@@ -388,7 +386,6 @@ class FieldRetriever:
             return results
 
         return results[:max_results]
-
 
     def _extract_query_keywords(self, query_text: str) -> List[str]:
         """从查询中提取有意义的关键词以进行基于关键词的匹配。

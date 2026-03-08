@@ -22,16 +22,11 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from aurora.core.components.metric import LowRankMetric
-from aurora.core.constants import (
-    DEFAULT_CAUSAL_DEPTH,
-    MAX_CAUSAL_CHAIN_LENGTH,
-    TURNING_POINT_TENSION_THRESHOLD_BASE,
-)
+
 from aurora.core.graph.memory_graph import MemoryGraph
 from aurora.core.models.plot import Plot
 from aurora.core.models.story import StoryArc
 from aurora.utils.math_utils import sigmoid
-
 
 class ContextRecovery:
     """处理上下文恢复和因果链追踪。
@@ -234,7 +229,6 @@ class ContextRecovery:
         # 按强度排序
         connected.sort(key=lambda x: x[1], reverse=True)
         return connected[:5]  # 限制前5个
-
 
 class TurningPointDetector:
     """用于叙事中转折点的专用检测器。

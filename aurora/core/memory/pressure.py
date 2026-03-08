@@ -19,15 +19,12 @@ import math
 
 import numpy as np
 
-from aurora.core.constants import (
-    GROWTH_HINDRANCE_AGE_SECONDS,
-)
 from aurora.core.models.plot import Plot
 from aurora.utils.math_utils import softmax
 from aurora.utils.time_utils import now_ts
+from aurora.core.config.evolution import GROWTH_HINDRANCE_AGE_SECONDS
 
 logger = logging.getLogger(__name__)
-
 
 class PressureMixin:
     """Mixin providing growth-oriented pressure management functionality."""

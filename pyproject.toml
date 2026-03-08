@@ -60,6 +60,9 @@ dev = [
   "pytest>=8.0",
   "pytest-cov>=4.1",
   "aiosqlite>=0.19.0",
+  "mypy>=1.8",
+  "types-redis>=4.6",
+  "ruff>=0.1",
 ]
 # Production bundle with all storage backends
 production = [
@@ -88,3 +91,21 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["aurora*"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false

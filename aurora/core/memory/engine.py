@@ -30,50 +30,58 @@ from aurora.core.coherence import (
     Conflict,
     ConflictType,
 )
-from aurora.core.abstention import AbstentionDetector
-from aurora.core.components.assignment import CRPAssigner, StoryModel, ThemeModel
-from aurora.core.components.bandit import ThompsonBernoulliGate
-from aurora.core.components.density import OnlineKDE
-from aurora.core.components.metric import LowRankMetric
-from aurora.core.constants import (
-    BENCHMARK_AGGREGATION_K,
-    BENCHMARK_DEFAULT_K,
-    BENCHMARK_MULTI_SESSION_K,
-    COLD_START_FORCE_STORE_COUNT,
+from aurora.core.config.coherence import (
     CONCURRENT_TIME_THRESHOLD,
     CONFLICT_CHECK_K,
     CONFLICT_CHECK_SIMILARITY_THRESHOLD,
     CONFLICT_PROBABILITY_THRESHOLD,
-    EPSILON_PRIOR,
-    EVENT_SUMMARY_MAX_LENGTH,
-    IDENTITY_RELEVANCE_WEIGHT,
+    MAX_CONFLICTS_PER_INGEST,
+)
+from aurora.core.config.identity import IDENTITY_RELEVANCE_WEIGHT, VOI_DECISION_WEIGHT
+from aurora.core.config.knowledge import (
     KNOWLEDGE_TYPE_WEIGHT_BEHAVIOR,
     KNOWLEDGE_TYPE_WEIGHT_PREFERENCE,
     KNOWLEDGE_TYPE_WEIGHT_STATE,
     KNOWLEDGE_TYPE_WEIGHT_STATIC,
     KNOWLEDGE_TYPE_WEIGHT_TRAIT,
     KNOWLEDGE_TYPE_WEIGHT_VALUE,
-    MAX_CONFLICTS_PER_INGEST,
-    MAX_RECENT_PLOTS_FOR_RETRIEVAL,
-    MIN_STORE_PROB,
-    QUESTION_TYPE_HINT_MAPPINGS,
-    SINGLE_SESSION_USER_K_MULTIPLIER,
-    MULTI_HOP_K_MULTIPLIER,
     NUMERIC_CHANGE_INDICATORS,
-    RECENT_ENCODED_PLOTS_WINDOW,
-    RECENT_PLOTS_FOR_FEEDBACK,
     REINFORCEMENT_TIME_WINDOW,
-    RELATIONSHIP_BONUS_SCORE,
-    SEMANTIC_NEIGHBORS_K,
-    STORY_SIMILARITY_BONUS,
-    TEXT_LENGTH_NORMALIZATION,
-    TRUST_BASE,
     UPDATE_HIGH_SIMILARITY_THRESHOLD,
     UPDATE_KEYWORDS,
     UPDATE_MODERATE_SIMILARITY_THRESHOLD,
     UPDATE_TIME_GAP_THRESHOLD,
-    VOI_DECISION_WEIGHT,
 )
+from aurora.core.config.numeric import (
+    EPSILON_PRIOR,
+    EVENT_SUMMARY_MAX_LENGTH,
+    TEXT_LENGTH_NORMALIZATION,
+    TRUST_BASE,
+)
+from aurora.core.config.query_types import (
+    AGGREGATION_K_MULTIPLIER,
+    BENCHMARK_AGGREGATION_K,
+    BENCHMARK_DEFAULT_K,
+    BENCHMARK_MULTI_SESSION_K,
+    MULTI_HOP_K_MULTIPLIER,
+    QUESTION_TYPE_HINT_MAPPINGS,
+    SINGLE_SESSION_USER_K_MULTIPLIER,
+)
+from aurora.core.config.retrieval import (
+    MAX_RECENT_PLOTS_FOR_RETRIEVAL,
+    RECENT_ENCODED_PLOTS_WINDOW,
+    RECENT_PLOTS_FOR_FEEDBACK,
+    RELATIONSHIP_BONUS_SCORE,
+    SEMANTIC_NEIGHBORS_K,
+    STORY_SIMILARITY_BONUS,
+)
+from aurora.core.config.storage import COLD_START_FORCE_STORE_COUNT, MIN_STORE_PROB
+from aurora.core.abstention import AbstentionDetector
+from aurora.core.components.assignment import CRPAssigner, StoryModel, ThemeModel
+from aurora.core.components.bandit import ThompsonBernoulliGate
+from aurora.core.components.density import OnlineKDE
+from aurora.core.components.metric import LowRankMetric
+
 from aurora.core.knowledge_classifier import (
     KnowledgeClassifier,
     KnowledgeType,
@@ -112,7 +120,6 @@ except ImportError:
     FAISS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
-
 
 class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, SerializationMixin):
     """AURORA 内存：从第一原理产生的叙事性内存。
@@ -1807,7 +1814,6 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
                 logger.debug(f"基准模式：使用 k={effective_k}")
         elif is_aggregation:
             # 聚合查询需要 3 倍的结果来覆盖多个会话
-            from aurora.core.constants import AGGREGATION_K_MULTIPLIER
             effective_k = int(k * AGGREGATION_K_MULTIPLIER)
             logger.debug(f"检测到聚合查询，将 k 从 {k} 调整为 {effective_k}")
         elif detected_type == QueryType.MULTI_HOP:
@@ -2938,7 +2944,6 @@ class AuroraMemory(RelationshipMixin, PressureMixin, EvolutionMixin, Serializati
             summary["dominant_dimension"] = dominant
         
         return summary
-
 
 # -----------------------------------------------------------------------------
 # Example usage

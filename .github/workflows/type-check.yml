@@ -1,0 +1,39 @@
+name: Type Check
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  type-check:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Run mypy
+      run: |
+        mypy aurora --show-error-codes --pretty
+
+    - name: Type coverage report
+      run: |
+        mypy aurora --html-report mypy-report --any-exprs-report mypy-report
+
+    - name: Upload type coverage
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: type-coverage-report
+        path: mypy-report/

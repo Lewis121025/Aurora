@@ -24,14 +24,14 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
-from aurora.core.constants import (
-    ARCHIVE_MIN_ACCESS_COUNT,
-    ARCHIVE_STALE_DAYS_THRESHOLD,
+from aurora.core.models.theme import Theme
+from aurora.core.models.trace import EvolutionPatch, EvolutionSnapshot
+from aurora.utils.id_utils import det_id
+from aurora.utils.math_utils import sigmoid, softmax
+from aurora.utils.time_utils import now_ts
+from aurora.core.config.evolution import (
     CLIMAX_DECLINE_RATIO,
     CLIMAX_TENSION_WINDOW,
-    EPSILON_PRIOR,
-    HARMONY_SIMILARITY_MIN,
-    NODE_MERGE_SIMILARITY_THRESHOLD,
     PERIODIC_REFLECTION_ACCESS_COUNT,
     PERIODIC_REFLECTION_AGE_DAYS,
     REFRAME_ACCESS_COUNT_THRESHOLD,
@@ -39,23 +39,22 @@ from aurora.core.constants import (
     RESOLUTION_MIN_ARC_LENGTH,
     RESOLUTION_TENSION_DROP_RATIO,
     STORY_ABANDONMENT_THRESHOLD_DAYS,
-    TENSION_SIMILARITY_MAX,
-    TENSION_SIMILARITY_MIN,
+)
+from aurora.core.config.identity import HARMONY_SIMILARITY_MIN, TENSION_SIMILARITY_MAX, TENSION_SIMILARITY_MIN
+from aurora.core.config.numeric import EPSILON_PRIOR
+from aurora.core.config.storage import (
+    ARCHIVE_MIN_ACCESS_COUNT,
+    ARCHIVE_STALE_DAYS_THRESHOLD,
+    NODE_MERGE_SIMILARITY_THRESHOLD,
     WEAK_EDGE_MIN_SUCCESSES,
     WEAK_EDGE_MIN_WEIGHT,
 )
-from aurora.core.models.theme import Theme
-from aurora.core.models.trace import EvolutionPatch, EvolutionSnapshot
-from aurora.utils.id_utils import det_id
-from aurora.utils.math_utils import sigmoid, softmax
-from aurora.utils.time_utils import now_ts
 
 if TYPE_CHECKING:
     from aurora.core.models.plot import Plot
     from aurora.core.models.story import StoryArc
 
 logger = logging.getLogger(__name__)
-
 
 class EvolutionMixin:
     """提供演化、反思和意义重构功能的混入类。"""

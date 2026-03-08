@@ -25,20 +25,13 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import numpy as np
 
 from aurora.core.components.metric import LowRankMetric
-from aurora.core.constants import (
-    PERSPECTIVE_PRIOR_ABSTRACTED,
-    PERSPECTIVE_PRIOR_CHRONOLOGICAL,
-    PERSPECTIVE_PRIOR_CONTRASTIVE,
-    PERSPECTIVE_PRIOR_FOCUSED,
-    PERSPECTIVE_PRIOR_RETROSPECTIVE,
-    SNIPPET_MAX_LENGTH,
-)
+
 from aurora.core.models.plot import Plot
 from aurora.core.models.story import StoryArc
 from aurora.core.models.theme import Theme
 from aurora.utils.math_utils import softmax
 from aurora.utils.time_utils import now_ts
-
+from aurora.core.config.numeric import SNIPPET_MAX_LENGTH
 
 # =============================================================================
 # Enums
@@ -61,7 +54,6 @@ class NarrativePerspective(Enum):
     FOCUSED = "focused"                # 聚焦式：围绕特定主题深入
     ABSTRACTED = "abstracted"          # 抽象式：提炼模式和主题
 
-
 class NarrativeRole(Enum):
     """内存元素在叙事中可以扮演的角色。"""
     EXPOSITION = "exposition"          # 背景介绍
@@ -69,7 +61,6 @@ class NarrativeRole(Enum):
     CLIMAX = "climax"                  # 高潮/转折点
     FALLING_ACTION = "falling_action"  # 情节回落
     RESOLUTION = "resolution"          # 结局/解决
-
 
 # =============================================================================
 # Data Classes
@@ -87,7 +78,6 @@ class PerspectiveScore:
     contrast_signal: float = 0.0   # 对比模式的强度
     focus_signal: float = 0.0      # 查询特异性
     abstraction_signal: float = 0.0  # 主题相关性
-
 
 # =============================================================================
 # Perspective Selector
@@ -266,7 +256,6 @@ class PerspectiveSelector:
             self.perspective_beliefs[perspective] = (a + 1.0, b)
         else:
             self.perspective_beliefs[perspective] = (a, b + 1.0)
-
 
 # =============================================================================
 # Perspective-specific Organization

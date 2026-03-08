@@ -23,6 +23,15 @@ import networkx as nx
 
 from aurora.core.graph.memory_graph import MemoryGraph
 from aurora.core.knowledge_classifier import (
+from aurora.core.config.coherence import (
+    ANTI_CORRELATION_THRESHOLD,
+    BELIEF_PROPAGATION_ITERATIONS,
+    COHERENCE_WEIGHTS,
+    HIGH_SIMILARITY_THRESHOLD,
+    MAX_COHERENCE_PAIRS,
+    OPPOSITION_SCORE_THRESHOLD,
+    UNFINISHED_STORY_HOURS,
+)
     KnowledgeClassifier,
     KnowledgeType,
     ConflictResolution as KnowledgeConflictResolution,
@@ -35,19 +44,10 @@ from aurora.core.types import MemoryElement
 from aurora.core.components.metric import LowRankMetric
 from aurora.core.causal import CausalEdgeBelief, CausalMemoryGraph
 from aurora.core.tension import TensionManager, Tension, TensionType, TensionResolution
-from aurora.core.constants import (
-    OPPOSITION_SCORE_THRESHOLD,
-    HIGH_SIMILARITY_THRESHOLD,
-    ANTI_CORRELATION_THRESHOLD,
-    UNFINISHED_STORY_HOURS,
-    MAX_COHERENCE_PAIRS,
-    BELIEF_PROPAGATION_ITERATIONS,
-    COHERENCE_WEIGHTS,
-)
+
 from aurora.utils.math_utils import l2_normalize, cosine_sim, sigmoid, softmax
 from aurora.utils.time_utils import now_ts
 from aurora.utils.embedding_utils import get_embedding_from_object
-
 
 # -----------------------------------------------------------------------------
 # 数据结构
@@ -60,7 +60,6 @@ class ConflictType(Enum):
     CAUSAL = "causal"             # 因果循环或悖论
     THEMATIC = "thematic"         # 冲突的主题
     SELF_NARRATIVE = "self"       # 自我叙述不一致
-
 
 @dataclass
 class Conflict:
@@ -79,7 +78,6 @@ class Conflict:
     # 潜在的解决方案
     resolutions: List['Resolution'] = field(default_factory=list)
 
-
 @dataclass
 class Resolution:
     """冲突的建议解决方案"""
@@ -93,7 +91,6 @@ class Resolution:
 
     # 此解决方案适用的条件
     condition: Optional[str] = None
-
 
 @dataclass
 class CoherenceReport:
@@ -111,7 +108,6 @@ class CoherenceReport:
     thematic_coherence: float
 
     recommended_actions: List[Resolution]
-
 
 # -----------------------------------------------------------------------------
 # 信念网络（概率性连贯性）
@@ -202,14 +198,12 @@ class BeliefNetwork:
 
         return probabilities
 
-
 @dataclass
 class BeliefState:
     """网络中信念的状态"""
     prior: float
     evidence_strength: float
     last_updated: float = field(default_factory=now_ts)
-
 
 # -----------------------------------------------------------------------------
 # 矛盾检测器
@@ -400,7 +394,6 @@ class ContradictionDetector:
         neg_pattern = l2_normalize(neg_mean)
 
         self.opposition_patterns.append((pos_pattern, neg_pattern))
-
 
 # -----------------------------------------------------------------------------
 # 连贯性评分器
@@ -695,7 +688,6 @@ class CoherenceScorer:
 
         return recommendations
 
-
 # -----------------------------------------------------------------------------
 # 冲突解决器
 # -----------------------------------------------------------------------------
@@ -770,7 +762,6 @@ class ConflictResolver:
                 return True
 
         return False
-
 
 # -----------------------------------------------------------------------------
 # 连贯性守护者（主接口）

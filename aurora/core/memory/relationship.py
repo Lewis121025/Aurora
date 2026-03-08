@@ -18,28 +18,27 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from aurora.core.constants import (
+from aurora.core.models.plot import IdentityImpact, Plot, RelationalContext
+from aurora.core.models.story import StoryArc
+from aurora.utils.id_utils import det_id
+from aurora.utils.time_utils import now_ts
+from aurora.core.config.identity import (
     CHALLENGE_WEIGHT,
     IDENTITY_DIMENSION_GROWTH_RATE,
     IDENTITY_RELEVANCE_THRESHOLD,
     INTERACTION_COUNT_LOG_NORMALIZER,
     MAX_IDENTITY_DIMENSIONS,
+    MAX_QUALITY_DELTA,
     MODERATE_SIMILARITY_MAX,
     MODERATE_SIMILARITY_MIN,
     NOVELTY_WEIGHT,
     QUALITY_DELTA_COEFFICIENT,
-    MAX_QUALITY_DELTA,
     REINFORCEMENT_WEIGHT,
     ROLE_CONSISTENCY_THRESHOLD,
 )
-from aurora.core.models.plot import IdentityImpact, Plot, RelationalContext
-from aurora.core.models.story import StoryArc
-from aurora.utils.id_utils import det_id
-from aurora.utils.time_utils import now_ts
 
 if TYPE_CHECKING:
     import numpy as np
-
 
 class RelationshipMixin:
     """提供关系识别和身份评估功能的 Mixin。"""

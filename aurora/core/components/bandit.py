@@ -12,9 +12,8 @@ from typing import Any, Dict
 
 import numpy as np
 
-from aurora.core.constants import MIN_STORE_PROB
 from aurora.utils.math_utils import sigmoid
-
+from aurora.core.config.storage import MIN_STORE_PROB
 
 class ThompsonBernoulliGate:
     """具有Thompson采样的随机编码策略。

@@ -17,13 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, Optional, Tuple, Callable
 import re
-
-from aurora.core.constants import (
-    EARLIEST_ANCHOR_KEYWORDS,
-    RECENT_ANCHOR_KEYWORDS,
-    SPAN_ANCHOR_KEYWORDS,
-)
-
+from aurora.core.config.query_types import EARLIEST_ANCHOR_KEYWORDS, RECENT_ANCHOR_KEYWORDS, SPAN_ANCHOR_KEYWORDS
 
 @dataclass
 class TimeRange:
@@ -39,7 +33,6 @@ class TimeRange:
     end: Optional[float] = None
     anchor_event: Optional[str] = None
     relation: str = "any"  # "before", "after", "during", "first", "last", "any"
-
 
 class TimeRangeExtractor:
     """从查询文本中提取时间范围以进行预过滤。

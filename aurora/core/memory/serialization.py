@@ -25,7 +25,6 @@ from aurora.core.components.assignment import CRPAssigner, StoryModel, ThemeMode
 from aurora.core.components.bandit import ThompsonBernoulliGate
 from aurora.core.components.density import OnlineKDE
 from aurora.core.components.metric import LowRankMetric
-from aurora.core.constants import RECENT_ENCODED_PLOTS_WINDOW
 from aurora.core.graph.memory_graph import MemoryGraph
 from aurora.core.graph.vector_index import VectorIndex
 from aurora.core.models.config import MemoryConfig
@@ -34,7 +33,7 @@ from aurora.core.models.story import StoryArc
 from aurora.core.models.theme import Theme
 from aurora.core.retrieval.field_retriever import FieldRetriever
 from aurora.core.entity_tracker import EntityTracker
-
+from aurora.core.config.retrieval import RECENT_ENCODED_PLOTS_WINDOW
 
 class SerializationMixin:
     """Mixin providing state serialization and deserialization functionality."""

@@ -11,9 +11,7 @@ import math
 from typing import Any, Dict, List
 
 import numpy as np
-
-from aurora.core.constants import DEFAULT_COLD_START_SURPRISE, DENSITY_MIN_SAMPLES
-
+from aurora.core.config.storage import DEFAULT_COLD_START_SURPRISE, DENSITY_MIN_SAMPLES
 
 class OnlineKDE:
     """嵌入空间中的核密度估计器。

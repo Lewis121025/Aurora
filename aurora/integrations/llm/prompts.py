@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 from .schemas import SCHEMA_VERSION
-
+from aurora.core.config.query_types import QUESTION_STOP_WORDS, SINGLE_SESSION_USER_MAX_CONTEXT, USER_ROLE_PRIORITY_BOOST
 
 def _json_instruction(model_name: str) -> str:
     return (
         "You MUST output ONLY valid JSON. No markdown. No extra keys. "
         f"Schema version: {SCHEMA_VERSION}. Output must conform to {model_name}."
     )
-
 
 PLOT_EXTRACTION_SYSTEM = (
     "You are a precise information extractor for a narrative memory system. "
@@ -88,7 +87,6 @@ CLAIM_B: {claim_b}
 
 Return ContradictionJudgement JSON.
 """
-
 
 # -----------------------------------------------------------------------------
 # 因果推理提示
@@ -222,14 +220,11 @@ Check if these elements are coherent with each other.
 Return CoherenceCheck JSON.
 """
 
-
 def render(template: str, **kwargs: Any) -> str:
     return template.format(**kwargs)
 
-
 def instruction(model_name: str) -> str:
     return _json_instruction(model_name)
-
 
 # -----------------------------------------------------------------------------
 # Question-Answering Prompts (Type-Specific)
@@ -356,7 +351,6 @@ Question: {question}
 Answer (be brief and specific):"""
 }
 
-
 def detect_question_type(question: str, question_type_hint: Optional[str] = None) -> str:
     """从问题文本或使用提供的提示检测问题类型。
 
@@ -417,7 +411,6 @@ def detect_question_type(question: str, question_type_hint: Optional[str] = None
     # 默认为通用提示
     return 'default'
 
-
 def _extract_question_keywords(question: str) -> list:
     """从问题中提取有意义的关键字用于匹配。
 
@@ -427,8 +420,7 @@ def _extract_question_keywords(question: str) -> list:
     返回：
         关键字字符串列表（小写）
     """
-    from aurora.core.constants import QUESTION_STOP_WORDS
-
+    
     question_lower = question.lower()
     words = []
     for w in question_lower.split():
@@ -438,7 +430,6 @@ def _extract_question_keywords(question: str) -> list:
             words.append(clean_w)
 
     return words
-
 
 def _extract_relevant_context(
     context: str,
@@ -469,10 +460,7 @@ def _extract_relevant_context(
     返回：
         包含最相关块的过滤上下文
     """
-    from aurora.core.constants import (
-        SINGLE_SESSION_USER_MAX_CONTEXT,
-        USER_ROLE_PRIORITY_BOOST,
-    )
+    
 
     # 对于 single-session-user，使用更长的上下文和特殊处理
     is_user_type = question_type and 'user' in question_type.lower() and 'single' in question_type.lower()
@@ -642,7 +630,6 @@ def _extract_relevant_context(
 
     return result
 
-
 def evaluate_preference_match(expected: str, answer: str) -> bool:
     """使用关键概念提取评估答案是否与偏好期望匹配。
 
@@ -724,7 +711,6 @@ def evaluate_preference_match(expected: str, answer: str) -> bool:
     # 1. 40%+ 关键概念匹配，或
     # 2. 至少一个关键概念匹配且答案使用偏好语言
     return match_ratio >= 0.4 or (matched >= 1 and has_prefer_format)
-
 
 def build_qa_prompt(
     question: str,
