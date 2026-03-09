@@ -132,13 +132,20 @@ class AuroraMemory(
         self.entity_tracker = EntityTracker(seed=seed)
         self.fact_extractor = FactExtractor()
         self.personality_profile: PersonalityProfile = load_personality_profile(cfg.personality_profile_id)
-        self.subconscious_state = SubconsciousState()
+        self.subconscious_state = SubconsciousState.from_profile(
+            self.personality_profile,
+            embedder=self.embedder,
+            max_entries=cfg.subconscious_reservoir,
+        )
+        for entry in self.subconscious_state.dark_matter_pool:
+            self.subconscious_kde.add(entry.embedding)
         self.self_narrative_engine = SelfNarrativeEngine(
             self.metric,
             profile=self.personality_profile,
             embedder=self.embedder,
             seed=seed,
         )
+        self.self_narrative_engine.refresh_subconscious_summary(self.subconscious_state)
         self._personality_bootstrapped = False
 
         if bootstrap_profile:
@@ -374,11 +381,11 @@ class AuroraMemory(
     def note_shadow_plot(self, plot: Plot) -> None:
         affect_hint = ""
         if plot.relational is not None and plot.relational.relationship_quality_delta < 0:
-            affect_hint = "guarded"
+            affect_hint = "fear,confusion"
         elif plot.relational is not None and plot.relational.relationship_quality_delta > 0:
-            affect_hint = "warm"
+            affect_hint = "warmth,safety"
         elif plot.knowledge_type in {"identity_trait", "identity_value"}:
-            affect_hint = "identity"
+            affect_hint = "curiosity"
 
         entry_id = det_id("shadow", plot.id)
         self.subconscious_state.add_dark_matter(

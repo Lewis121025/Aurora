@@ -303,8 +303,8 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     observe_p.add_argument("--max-hits", type=int, default=6, help="每次展示的最大检索命中数")
     observe_p.add_argument(
         "--observe",
-        choices=["off", "brief", "full"],
-        default="full",
+        choices=["chat", "brief", "full"],
+        default="brief",
         help="观测输出级别",
     )
 
@@ -315,7 +315,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
             data_dir=args.data_dir,
             session_id="terminal_observer",
             max_hits=6,
-            observe_mode="full",
+            observe_mode="chat",
         )
     elif args.cmd == "demo":
         _cmd_demo()

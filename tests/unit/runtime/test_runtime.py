@@ -20,6 +20,8 @@ from aurora.runtime.bootstrap import build_memory_config
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
 
+PROFILE_ID = "aurora-v2-child-elara"
+
 
 class TrackingEmbedding(EmbeddingProvider):
     def __init__(self, dim: int, *, fail_on_call: bool = False):
@@ -75,8 +77,8 @@ def build_test_memory(settings: AuroraSettings, embedder: EmbeddingProvider) -> 
 
 
 def expected_profile_embedding_calls() -> int:
-    profile = load_personality_profile("aurora-v2-native")
-    return len(profile.seed_plots) + len(profile.intuition_anchors)
+    profile = load_personality_profile(PROFILE_ID)
+    return len(profile.seed_plots) + len(profile.intuition_anchors) + len(profile.subconscious_seeds)
 
 
 @pytest.fixture
@@ -101,8 +103,9 @@ def test_runtime_uses_single_storage_directory(runtime: AuroraRuntime, runtime_s
     assert runtime.settings is runtime_settings
     assert Path(runtime.event_log.path).parent == Path(runtime_settings.data_dir)
     assert Path(runtime.doc_store.path).parent == Path(runtime_settings.data_dir)
-    assert runtime.mem.self_narrative_engine.narrative.profile_id == "aurora-v2-native"
+    assert runtime.mem.self_narrative_engine.narrative.profile_id == PROFILE_ID
     assert runtime.mem.self_narrative_engine.narrative.seed_plot_ids
+    assert len(runtime.mem.subconscious_state.dark_matter_pool) == 2
 
 
 def test_runtime_persists_and_queries_single_conversation(runtime: AuroraRuntime):

@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from aurora.integrations.llm.provider import LLMProvider
+from aurora.integrations.llm.schemas import PlotExtraction
 from aurora.integrations.storage.doc_store import Document, SQLiteDocStore
 from aurora.runtime.plot_extractor import PlotExtractor
 
@@ -13,6 +14,19 @@ class ExplodingLLM(LLMProvider):
 
     def complete_json(self, *, system: str, user: str, schema, **kwargs):
         raise AssertionError("complete_json() should not be called")
+
+
+class SparseLLM(LLMProvider):
+    def complete(self, prompt: str, **kwargs) -> str:
+        raise AssertionError("complete() should not be called")
+
+    def complete_json(self, *, system: str, user: str, schema, **kwargs):
+        return PlotExtraction(
+            actors=[],
+            action="",
+            context="",
+            outcome="greeting acknowledged",
+        )
 
 
 def test_recover_for_replay_uses_doc_store_when_event_payload_is_missing(temp_data_dir: Path):
@@ -76,3 +90,20 @@ def test_recover_for_replay_falls_back_to_minimal_extraction(temp_data_dir: Path
     assert extraction.action == "please remember this"
     assert extraction.actors == ["user", "assistant"]
     assert extraction.context == "memory"
+
+
+def test_extract_live_normalizes_sparse_plot_extraction(temp_data_dir: Path):
+    store = SQLiteDocStore(str(temp_data_dir / "docs.sqlite3"))
+    extractor = PlotExtractor(llm=SparseLLM(), doc_store=store)
+
+    extraction = extractor.extract_live(
+        user_message="你好",
+        agent_message="你好呀，很高兴见到你。",
+        actors=None,
+        context="opening scene",
+    )
+
+    assert extraction.action == "你好"
+    assert extraction.actors == ["user", "agent"]
+    assert extraction.context == "opening scene"
+    assert extraction.outcome == "greeting acknowledged"

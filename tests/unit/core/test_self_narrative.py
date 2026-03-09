@@ -18,7 +18,10 @@ from aurora.core.self_narrative import (
     SelfNarrativeEngine,
     IdentityTracker,
 )
+from aurora.core.models.plot import RelationalContext
 from aurora.utils.time_utils import now_ts
+
+PROFILE_ID = "aurora-v2-child-elara"
 
 
 @pytest.fixture
@@ -211,7 +214,7 @@ class TestSelfNarrative:
     def test_default_values(self):
         narrative = SelfNarrative()
         
-        assert "AI助手" in narrative.identity_statement
+        assert "年轻心灵" in narrative.identity_statement
         assert len(narrative.core_values) > 0
     
     def test_get_capability(self):
@@ -263,7 +266,7 @@ class TestSelfNarrativeEngine:
     """Tests for SelfNarrativeEngine"""
     
     def test_update_from_themes(self, metric, sample_themes):
-        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile(PROFILE_ID))
         
         changed = engine.update_from_themes(sample_themes)
         
@@ -271,7 +274,7 @@ class TestSelfNarrativeEngine:
         assert len(engine.narrative.capabilities) > 0
     
     def test_update_from_interaction(self, metric, sample_plot):
-        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile(PROFILE_ID))
         
         engine.update_from_interaction(
             plot=sample_plot,
@@ -281,9 +284,39 @@ class TestSelfNarrativeEngine:
         
         # Should have relationship with user1
         assert "user1" in engine.narrative.relationships
+
+    def test_negative_interaction_quickly_reduces_child_trust(self, metric):
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile(PROFILE_ID))
+        trust_before = engine.narrative.get_trait("naive_trust").probability()
+
+        emb = np.random.randn(64).astype(np.float32)
+        emb = emb / np.linalg.norm(emb)
+        plot = Plot(
+            id="plot_child_hurt",
+            text="User dismissed the question and refused to explain anything.",
+            embedding=emb,
+            ts=now_ts(),
+            actors=("user", "agent"),
+            relational=RelationalContext(
+                with_whom="user1",
+                my_role_in_relation="learner",
+                relationship_quality_delta=-1.0,
+                what_this_says_about_us="对方显得冷漠而拒绝解释，让我有些退缩。",
+            ),
+        )
+
+        for _ in range(3):
+            engine.update_from_interaction(plot=plot, success=False, entity_id="user1")
+
+        trust_after = engine.narrative.get_trait("naive_trust").probability()
+        resilience_after = engine.narrative.get_trait("resilience").probability()
+
+        assert trust_after < trust_before
+        assert trust_after < 0.4
+        assert resilience_after < 0.4
     
     def test_add_and_resolve_tension(self, metric):
-        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile(PROFILE_ID))
         
         engine.add_tension("需要实时数据但无法获取")
         
@@ -294,7 +327,7 @@ class TestSelfNarrativeEngine:
         assert "需要实时数据但无法获取" not in engine.narrative.unresolved_tensions
     
     def test_check_coherence(self, metric):
-        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile(PROFILE_ID))
         
         # Add some capabilities
         engine.narrative.get_capability("test").update(success=True)
@@ -304,7 +337,7 @@ class TestSelfNarrativeEngine:
         assert 0 <= score <= 1
     
     def test_momentum_slows_changes(self, metric):
-        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile(PROFILE_ID))
         engine.momentum = 0.99  # Very high momentum
         
         ts = now_ts()
@@ -397,7 +430,7 @@ class TestIntegration:
         """Test complete self-narrative workflow"""
         
         # 1. Create engine
-        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile(PROFILE_ID))
         tracker = IdentityTracker()
         
         # 2. Initial snapshot

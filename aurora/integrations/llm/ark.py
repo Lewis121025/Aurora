@@ -56,12 +56,21 @@ class ArkLLM(LLMProvider):
                 self._client = OpenAI(
                     api_key=self.api_key,
                     base_url=self.base_url,
+                    max_retries=0,
                 )
             except ImportError:
                 raise ImportError(
                     "Please install openai package: pip install openai"
                 )
         return self._client
+
+    def _request_options(self, *, structured: bool) -> Dict[str, Any]:
+        """返回提供者特定的请求选项。"""
+        return {}
+
+    def _json_max_tokens(self, schema: Type[T]) -> int:
+        """为结构化输出提供保守的令牌上限。"""
+        return 512
     
     def _build_json_schema(self, schema: Type[T]) -> Dict[str, Any]:
         """从 Pydantic 模型构建 JSON schema 用于结构化输出。"""
@@ -119,6 +128,7 @@ class ArkLLM(LLMProvider):
                     "max_tokens": max_tokens,
                     "timeout": timeout_s,
                 }
+                kwargs.update(self._request_options(structured=False))
                 if stop:
                     kwargs["stop"] = stop
                 
@@ -164,28 +174,8 @@ class ArkLLM(LLMProvider):
             验证的 Pydantic 模型实例
         """
         client = self._get_client()
-
-        # 从 Pydantic 模型构建更清晰的 schema 描述
-        json_schema = schema.model_json_schema()
-        required_fields = json_schema.get("required", [])
-        properties = json_schema.get("properties", {})
-
-        # 创建简化的 schema 提示
-        schema_hint = {
-            k: v.get("type", v.get("anyOf", [{}])[0].get("type", "string"))
-            for k, v in properties.items()
-        }
-
-        # 使用严格的 JSON 指令增强提示
-        enhanced_system = (
-            f"{system}\n\n"
-            f"【重要】你必须严格按照以下JSON格式返回结果，不要添加任何额外的包装或解释：\n"
-            f"必填字段: {required_fields}\n"
-            f"格式示例: {json.dumps(schema_hint, ensure_ascii=False)}"
-        )
-        
         messages = [
-            {"role": "system", "content": enhanced_system},
+            {"role": "system", "content": f"{system}\n\nReturn only JSON that matches the provided schema."},
             {"role": "user", "content": user},
         ]
         
@@ -194,10 +184,15 @@ class ArkLLM(LLMProvider):
         for attempt in range(attempt_limit):
             try:
                 response = client.chat.completions.create(
-                    model=self.model,
-                    messages=messages,
-                    temperature=temperature,
-                    timeout=timeout_s,
+                    **{
+                        "model": self.model,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": self._json_max_tokens(schema),
+                        "timeout": timeout_s,
+                        "response_format": self._build_json_schema(schema),
+                        **self._request_options(structured=True),
+                    }
                 )
                 
                 content = response.choices[0].message.content
@@ -304,6 +299,7 @@ class ArkLLM(LLMProvider):
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=timeout_s,
+            **self._request_options(structured=False),
         )
         
         if hasattr(response, 'usage') and response.usage:

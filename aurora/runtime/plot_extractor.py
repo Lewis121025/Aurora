@@ -51,13 +51,20 @@ class PlotExtractor:
             context=context or "",
         )
         try:
-            return self._llm.complete_json(
+            extraction = self._llm.complete_json(
                 system=PLOT_EXTRACTION_SYSTEM_PROMPT,
                 user=user_prompt,
                 schema=PlotExtraction,
                 temperature=0.2,
                 timeout_s=self._timeout_s,
                 max_retries=self._max_retries,
+            )
+            return self._normalize_live_extraction(
+                extraction=extraction,
+                user_message=user_message,
+                agent_message=agent_message,
+                actors=actors,
+                context=context,
             )
         except Exception as exc:
             logger.debug("LLM plot extraction failed, using minimal fallback: %s", exc)
@@ -113,6 +120,32 @@ class PlotExtractor:
             action=action_source[:120],
             actors=fallback_actors,
             context=context or "",
+        )
+
+    def _normalize_live_extraction(
+        self,
+        *,
+        extraction: PlotExtraction,
+        user_message: str,
+        agent_message: str,
+        actors: Optional[Sequence[str]],
+        context: Optional[str],
+    ) -> PlotExtraction:
+        normalized_action = str(extraction.action or "").strip()
+        if not normalized_action:
+            normalized_action = (user_message or agent_message or "interaction")[:120]
+
+        normalized_actors = list(extraction.actors or [])
+        if not normalized_actors:
+            normalized_actors = list(actors) if actors else ["user", "agent"]
+
+        normalized_context = extraction.context if extraction.context else (context or "")
+        return extraction.model_copy(
+            update={
+                "action": normalized_action,
+                "actors": normalized_actors,
+                "context": normalized_context,
+            }
         )
 
     def _load_plot_doc(self, event_id: str) -> Optional[Document]:

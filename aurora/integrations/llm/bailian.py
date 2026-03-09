@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from aurora.integrations.llm.ark import ArkLLM, ArkLLMWithFallback
 
@@ -34,6 +34,9 @@ class BailianLLM(ArkLLM):
             max_retries=max_retries,
             timeout=timeout,
         )
+
+    def _request_options(self, *, structured: bool) -> Dict[str, Any]:
+        return {"extra_body": {"enable_thinking": False}}
 
 
 class BailianLLMWithFallback(ArkLLMWithFallback):

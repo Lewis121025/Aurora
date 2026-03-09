@@ -8,11 +8,13 @@ from aurora.core.models.config import MemoryConfig
 from aurora.core.personality import load_personality_profile
 from aurora.core.retrieval.query_analysis import QueryType
 
+PROFILE_ID = "aurora-v2-child-elara"
+
 
 @pytest.fixture
 def seeded_memory() -> AuroraMemory:
     memory = AuroraMemory(
-        cfg=MemoryConfig(dim=64, metric_rank=16, personality_profile_id="aurora-v2-native"),
+        cfg=MemoryConfig(dim=64, metric_rank=16, personality_profile_id=PROFILE_ID),
         seed=21,
         benchmark_mode=False,
         bootstrap_profile=True,
@@ -34,11 +36,19 @@ def test_shadow_plot_enters_subconscious_pool(monkeypatch: pytest.MonkeyPatch):
     assert plot.id in memory.plots
     assert plot.id not in memory.graph.g
     assert memory.subconscious_state.dark_matter_pool
-    assert memory.subconscious_state.dark_matter_pool[0].source_plot_id == plot.id
+    assert any(entry.source_plot_id == plot.id for entry in memory.subconscious_state.dark_matter_pool)
+
+
+def test_profile_seeds_subconscious_dark_matter_on_init():
+    memory = AuroraMemory(cfg=MemoryConfig(dim=64, metric_rank=16), seed=21)
+    profile = load_personality_profile(PROFILE_ID)
+
+    assert len(memory.subconscious_state.dark_matter_pool) == len(profile.subconscious_seeds)
+    assert all(entry.source_plot_id is None for entry in memory.subconscious_state.dark_matter_pool)
 
 
 def test_identity_query_returns_seed_plots_only_for_identity(seeded_memory: AuroraMemory):
-    profile = load_personality_profile("aurora-v2-native")
+    profile = load_personality_profile(PROFILE_ID)
     seed_text = profile.seed_plots[0].text
 
     identity_trace = seeded_memory.query(

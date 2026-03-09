@@ -20,7 +20,7 @@ class Claim(BaseModel):
 class PlotExtraction(BaseModel):
     schema_version: str = SCHEMA_VERSION
     actors: List[str] = Field(default_factory=list)
-    action: str
+    action: str = ""
     context: str = ""
     outcome: str = ""
     # 叙述信号

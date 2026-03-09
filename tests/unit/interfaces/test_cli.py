@@ -53,5 +53,5 @@ def test_cli_without_subcommand_enters_live_mode(monkeypatch):
         "data_dir": "./live-data",
         "session_id": "terminal_observer",
         "max_hits": 6,
-        "observe_mode": "full",
+        "observe_mode": "chat",
     }

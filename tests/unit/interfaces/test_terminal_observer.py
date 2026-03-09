@@ -175,7 +175,7 @@ class FakeRuntime:
 
     def get_self_narrative(self):
         return {
-            "profile_id": "aurora-v2-native",
+            "profile_id": "aurora-v2-child-elara",
             "identity_statement": "我是一个长期记忆助手",
             "seed_narrative": "我带着长期记忆人格底色进入对话",
             "capability_narrative": "我会记住长期上下文",
@@ -212,7 +212,7 @@ def test_parse_command_supports_quoted_args():
     assert command.args == ("plot-1",)
 
 
-def test_run_chat_turn_uses_runtime_respond_and_renders_panels():
+def test_default_chat_mode_renders_reply_without_observe_panels():
     runtime = FakeRuntime(make_trace())
     output = StringIO()
     observer = TerminalObserver(runtime, session_id="s-observe", output=output)
@@ -224,11 +224,40 @@ def test_run_chat_turn_uses_runtime_respond_and_renders_panels():
     assert runtime.respond_calls[0]["session_id"] == "s-observe"
     assert runtime.respond_calls[0]["k"] == 6
     rendered = output.getvalue()
+    assert "aurora · turn 01" in rendered
+    assert "这是一个测试回复" in rendered
+    assert "Observe · Turn 01" not in rendered
+    assert "Assistant · Turn 01" not in rendered
+
+
+def test_brief_mode_renders_reply_and_turn_summary():
+    runtime = FakeRuntime(make_trace())
+    output = StringIO()
+    observer = TerminalObserver(runtime, session_id="s-observe", observe_mode="brief", output=output)
+
+    result = observer.run_chat_turn("你记得我喜欢什么吗？")
+    observer._render_chat_result(result)
+
+    rendered = output.getvalue()
     assert "Assistant" in rendered
+    assert "Observe · Turn 01" in rendered
+    assert "mode=brief" in rendered
+    assert "Prompt · LLM" not in rendered
+    assert "Artifacts / Evidence" not in rendered
+
+
+def test_full_observe_mode_renders_debug_panels():
+    runtime = FakeRuntime(make_trace())
+    output = StringIO()
+    observer = TerminalObserver(runtime, session_id="s-observe", observe_mode="full", output=output)
+
+    result = observer.run_chat_turn("你记得我喜欢什么吗？")
+    observer._render_chat_result(result)
+
+    rendered = output.getvalue()
     assert "Memory Brief" in rendered
-    assert "Runtime State" in rendered
-    assert "Retrieval Trace" in rendered
-    assert "LLM Prompt" in rendered
+    assert "Retrieval" in rendered
+    assert "Prompt · LLM" in rendered
     assert "Artifacts / Evidence" in rendered
 
 
@@ -246,7 +275,7 @@ def test_prompt_command_renders_last_prompt():
 
     assert command_result is True
     rendered = output.getvalue()
-    assert "LLM Prompt" in rendered
+    assert "Prompt · LLM" in rendered
     assert "你记得我喜欢什么吗？" in rendered
 
 
@@ -264,7 +293,7 @@ def test_context_command_renders_last_context():
 
     assert command_result is True
     rendered = output.getvalue()
-    assert "Memory Context" in rendered
+    assert "Context · Memory" in rendered
     assert "known_facts" in rendered
     assert "长期记忆系统" in rendered
 
@@ -279,6 +308,31 @@ def test_handle_observe_command_updates_mode():
     assert result is True
     assert observer.observe_mode == "brief"
     assert "observe mode -> brief" in output.getvalue()
+
+
+def test_short_mode_command_updates_mode():
+    runtime = FakeRuntime(make_trace())
+    output = StringIO()
+    observer = TerminalObserver(runtime, session_id="s-observe", observe_mode="brief", output=output)
+
+    result = observer.handle_line("/chat")
+
+    assert result is True
+    assert observer.observe_mode == "chat"
+    assert "now in chat mode" in output.getvalue()
+
+
+def test_input_prompt_wraps_ansi_sequences_for_readline():
+    runtime = FakeRuntime(make_trace())
+    output = StringIO()
+    observer = TerminalObserver(runtime, session_id="s-observe", output=output)
+    observer._use_color = True
+
+    prompt = observer._input_prompt()
+
+    assert "\001" in prompt
+    assert "\002" in prompt
+    assert "you" in prompt
 
 
 def test_main_uses_default_settings_when_data_dir_is_omitted(monkeypatch):

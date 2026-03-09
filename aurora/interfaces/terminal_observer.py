@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -18,7 +18,7 @@ from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
 from aurora.utils.logging import setup_logging
 
-OBSERVE_MODES = ("off", "brief", "full")
+OBSERVE_MODES = ("chat", "brief", "full")
 COLOR_PALETTE = {
     "accent": "38;5;81",
     "assistant": "38;5;114",
@@ -60,6 +60,12 @@ PIPELINE_TEXT = """AURORA 终端观测脚本的每一轮会执行这条主链：
 6. 你可以随时用 /context /query /events /inspect /coherence /narrative 看内部状态。
 """
 
+WELCOME_LINES = [
+    "直接输入文本即可对话。",
+    "想看内部链路时，用 /observe brief 或 /observe full。",
+    "常用命令: /help  /stats  /narrative  /observe brief  /quit",
+]
+
 
 @dataclass(frozen=True)
 class Command:
@@ -95,7 +101,7 @@ class TerminalObserver:
         *,
         session_id: str,
         max_hits: int = 6,
-        observe_mode: str = "full",
+        observe_mode: str = "chat",
         output: TextIO = sys.stdout,
     ):
         if observe_mode not in OBSERVE_MODES:
@@ -111,12 +117,13 @@ class TerminalObserver:
         self._is_tty = bool(getattr(output, "isatty", lambda: False)())
         self._use_color = self._is_tty and os.environ.get("NO_COLOR") is None
         self._status_visible = False
+        self._prompt_session = self._build_prompt_session()
 
     def run(self) -> None:
         self._print_welcome()
         while True:
             try:
-                line = input(self._input_prompt())
+                line = self._read_line()
             except EOFError:
                 self._write("\nbye")
                 return
@@ -140,9 +147,49 @@ class TerminalObserver:
         self._render_chat_result(result)
         return True
 
+    def _read_line(self) -> str:
+        if self._prompt_session is None:
+            return input(self._input_prompt())
+        try:
+            from prompt_toolkit.formatted_text import ANSI
+        except Exception:
+            return input(self._input_prompt())
+        return self._prompt_session.prompt(
+            ANSI(self._input_prompt_text()),
+            bottom_toolbar=ANSI(self._prompt_toolbar()),
+            mouse_support=False,
+            wrap_lines=False,
+        )
+
+    def _build_prompt_session(self) -> Optional[Any]:
+        if not self._is_tty:
+            return None
+        try:
+            from prompt_toolkit import PromptSession
+            from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+            from prompt_toolkit.history import FileHistory
+        except Exception:
+            return None
+
+        history_dir = str(getattr(self.runtime.settings, "data_dir", "") or ".")
+        try:
+            os.makedirs(history_dir, exist_ok=True)
+            history = FileHistory(os.path.join(history_dir, ".aurora_history"))
+        except Exception:
+            history = None
+
+        return PromptSession(
+            history=history,
+            auto_suggest=AutoSuggestFromHistory(),
+            reserve_space_for_menu=0,
+        )
+
     def run_chat_turn(self, user_message: str) -> ChatTurnResult:
         self.turn_count += 1
-        self._show_live_status("Building memory brief", detail=user_message)
+        if self.observe_mode == "chat":
+            self._show_live_status("Aurora is thinking", detail=None)
+        else:
+            self._show_live_status("Building memory brief", detail=user_message)
         result = self.runtime.respond(
             session_id=self.session_id,
             user_message=user_message,
@@ -164,6 +211,8 @@ class TerminalObserver:
         if name in {"exit", "quit"}:
             self._write("bye")
             return False
+        if name in {"chat", "brief", "full"}:
+            return self._set_observe_mode(name)
         if name == "help":
             self._render_help()
             return True
@@ -171,13 +220,11 @@ class TerminalObserver:
             self._render_panel("Pipeline", PIPELINE_TEXT.rstrip().splitlines(), tone="accent")
             return True
         if name == "observe":
-            mode = args[0].lower() if args else "full"
+            mode = args[0].lower() if args else "brief"
             if mode not in OBSERVE_MODES:
                 self._write(f"observe mode 必须是 {', '.join(OBSERVE_MODES)}")
                 return True
-            self.observe_mode = mode
-            self._render_command_bar(note=f"observe mode -> {mode}")
-            return True
+            return self._set_observe_mode(mode)
         if name == "clear":
             self._clear_screen()
             self._print_welcome()
@@ -233,40 +280,107 @@ class TerminalObserver:
         self._write(f"未知命令: /{name}，输入 /help 查看可用命令。")
         return True
 
+    def _set_observe_mode(self, mode: str) -> bool:
+        self.observe_mode = mode
+        if mode == "chat":
+            self._write(self._style("now in chat mode", "muted"))
+            self._write("")
+            return True
+        self._render_command_bar(note=f"observe mode -> {mode}")
+        return True
+
     def _render_chat_result(self, result: ChatTurnResult) -> None:
         self.last_observation = result
-        self._render_panel("Assistant", [result.reply], tone="assistant")
-        if self.observe_mode == "off":
+        if self.observe_mode == "chat":
+            self._render_chat_reply(result)
             return
 
-        self._render_panel("Memory Brief", result.rendered_memory_brief.splitlines(), tone="accent")
-
-        ingest = result.ingest_result
-        state_lines = [
-            (
-                f"retrieve={result.timings.retrieval_ms:.1f}ms | generate={result.timings.generation_ms:.1f}ms | "
-                f"ingest={result.timings.ingest_ms:.1f}ms | total={result.timings.total_ms:.1f}ms"
-            ),
-            (
-                f"event={result.event_id} | plot={ingest.plot_id} | story={ingest.story_id or '-'} | "
-                f"layer={ingest.memory_layer}"
-            ),
-            (
-                f"tension={ingest.tension:.3f} | surprise={ingest.surprise:.3f} | "
-                f"pred_error={ingest.pred_error:.3f} | redundancy={ingest.redundancy:.3f}"
-            ),
-        ]
-        if result.llm_error:
-            state_lines.append(f"llm_fallback={result.llm_error}")
-        self._render_panel("Runtime State", state_lines, tone="runtime")
-
-        self._render_trace_summary(result)
+        self._render_panel(f"Assistant · Turn {self.turn_count:02d}", [result.reply], tone="assistant")
+        self._render_turn_summary(result)
 
         if self.observe_mode == "full":
+            self._render_memory_brief_panel(result)
+            self._render_trace_summary(result)
             self._render_prompt(result)
             self._render_artifacts_and_evidence(result)
             self._render_memory_totals()
         self._render_command_bar()
+
+    def _render_chat_reply(self, result: ChatTurnResult) -> None:
+        width = max(56, min(self._terminal_width() - 8, 88))
+        self._write(self._rule(f"aurora · turn {self.turn_count:02d} · {self._clock_now()}", tone="assistant"))
+        paragraphs = result.reply.splitlines() or [""]
+        for index, paragraph in enumerate(paragraphs):
+            wrapped = textwrap.wrap(
+                paragraph,
+                width=width,
+                replace_whitespace=False,
+                drop_whitespace=False,
+            ) or [""]
+            for line in wrapped:
+                self._write(f"  {line}")
+            if index < len(paragraphs) - 1:
+                self._write("")
+
+        if result.llm_error:
+            self._write("")
+            self._write(self._style(f"  fallback · {result.llm_error}", "warning"))
+        self._write("")
+
+    def _render_turn_summary(self, result: ChatTurnResult) -> None:
+        summary = result.retrieval_trace_summary
+        ingest = result.ingest_result
+        context = result.memory_context
+
+        lines = [
+            (
+                f"turn={self.turn_count} | session={self.session_id} | mode={self.observe_mode} | "
+                f"type={summary.query_type} | hits={summary.hit_count} | evidence={len(context.evidence_refs)}"
+            ),
+            (
+                f"layer={ingest.memory_layer} | event={result.event_id} | plot={ingest.plot_id} | "
+                f"story={ingest.story_id or '-'} | total={result.timings.total_ms:.1f}ms"
+            ),
+            (
+                f"retrieve={result.timings.retrieval_ms:.1f}ms | generate={result.timings.generation_ms:.1f}ms | "
+                f"ingest={result.timings.ingest_ms:.1f}ms"
+            ),
+        ]
+
+        memory_bits = self._compact_memory_bits(context)
+        lines.extend(memory_bits)
+
+        if result.llm_error:
+            lines.append(f"llm_fallback: {result.llm_error}")
+        if summary.abstention_reason:
+            lines.append(f"abstention: {summary.abstention_reason}")
+
+        self._render_panel(f"Observe · Turn {self.turn_count:02d}", lines, tone="runtime")
+
+    def _compact_memory_bits(self, context: StructuredMemoryContext) -> List[str]:
+        lines: List[str] = []
+
+        facts = self._join_brief_items(context.known_facts, limit=2)
+        preferences = self._join_brief_items(context.preferences, limit=2)
+        narratives = self._join_brief_items(context.active_narratives, limit=1)
+        intuition = self._join_brief_items(context.system_intuition, limit=2)
+        cautions = self._join_brief_items(context.cautions, limit=2)
+
+        if facts:
+            lines.append(f"memory: {facts}")
+        if preferences:
+            lines.append(f"preferences: {preferences}")
+        if narratives:
+            lines.append(f"active: {narratives}")
+        if intuition:
+            lines.append(f"intuition: {intuition}")
+        if cautions:
+            lines.append(f"caution: {cautions}")
+        return lines
+
+    def _render_memory_brief_panel(self, result: ChatTurnResult) -> None:
+        lines = result.rendered_memory_brief.splitlines()
+        self._render_panel("Memory Brief", lines, tone="accent")
 
     def _render_trace_summary(self, result: ChatTurnResult) -> None:
         summary = result.retrieval_trace_summary
@@ -292,7 +406,7 @@ class TerminalObserver:
         else:
             lines.append("no evidence refs")
 
-        self._render_panel("Retrieval Trace", lines, tone="retrieval")
+        self._render_panel("Retrieval", lines, tone="retrieval")
 
     def _render_query_observation(self, observation: QueryObservation) -> None:
         trace = observation.trace
@@ -317,7 +431,7 @@ class TerminalObserver:
 
         if not trace.ranked:
             lines.append("no hits")
-            self._render_panel("Retrieval Trace", lines, tone="retrieval")
+            self._render_panel("Query Result", lines, tone="retrieval")
             return
 
         for index, (node_id, score, kind) in enumerate(trace.ranked[: self.max_hits], start=1):
@@ -326,7 +440,7 @@ class TerminalObserver:
                 f"{index}. [{kind}] {node_id} score={score:.3f} {self._truncate(snippet, 120)}"
             )
 
-        self._render_panel("Retrieval Trace", lines, tone="retrieval")
+        self._render_panel("Query Result", lines, tone="retrieval")
 
     def _render_artifacts_and_evidence(self, result: ChatTurnResult) -> None:
         lines: List[str] = []
@@ -368,18 +482,16 @@ class TerminalObserver:
 
     def _render_stats(self) -> None:
         settings = self.runtime.settings
-        payload = {
-            "session_id": self.session_id,
-            "observe_mode": self.observe_mode,
-            "data_dir": settings.data_dir,
-            "llm_provider": self._llm_label(settings),
-            "embedding_provider": self._embedding_label(settings),
-            "plots": len(self.runtime.mem.plots),
-            "stories": len(self.runtime.mem.stories),
-            "themes": len(self.runtime.mem.themes),
-            "last_seq": self.runtime.last_seq,
-        }
-        self._render_panel("Stats", json.dumps(payload, ensure_ascii=False, indent=2).splitlines(), tone="accent")
+        lines = [
+            f"session={self.session_id} | observe_mode={self.observe_mode}",
+            f"data_dir={settings.data_dir}",
+            f"llm={self._llm_label(settings)} | embedding={self._embedding_label(settings)}",
+            (
+                f"plots={len(self.runtime.mem.plots)} | stories={len(self.runtime.mem.stories)} | "
+                f"themes={len(self.runtime.mem.themes)} | last_seq={self.runtime.last_seq}"
+            ),
+        ]
+        self._render_panel("Runtime Snapshot", lines, tone="accent")
 
     def _render_events(self, limit: int) -> None:
         if self.runtime.last_seq <= 0:
@@ -474,7 +586,7 @@ class TerminalObserver:
                 "pred_error": plot.pred_error,
                 "redundancy": plot.redundancy,
             }
-            self._render_panel("Inspect Plot", json.dumps(payload, ensure_ascii=False, indent=2).splitlines(), tone="neutral")
+            self._render_panel("Inspect · Plot", self._pretty_mapping(payload), tone="neutral")
             return
 
         story = self.runtime.mem.stories.get(item_id)
@@ -489,7 +601,7 @@ class TerminalObserver:
                 "central_conflict": story.central_conflict,
                 "moral": story.moral,
             }
-            self._render_panel("Inspect Story", json.dumps(payload, ensure_ascii=False, indent=2).splitlines(), tone="neutral")
+            self._render_panel("Inspect · Story", self._pretty_mapping(payload), tone="neutral")
             return
 
         theme = self.runtime.mem.themes.get(item_id)
@@ -503,7 +615,7 @@ class TerminalObserver:
                 "tensions_with": theme.tensions_with,
                 "harmonizes_with": theme.harmonizes_with,
             }
-            self._render_panel("Inspect Theme", json.dumps(payload, ensure_ascii=False, indent=2).splitlines(), tone="neutral")
+            self._render_panel("Inspect · Theme", self._pretty_mapping(payload), tone="neutral")
             return
 
         doc = self.runtime.doc_store.get(item_id)
@@ -521,36 +633,56 @@ class TerminalObserver:
                     "story_id": plot_state.get("story_id"),
                     "status": plot_state.get("status"),
                 }
-            self._render_panel("Inspect Document", json.dumps(payload, ensure_ascii=False, indent=2).splitlines(), tone="neutral")
+            self._render_panel("Inspect · Document", self._pretty_mapping(payload), tone="neutral")
             return
 
         self._write(f"没有找到 {item_id}")
 
     def _render_coherence(self) -> None:
         result = self.runtime.check_coherence()
-        payload = {
-            "overall_score": result.overall_score,
-            "conflict_count": result.conflict_count,
-            "unfinished_story_count": result.unfinished_story_count,
-            "recommendations": result.recommendations,
-        }
-        self._render_panel("Coherence", json.dumps(payload, ensure_ascii=False, indent=2).splitlines(), tone="accent")
+        lines = [
+            f"overall_score={result.overall_score:.2f}",
+            f"conflicts={result.conflict_count} | unfinished_stories={result.unfinished_story_count}",
+        ]
+        if result.recommendations:
+            lines.append("recommendations:")
+            lines.extend(f"- {item}" for item in result.recommendations[:5])
+        else:
+            lines.append("recommendations: none")
+        self._render_panel("Coherence", lines, tone="accent")
 
     def _render_narrative(self) -> None:
         narrative = self.runtime.get_self_narrative()
-        payload = {
-            "profile_id": narrative["profile_id"],
-            "identity_statement": narrative["identity_statement"],
-            "seed_narrative": narrative["seed_narrative"],
-            "capability_narrative": narrative["capability_narrative"],
-            "coherence_score": narrative["coherence_score"],
-            "trait_beliefs": narrative["trait_beliefs"],
-            "capability_count": len(narrative["capabilities"]),
-            "relationship_count": len(narrative["relationships"]),
-            "subconscious": narrative["subconscious"],
-            "unresolved_tensions": narrative["unresolved_tensions"],
-        }
-        self._render_panel("Self Narrative", json.dumps(payload, ensure_ascii=False, indent=2).splitlines(), tone="accent")
+        lines = [
+            f"profile={narrative['profile_id']} | coherence={narrative['coherence_score']:.2f}",
+            f"identity: {narrative['identity_statement']}",
+        ]
+        if narrative["seed_narrative"]:
+            lines.append(f"seed: {self._truncate(narrative['seed_narrative'], 180)}")
+        if narrative["capability_narrative"]:
+            lines.append(f"capability: {narrative['capability_narrative']}")
+
+        trait_beliefs = narrative.get("trait_beliefs", {})
+        if trait_beliefs:
+            trait_text = ", ".join(
+                f"{name}={belief['probability']:.2f}"
+                for name, belief in list(trait_beliefs.items())[:4]
+            )
+            lines.append(f"traits: {trait_text}")
+
+        subconscious = narrative.get("subconscious", {})
+        lines.append(
+            "subconscious: "
+            f"dark_matter={subconscious.get('dark_matter_count', 0)} | "
+            f"repressed={subconscious.get('repressed_count', 0)} | "
+            f"last_intuition={', '.join(subconscious.get('last_intuition', [])) or 'none'}"
+        )
+        lines.append(
+            f"capabilities={len(narrative['capabilities'])} | relationships={len(narrative['relationships'])}"
+        )
+        if narrative["unresolved_tensions"]:
+            lines.append("tensions: " + ", ".join(narrative["unresolved_tensions"][:4]))
+        self._render_panel("Self Narrative", lines, tone="accent")
 
     def _render_evolve(self) -> None:
         before = {
@@ -564,32 +696,40 @@ class TerminalObserver:
             "stories": len(self.runtime.mem.stories),
             "themes": len(self.runtime.mem.themes),
         }
-        payload = {"before": before, "after": after}
-        self._render_panel("Evolution", json.dumps(payload, ensure_ascii=False, indent=2).splitlines(), tone="accent")
+        lines = [
+            f"before: plots={before['plots']} | stories={before['stories']} | themes={before['themes']}",
+            f"after:  plots={after['plots']} | stories={after['stories']} | themes={after['themes']}",
+        ]
+        self._render_panel("Evolution", lines, tone="accent")
 
     def _render_help(self) -> None:
         self._render_panel(
             "Commands",
             [
-                "/help                 查看帮助",
-                "/pipeline             查看每轮处理链路",
-                "/observe MODE         观测模式: off | brief | full",
-                "/prompt               回看上一次发给 LLM 的最终 prompt",
-                "/context              回看上一次结构化 memory context",
-                "/stats                查看运行时统计",
-                "/query <text>         只做检索，不生成回复",
-                "/events [n]           查看最近 n 条事件",
-                "/plots [n]            查看最近 n 个 plot 文档",
-                "/stories [n]          查看最近 n 个故事",
-                "/themes [n]           查看最近 n 个主题",
-                "/inspect <id>         检查 plot/story/theme/doc",
-                "/coherence            查看一致性报告",
-                "/narrative            查看自我叙事摘要",
-                "/evolve               手动触发演化",
-                "/clear                清屏并重绘控制台",
+                "Chat",
+                "/chat                 回到纯聊天视图",
+                "/brief                回复后显示一屏摘要",
+                "/full                 显示完整内部链路",
+                "/observe MODE         等价于 /chat /brief /full",
+                "/clear                清屏并重绘",
                 "/quit                 退出",
                 "",
-                "直接输入文本就是正常对话。",
+                "Inspect",
+                "/stats                查看运行时统计",
+                "/narrative            查看人格与潜意识摘要",
+                "/context              查看上一次结构化 memory context",
+                "/prompt               查看上一次最终 prompt",
+                "/query <text>         只做检索，不生成回复",
+                "/events [n]           最近事件",
+                "/plots [n]            最近 plot 文档",
+                "/stories [n]          最近故事",
+                "/themes [n]           最近主题",
+                "/inspect <id>         检查 plot/story/theme/doc",
+                "/coherence            一致性报告",
+                "/pipeline             查看每轮处理链路",
+                "/evolve               手动触发演化",
+                "",
+                "直接输入文本就是正常对话。默认 chat 模式只显示回复本身。",
             ],
             tone="neutral",
         )
@@ -597,6 +737,15 @@ class TerminalObserver:
 
     def _print_welcome(self) -> None:
         settings = self.runtime.settings
+        profile_line = ""
+        try:
+            narrative = self.runtime.get_self_narrative()
+            profile_line = (
+                f"profile={narrative.get('profile_id', '-')} | "
+                f"identity={self._truncate(str(narrative.get('identity_statement', '')), 72)}"
+            )
+        except Exception:
+            profile_line = ""
         badges = " ".join(
             [
                 self._badge(f"session {self.session_id}", tone="user"),
@@ -605,15 +754,29 @@ class TerminalObserver:
                 self._badge(f"mode {self.observe_mode}", tone="prompt"),
             ]
         )
+        if self.observe_mode == "chat":
+            self._write(self._rule("AURORA CHAT", tone="accent"))
+            if profile_line:
+                self._write(self._style(profile_line, "muted"))
+            self._write(
+                self._style(
+                    f"session={self.session_id} · llm={self._llm_label(settings)} · data_dir={settings.data_dir}",
+                    "muted",
+                )
+            )
+            self._write(self._style("直接开始聊天；/brief 看摘要，/full 看完整链路，/help 看全部命令。", "muted"))
+            self._write("")
+            return
+
         self._render_panel(
             "AURORA Live Console",
             [
                 badges,
                 f"data_dir={settings.data_dir}",
+                f"default observe mode={self.observe_mode}",
+                *( [profile_line] if profile_line else [] ),
                 "",
-                *PIPELINE_TEXT.rstrip().splitlines(),
-                "",
-                "直接输入文本即可对话，输入 /help 查看命令。",
+                *WELCOME_LINES,
             ],
             tone="accent",
         )
@@ -635,7 +798,7 @@ class TerminalObserver:
             ),
             *user_lines,
         ]
-        self._render_panel("LLM Prompt", lines, tone="prompt")
+        self._render_panel("Prompt · LLM", lines, tone="prompt")
 
     def _render_last_prompt(self) -> None:
         if self.last_observation is None:
@@ -657,6 +820,7 @@ class TerminalObserver:
             ("relationship_state", context.relationship_state),
             ("active_narratives", context.active_narratives),
             ("temporal_context", context.temporal_context),
+            ("system_intuition", context.system_intuition),
             ("cautions", context.cautions),
         ]
         for name, items in sections:
@@ -675,7 +839,7 @@ class TerminalObserver:
             )
         else:
             lines.append("- none")
-        self._render_panel("Memory Context", lines, tone="accent")
+        self._render_panel("Context · Memory", lines, tone="accent")
 
     def _resolve_snippet(self, *, node_id: str, kind: str) -> str:
         if kind == "plot":
@@ -699,11 +863,17 @@ class TerminalObserver:
         return ""
 
     def _render_command_bar(self, *, note: Optional[str] = None) -> None:
+        if self.observe_mode == "chat" and note is None:
+            return
         commands = [
-            self._badge("/prompt", tone="prompt"),
+            self._badge(f"mode {self.observe_mode}", tone="prompt"),
+            self._badge("/chat", tone="user"),
+            self._badge("/brief", tone="accent"),
+            self._badge("/full", tone="prompt"),
+            self._badge("/help", tone="muted"),
             self._badge("/context", tone="accent"),
+            self._badge("/prompt", tone="prompt"),
             self._badge("/query", tone="accent"),
-            self._badge("/events", tone="muted"),
             self._badge("/stats", tone="muted"),
             self._badge("/clear", tone="warning"),
             self._badge("/quit", tone="warning"),
@@ -765,8 +935,35 @@ class TerminalObserver:
             return text
         return text[: limit - 3] + "..."
 
+    @staticmethod
+    def _join_brief_items(items: Sequence[str], *, limit: int) -> str:
+        cleaned = [str(item).strip() for item in items if str(item).strip()]
+        if not cleaned:
+            return ""
+        if len(cleaned) > limit:
+            return "; ".join(cleaned[:limit]) + f" (+{len(cleaned) - limit})"
+        return "; ".join(cleaned)
+
+    def _pretty_mapping(self, payload: Dict[str, Any]) -> List[str]:
+        lines: List[str] = []
+        for key, value in payload.items():
+            if isinstance(value, dict):
+                lines.append(f"{key}:")
+                for child_key, child_value in value.items():
+                    lines.append(f"  {child_key}: {child_value}")
+                continue
+            if isinstance(value, list):
+                if not value:
+                    lines.append(f"{key}: []")
+                    continue
+                lines.append(f"{key}:")
+                lines.extend(f"  - {item}" for item in value)
+                continue
+            lines.append(f"{key}: {value}")
+        return lines
+
     def _render_panel(self, title: str, lines: Sequence[str], *, tone: str = "neutral") -> None:
-        body_width = max(72, min(self._terminal_width() - 4, 140))
+        body_width = max(68, min(self._terminal_width() - 4, 104))
         border_tone = PANEL_TONES.get(tone, "border")
         title_text = f" {title} "
         top = self._style("┌", border_tone) + self._style(title_text, "bold", "title") + self._style(
@@ -781,25 +978,53 @@ class TerminalObserver:
             for logical_line in logical_lines:
                 wrapped = textwrap.wrap(
                     logical_line,
-                    width=body_width,
+                    width=body_width - 2,
                     replace_whitespace=False,
                     drop_whitespace=False,
                 ) or [""]
                 for chunk in wrapped:
                     self._write(
                         self._style("│", border_tone)
-                        + chunk.ljust(body_width)
+                        + " "
+                        + chunk.ljust(body_width - 2)
+                        + " "
                         + self._style("│", border_tone)
                     )
         self._write(bottom)
+        self._write("")
 
     @staticmethod
     def _terminal_width() -> int:
         return shutil.get_terminal_size(fallback=(120, 24)).columns
 
+    def _input_prompt_text(self) -> str:
+        if self.observe_mode == "chat":
+            label = self._style("you", "user", "bold")
+        else:
+            label = self._badge("you", tone="user")
+        caret = self._style("›", "accent", "bold")
+        return f"{label} {caret} "
+
     def _input_prompt(self) -> str:
-        label = self._badge("you", tone="user")
-        return f"{label} "
+        return self._readline_safe(self._input_prompt_text())
+
+    @staticmethod
+    def _clock_now() -> str:
+        return datetime.now().strftime("%H:%M")
+
+    def _rule(self, label: str, *, tone: str) -> str:
+        width = max(48, min(self._terminal_width() - 2, 92))
+        text = f" {label} "
+        fill = "─" * max(0, width - len(text))
+        return self._style(text + fill, tone, "bold")
+
+    def _prompt_toolbar(self) -> str:
+        if self.observe_mode == "chat":
+            return self._style(" /brief  /full  /help  Enter to send ", "muted")
+        return self._style(
+            f" mode={self.observe_mode}  /chat  /brief  /full  /help ",
+            "muted",
+        )
 
     def _badge(self, text: str, *, tone: str) -> str:
         if not self._use_color:
@@ -824,6 +1049,12 @@ class TerminalObserver:
         if not codes:
             return text
         return f"\033[{';'.join(codes)}m{text}\033[0m"
+
+    def _readline_safe(self, text: str) -> str:
+        """Wrap ANSI escape sequences so readline/libedit can edit correctly."""
+        if not self._use_color:
+            return text
+        return re.sub(r"(\x1b\[[0-9;]*m)", r"\001\1\002", text)
 
     def _numbered_block(self, label: str, text: str) -> List[str]:
         lines = [f"[{label}]"]
@@ -854,7 +1085,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--observe",
         choices=list(OBSERVE_MODES),
-        default="full",
+        default="chat",
         help="观测输出级别",
     )
     return parser
@@ -865,9 +1096,9 @@ def run_observer(
     data_dir: Optional[str] = None,
     session_id: str = "terminal_observer",
     max_hits: int = 6,
-    observe_mode: str = "full",
+    observe_mode: str = "chat",
 ) -> None:
-    setup_logging("WARNING")
+    setup_logging("ERROR")
     settings_kwargs: Dict[str, Any] = {}
     if data_dir:
         settings_kwargs["data_dir"] = data_dir

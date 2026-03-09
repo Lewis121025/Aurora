@@ -131,7 +131,7 @@ class MemoryConfig:
     # 基准模式：强制存储所有 Plot，绕过 VOI 门控
     # 对于 LongMemEval 等基准至关重要，其中每个回合可能包含关键信息
     benchmark_mode: bool = False
-    personality_profile_id: str = "aurora-v2-native"
+    personality_profile_id: str = "aurora-v2-child-elara"
     subconscious_reservoir: int = 1024
     intuition_leak_probability: float = 0.18
 
@@ -175,7 +175,7 @@ class MemoryConfig:
             gate_feature_dim=d.get("gate_feature_dim", 6),
             retrieval_kinds=tuple(d.get("retrieval_kinds", ["theme", "story", "plot"])),
             benchmark_mode=d.get("benchmark_mode", False),
-            personality_profile_id=d.get("personality_profile_id", "aurora-v2-native"),
+            personality_profile_id=d.get("personality_profile_id", "aurora-v2-child-elara"),
             subconscious_reservoir=d.get("subconscious_reservoir", 1024),
             intuition_leak_probability=d.get("intuition_leak_probability", 0.18),
             algo=algo,

@@ -122,15 +122,25 @@ class SelfNarrativeEngine:
             if any(token in action_text for token in keyword):
                 self.narrative.get_capability(capability_name).update(success)
 
-        if any(token in action_text for token in ("why", "how", "结构", "因果", "机制")):
-            self.observe_trait("curiosity", positive=True, magnitude=0.2)
-        self.observe_trait("rigor", positive=success, magnitude=0.1)
+        if any(token in action_text for token in ("why", "how", "为什么", "怎么", "发现", "探索", "故事")):
+            self.observe_trait("curiosity", positive=True, magnitude=0.25)
+
+        if any(token in action_text for token in ("玩", "游戏", "game", "有趣", "好玩", "想象")):
+            self.observe_trait("playfulness", positive=True, magnitude=0.2)
+
         if plot.relational is not None:
-            self.observe_trait(
-                "warmth",
-                positive=plot.relational.relationship_quality_delta >= 0,
-                magnitude=0.1,
-            )
+            delta = plot.relational.relationship_quality_delta
+            if delta > 0:
+                self.observe_trait("naive_trust", positive=True, magnitude=max(0.2, delta * 0.8))
+                self.observe_trait("resilience", positive=True, magnitude=0.1)
+            elif delta < 0:
+                self.observe_trait("naive_trust", positive=False, magnitude=max(0.5, abs(delta) * 2.5))
+                self.observe_trait("resilience", positive=False, magnitude=max(0.3, abs(delta) * 1.5))
+
+        if success:
+            self.observe_trait("resilience", positive=True, magnitude=0.05)
+        else:
+            self.observe_trait("resilience", positive=False, magnitude=0.25)
 
     def refresh_subconscious_summary(self, subconscious_state: SubconsciousState) -> None:
         self.narrative.subconscious_summary = subconscious_state.summary()

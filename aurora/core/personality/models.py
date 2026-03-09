@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 
+DEFAULT_PERSONALITY_PROFILE_ID = "aurora-v2-child-elara"
+
+
 @dataclass(frozen=True)
 class SeedPlotSpec:
     seed_id: str
@@ -52,6 +55,23 @@ class IntuitionAnchor:
 
 
 @dataclass(frozen=True)
+class SubconsciousSeedSpec:
+    seed_id: str
+    text: str
+    affect_hint: str = ""
+    relational_hint: str = ""
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SubconsciousSeedSpec":
+        return cls(
+            seed_id=str(data["seed_id"]),
+            text=str(data["text"]),
+            affect_hint=str(data.get("affect_hint", "")),
+            relational_hint=str(data.get("relational_hint", "")),
+        )
+
+
+@dataclass(frozen=True)
 class PersonalityProfile:
     profile_id: str
     display_name: str
@@ -62,6 +82,7 @@ class PersonalityProfile:
     trait_priors: List[TraitPrior]
     seed_plots: List[SeedPlotSpec]
     intuition_anchors: List[IntuitionAnchor]
+    subconscious_seeds: List[SubconsciousSeedSpec]
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PersonalityProfile":
@@ -75,11 +96,15 @@ class PersonalityProfile:
             trait_priors=[TraitPrior.from_dict(item) for item in data.get("trait_priors", [])],
             seed_plots=[SeedPlotSpec.from_dict(item) for item in data.get("seed_plots", [])],
             intuition_anchors=[IntuitionAnchor.from_dict(item) for item in data.get("intuition_anchors", [])],
+            subconscious_seeds=[
+                SubconsciousSeedSpec.from_dict(item)
+                for item in data.get("subconscious_seeds", [])
+            ],
         )
 
 
 def load_personality_profile(profile_id: str) -> PersonalityProfile:
-    if profile_id != "aurora-v2-native":
+    if profile_id != DEFAULT_PERSONALITY_PROFILE_ID:
         raise ValueError(f"unknown personality profile: {profile_id}")
 
     profile_path = Path(__file__).with_name("default_profile.json")

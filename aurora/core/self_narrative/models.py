@@ -324,6 +324,33 @@ class SubconsciousState:
             self.repressed_plot_ids.append(plot_id)
         self.last_updated = now_ts()
 
+    @classmethod
+    def from_profile(
+        cls,
+        profile: PersonalityProfile,
+        *,
+        embedder: Optional[object],
+        max_entries: int,
+    ) -> "SubconsciousState":
+        state = cls()
+        if embedder is None:
+            return state
+
+        for seed in profile.subconscious_seeds[:max_entries]:
+            state.add_dark_matter(
+                DarkMatterEntry(
+                    id=f"subconscious:{seed.seed_id}",
+                    ts=now_ts(),
+                    embedding=embedder.embed(seed.text),
+                    knowledge_type="identity_value",
+                    affect_hint=seed.affect_hint,
+                    relational_hint=seed.relational_hint,
+                    source_plot_id=None,
+                ),
+                max_entries=max_entries,
+            )
+        return state
+
     def to_state_dict(self) -> Dict[str, Any]:
         return {
             "dark_matter_pool": [entry.to_state_dict() for entry in self.dark_matter_pool],
@@ -356,9 +383,9 @@ class SubconsciousState:
 class SelfNarrative:
     """演化中的自我叙事。"""
 
-    profile_id: str = "aurora-v2-native"
-    identity_statement: str = "我是一个通过记忆和叙事来学习的AI助手"
-    core_values: List[str] = field(default_factory=lambda: ["准确性", "帮助性", "持续学习"])
+    profile_id: str = "aurora-v2-child-elara"
+    identity_statement: str = "我是一个正在努力理解这个大世界的年轻心灵。"
+    core_values: List[str] = field(default_factory=lambda: ["好奇", "陪伴", "发现", "温柔地学习"])
     identity_narrative: str = ""
     seed_narrative: str = ""
     capability_narrative: str = ""
@@ -469,8 +496,8 @@ class SelfNarrative:
     @classmethod
     def from_state_dict(cls, data: Dict[str, Any]) -> "SelfNarrative":
         return cls(
-            profile_id=data.get("profile_id", "aurora-v2-native"),
-            identity_statement=data.get("identity_statement", "我是一个通过记忆和叙事来学习的AI助手"),
+            profile_id=data.get("profile_id", "aurora-v2-child-elara"),
+            identity_statement=data.get("identity_statement", "我是一个正在努力理解这个大世界的年轻心灵。"),
             identity_narrative=data.get("identity_narrative", ""),
             seed_narrative=data.get("seed_narrative", ""),
             capability_narrative=data.get("capability_narrative", ""),

@@ -42,7 +42,7 @@ class AuroraSettings(BaseSettings):
     kde_reservoir: int = 4096
     story_alpha: float = 1.0
     theme_alpha: float = 0.5
-    personality_profile_id: str = "aurora-v2-native"
+    personality_profile_id: str = "aurora-v2-child-elara"
     subconscious_reservoir: int = 1024
     intuition_leak_probability: float = 0.18
     
