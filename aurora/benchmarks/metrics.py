@@ -26,6 +26,8 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, TYPE_CHECKING
 
 import numpy as np
 
+from aurora.integrations.llm.Prompt import METRICS_LLM_JUDGE_PROMPT
+
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
@@ -313,29 +315,6 @@ def token_f1(predicted: str, expected: str) -> float:
 # LLM-as-a-Judge 评分
 # -----------------------------------------------------------------------------
 
-# LLM-as-a-Judge 的默认提示模板
-LLM_JUDGE_PROMPT_TEMPLATE = """你正在评估内存系统响应的质量。
-
-查询: {query}
-预期答案: {expected}
-模型答案: {predicted}
-
-评估模型的答案与预期答案相比对查询的解决程度。
-考虑:
-1. 事实正确性
-2. 信息完整性
-3. 与查询的相关性
-
-提供 0 到 10 的分数，其中:
-- 0-2: 完全错误或无关
-- 3-4: 部分正确但缺少关键信息
-- 5-6: 大部分正确，有轻微问题
-- 7-8: 正确且信息完整
-- 9-10: 优秀，匹配或超过预期答案
-
-仅输出单个整数分数 (0-10)，不输出其他内容。"""
-
-
 def llm_judge_score(
     predicted: str,
     expected: str,
@@ -375,7 +354,7 @@ def llm_judge_score(
     if not predicted:
         return 0.0
     
-    template = prompt_template or LLM_JUDGE_PROMPT_TEMPLATE
+    template = prompt_template or METRICS_LLM_JUDGE_PROMPT
     prompt = template.format(
         query=query,
         expected=expected or "(No expected answer provided)",

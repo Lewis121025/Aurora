@@ -42,7 +42,7 @@ def _cmd_demo() -> None:
     print("1. 摄入交互...")
     for eid, sid, um, am in events:
         r = runtime.ingest_interaction(event_id=eid, session_id=sid, user_message=um, agent_message=am, logger=logger)
-        print(f"   - {eid}: plot={r.plot_id}, encoded={r.encoded}, tension={r.tension:.2f}")
+        print(f"   - {eid}: plot={r.plot_id}, layer={r.memory_layer}, tension={r.tension:.2f}")
 
     print("\n2. 运行演化...")
     runtime.evolve(logger=logger)
@@ -105,7 +105,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
         "event_id": result.event_id,
         "plot_id": result.plot_id,
         "story_id": result.story_id,
-        "encoded": result.encoded,
+        "memory_layer": result.memory_layer,
         "tension": result.tension,
         "surprise": result.surprise,
     }, ensure_ascii=False, indent=2))
@@ -176,9 +176,13 @@ def _cmd_narrative(args: argparse.Namespace) -> None:
         print(narrative["full_narrative"])
     else:
         print(json.dumps({
+            "profile_id": narrative["profile_id"],
             "identity_statement": narrative["identity_statement"],
+            "seed_narrative": narrative["seed_narrative"],
             "capability_narrative": narrative["capability_narrative"],
             "coherence_score": narrative["coherence_score"],
+            "trait_beliefs": narrative["trait_beliefs"],
+            "subconscious": narrative["subconscious"],
             "capabilities": narrative["capabilities"],
             "unresolved_tensions": narrative["unresolved_tensions"],
         }, ensure_ascii=False, indent=2))

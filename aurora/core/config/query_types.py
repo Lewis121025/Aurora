@@ -150,6 +150,8 @@ QUESTION_TYPE_HINT_MAPPINGS = {
     'temporal-reasoning': 'TEMPORAL',
     'temporal_reasoning': 'TEMPORAL',
     'temporal': 'TEMPORAL',
+    'identity': 'IDENTITY',
+    'self': 'IDENTITY',
     'single-session-assistant': 'FACTUAL',
     'single_session_assistant': 'FACTUAL',
 }

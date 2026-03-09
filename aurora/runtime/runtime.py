@@ -12,7 +12,7 @@ from aurora.core.coherence import CoherenceGuardian
 from aurora.core.memory import AuroraMemory
 from aurora.core.models.plot import Plot
 from aurora.core.models.trace import QueryHit
-from aurora.core.self_narrative import SelfNarrativeEngine
+from aurora.exceptions import ConfigurationError
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.integrations.storage.doc_store import Document, SQLiteDocStore
 from aurora.integrations.storage.event_log import Event, SQLiteEventLog
@@ -27,6 +27,7 @@ from aurora.runtime.bootstrap import (
 from aurora.runtime.interaction_pipeline import (
     InteractionPreparer,
     PreparedInteraction,
+    RUNTIME_SCHEMA_VERSION,
     build_ingest_result_body,
     build_plot_document_body,
 )
@@ -66,17 +67,16 @@ class AuroraRuntime:
         self.event_log = SQLiteEventLog(os.path.join(self.settings.data_dir, self.settings.event_log_filename))
         self.doc_store = SQLiteDocStore(os.path.join(self.settings.data_dir, "docs.sqlite3"))
         self.snapshots = SnapshotStore(os.path.join(self.settings.data_dir, self.settings.snapshot_dirname))
+        self._ensure_v2_doc_store()
 
         self.last_seq: int = 0
         self.mem: AuroraMemory = self._load_or_init()
         self.plot_extractor = PlotExtractor(llm=self.llm, doc_store=self.doc_store)
         self.interactions = InteractionPreparer(embedder=self.mem.embedder, extractor=self.plot_extractor)
         self.coherence_guardian = CoherenceGuardian(self.mem.metric)
-        self.self_narrative_engine = SelfNarrativeEngine(self.mem.metric)
         self.response_contexts = ResponseContextBuilder(
             memory=self.mem,
             doc_store=self.doc_store,
-            self_narrative_engine=self.self_narrative_engine,
             llm=self.llm,
             compile_timeout_s=min(self.settings.llm_timeout, 8.0),
             compile_max_retries=1,
@@ -86,13 +86,17 @@ class AuroraRuntime:
         self._replay()
 
     def _load_or_init(self) -> AuroraMemory:
-        latest = self.snapshots.latest()
+        try:
+            latest = self.snapshots.latest()
+        except ValueError as exc:
+            raise ConfigurationError(str(exc)) from exc
         if latest is not None:
             _seq, snap = latest
             self.last_seq = snap.last_seq
-            state = snap.state
-            state.embedder = create_embedding_provider(self.settings)
-            return state
+            return AuroraMemory.from_state_dict(
+                snap.state,
+                embedder=create_embedding_provider(self.settings),
+            )
 
         return create_memory(settings=self.settings)
 
@@ -101,6 +105,10 @@ class AuroraRuntime:
             if ev.type != "interaction":
                 continue
             payload = ev.payload
+            if payload.get("runtime_schema_version") != RUNTIME_SCHEMA_VERSION:
+                raise ConfigurationError(
+                    "Detected legacy event payloads. Aurora V2 requires a fresh data directory."
+                )
             prepared = self.interactions.prepare_replay(
                 event_id=ev.id,
                 payload=payload,
@@ -128,6 +136,14 @@ class AuroraRuntime:
             if payload != canonical_payload:
                 self.event_log.update_payload(ev.id, canonical_payload)
             self.last_seq = seq
+
+    def _ensure_v2_doc_store(self) -> None:
+        for kind in ("plot", "ingest_result"):
+            for doc in self.doc_store.iter_kind(kind=kind, limit=5):
+                if doc.body.get("runtime_schema_version") != RUNTIME_SCHEMA_VERSION:
+                    raise ConfigurationError(
+                        "Detected legacy documents in docs.sqlite3. Aurora V2 requires a fresh data directory."
+                    )
 
     def ingest_interaction(
         self,
@@ -304,7 +320,7 @@ class AuroraRuntime:
     def evolve(self, *, logger: Optional[Any] = None) -> None:
         with self._lock:
             self.mem.evolve()
-            self.self_narrative_engine.update_from_themes(list(self.mem.themes.values()))
+            self.mem.self_narrative_engine.update_from_themes(list(self.mem.themes.values()))
 
         if logger:
             log_event(logger, "aurora_evolve", stories=len(self.mem.stories), themes=len(self.mem.themes))
@@ -333,16 +349,22 @@ class AuroraRuntime:
 
     def get_self_narrative(self) -> Dict[str, Any]:
         with self._lock:
-            narrative = self.self_narrative_engine.narrative
+            narrative = self.mem.self_narrative_engine.narrative
             return {
+                "profile_id": narrative.profile_id,
                 "identity_statement": narrative.identity_statement,
                 "identity_narrative": narrative.identity_narrative,
+                "seed_narrative": narrative.seed_narrative,
                 "capability_narrative": narrative.capability_narrative,
                 "core_values": narrative.core_values,
                 "coherence_score": narrative.coherence_score,
                 "capabilities": {
                     name: {"probability": cap.capability_probability(), "description": cap.description}
                     for name, cap in narrative.capabilities.items()
+                },
+                "trait_beliefs": {
+                    name: {"probability": belief.probability(), "description": belief.description}
+                    for name, belief in narrative.trait_beliefs.items()
                 },
                 "relationships": {
                     entity_id: {
@@ -351,6 +373,11 @@ class AuroraRuntime:
                         "interaction_count": rel.interaction_count,
                     }
                     for entity_id, rel in narrative.relationships.items()
+                },
+                "subconscious": {
+                    "dark_matter_count": len(self.mem.subconscious_state.dark_matter_pool),
+                    "repressed_count": len(self.mem.subconscious_state.repressed_plot_ids),
+                    "last_intuition": list(self.mem.subconscious_state.last_intuition),
                 },
                 "unresolved_tensions": narrative.unresolved_tensions,
                 "full_narrative": narrative.to_full_narrative(),
@@ -376,7 +403,11 @@ class AuroraRuntime:
             self.mem.feedback_retrieval(query_text=query_text, chosen_id=chosen_id, success=success)
             plot = self.mem.plots.get(chosen_id)
             if plot:
-                self.self_narrative_engine.update_from_interaction(plot=plot, success=success, entity_id=entity_id or "self")
+                self.mem.self_narrative_engine.update_from_interaction(
+                    plot=plot,
+                    success=success,
+                    entity_id=entity_id or "self",
+                )
 
     def _generate_reply(
         self,
@@ -438,14 +469,14 @@ class AuroraRuntime:
             context_embedding=prepared.context_embedding,
             ts=ts,
         )
-        encoded = plot.id in self.mem.plots
+        memory_layer = "explicit" if plot.exposure == "explicit" else "shadow"
 
         if persist:
             self._persist_interaction_artifacts(
                 event_id=event_id,
                 ts=ts,
                 plot=plot,
-                encoded=encoded,
+                memory_layer=memory_layer,
                 prepared=prepared,
                 user_message=user_message,
                 agent_message=agent_message,
@@ -455,7 +486,7 @@ class AuroraRuntime:
             event_id=event_id,
             plot_id=plot.id,
             story_id=plot.story_id,
-            encoded=encoded,
+            memory_layer=memory_layer,
             tension=float(plot.tension),
             surprise=float(plot.surprise),
             pred_error=float(plot.pred_error),
@@ -463,7 +494,7 @@ class AuroraRuntime:
         )
 
     def _snapshot(self, *, logger: Optional[Any] = None) -> None:
-        snap = Snapshot(last_seq=self.last_seq, state=self.mem)
+        snap = Snapshot(last_seq=self.last_seq, state=self.mem.to_state_dict())
         path = self.snapshots.save(snap)
         if logger:
             log_event(logger, "aurora_snapshot", last_seq=self.last_seq, path=path)
@@ -475,7 +506,7 @@ class AuroraRuntime:
                 event_id=event_id,
                 plot_id="",
                 story_id=None,
-                encoded=False,
+                memory_layer="shadow",
                 tension=0.0,
                 surprise=0.0,
                 pred_error=0.0,
@@ -487,7 +518,7 @@ class AuroraRuntime:
             event_id=event_id,
             plot_id=body["plot_id"],
             story_id=body.get("story_id"),
-            encoded=bool(body.get("encoded", True)),
+            memory_layer=body.get("memory_layer", "explicit"),
             tension=float(body.get("tension", 0.0)),
             surprise=float(body.get("surprise", 0.0)),
             pred_error=float(body.get("pred_error", 0.0)),
@@ -500,7 +531,7 @@ class AuroraRuntime:
         event_id: str,
         ts: float,
         plot: Plot,
-        encoded: bool,
+        memory_layer: str,
         prepared: PreparedInteraction,
         user_message: str,
         agent_message: str,
@@ -523,6 +554,6 @@ class AuroraRuntime:
                 id=f"ingest:{event_id}",
                 kind="ingest_result",
                 ts=ts,
-                body=build_ingest_result_body(event_id=event_id, plot=plot, encoded=encoded),
+                body=build_ingest_result_body(event_id=event_id, plot=plot, memory_layer=memory_layer),
             )
         )

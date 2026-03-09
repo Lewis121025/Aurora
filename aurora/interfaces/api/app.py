@@ -9,26 +9,24 @@ from aurora.runtime.settings import AuroraSettings
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.version import __version__
 from aurora.interfaces.api.schemas import (
-    # Request models
     IngestRequest,
     QueryRequest,
     RespondRequest,
     FeedbackRequest,
     EvolveRequest,
     CausalChainRequest,
-    # Response models
-    ChatTimingsV1,
+    ChatTimings,
     ChatTurnResponse,
     IngestResponse,
     QueryResponse,
     QueryHit,
-    RetrievalTraceSummaryV1,
-    StructuredMemoryContextV1,
-    EvidenceRefV1,
+    RetrievalTraceSummary,
+    StructuredMemoryContext,
+    EvidenceRef,
     CoherenceResponse,
     SelfNarrativeResponse,
     CausalChainResponse,
-    CausalChainItemV1,
+    CausalChainItem,
     MemoryStatsResponse,
     HealthResponse,
 )
@@ -57,7 +55,7 @@ def healthz() -> HealthResponse:
     )
 
 
-@app.post("/v1/memory/ingest", response_model=IngestResponse)
+@app.post("/v2/memory/ingest", response_model=IngestResponse)
 def ingest(req: IngestRequest) -> IngestResponse:
     """摄入新的交互到记忆中"""
     # 如果未提供则生成event_id
@@ -75,7 +73,7 @@ def ingest(req: IngestRequest) -> IngestResponse:
     return IngestResponse(**r.__dict__)
 
 
-@app.post("/v1/memory/query", response_model=QueryResponse)
+@app.post("/v2/memory/query", response_model=QueryResponse)
 def query(req: QueryRequest) -> QueryResponse:
     """按语义相似性查询记忆"""
     runtime = get_runtime()
@@ -87,7 +85,7 @@ def query(req: QueryRequest) -> QueryResponse:
     )
 
 
-@app.post("/v1/memory/respond", response_model=ChatTurnResponse)
+@app.post("/v2/memory/respond", response_model=ChatTurnResponse)
 def respond(req: RespondRequest) -> ChatTurnResponse:
     """基于结构化记忆上下文生成当前回复。"""
     runtime = get_runtime()
@@ -103,15 +101,16 @@ def respond(req: RespondRequest) -> ChatTurnResponse:
     return ChatTurnResponse(
         reply=result.reply,
         event_id=result.event_id,
-        memory_context=StructuredMemoryContextV1(
+        memory_context=StructuredMemoryContext(
             known_facts=result.memory_context.known_facts,
             preferences=result.memory_context.preferences,
             relationship_state=result.memory_context.relationship_state,
             active_narratives=result.memory_context.active_narratives,
             temporal_context=result.memory_context.temporal_context,
+            system_intuition=result.memory_context.system_intuition,
             cautions=result.memory_context.cautions,
             evidence_refs=[
-                EvidenceRefV1(
+                EvidenceRef(
                     id=ref.id,
                     kind=ref.kind,
                     score=ref.score,
@@ -123,7 +122,7 @@ def respond(req: RespondRequest) -> ChatTurnResponse:
         rendered_memory_brief=result.rendered_memory_brief,
         system_prompt=result.system_prompt,
         user_prompt=result.user_prompt,
-        retrieval_trace_summary=RetrievalTraceSummaryV1(
+        retrieval_trace_summary=RetrievalTraceSummary(
             query=result.retrieval_trace_summary.query,
             query_type=result.retrieval_trace_summary.query_type,
             attractor_path_len=result.retrieval_trace_summary.attractor_path_len,
@@ -136,7 +135,7 @@ def respond(req: RespondRequest) -> ChatTurnResponse:
             activated_identity=result.retrieval_trace_summary.activated_identity,
         ),
         ingest_result=IngestResponse(**result.ingest_result.__dict__),
-        timings=ChatTimingsV1(
+        timings=ChatTimings(
             retrieval_ms=result.timings.retrieval_ms,
             generation_ms=result.timings.generation_ms,
             ingest_ms=result.timings.ingest_ms,
@@ -146,7 +145,7 @@ def respond(req: RespondRequest) -> ChatTurnResponse:
     )
 
 
-@app.post("/v1/memory/feedback")
+@app.post("/v2/memory/feedback")
 def feedback(req: FeedbackRequest) -> Dict[str, Any]:
     """提供关于检索质量的反馈"""
     runtime = get_runtime()
@@ -159,7 +158,7 @@ def feedback(req: FeedbackRequest) -> Dict[str, Any]:
 # -----------------------------------------------------------------------------
 
 
-@app.get("/v1/memory/coherence", response_model=CoherenceResponse)
+@app.get("/v2/memory/coherence", response_model=CoherenceResponse)
 def check_coherence() -> CoherenceResponse:
     """检查当前单用户记忆的一致性"""
     runtime = get_runtime()
@@ -172,7 +171,7 @@ def check_coherence() -> CoherenceResponse:
     )
 
 
-@app.get("/v1/memory/self-narrative", response_model=SelfNarrativeResponse)
+@app.get("/v2/memory/self-narrative", response_model=SelfNarrativeResponse)
 def get_self_narrative() -> SelfNarrativeResponse:
     """获取当前单用户代理的自我叙事"""
     runtime = get_runtime()
@@ -180,17 +179,17 @@ def get_self_narrative() -> SelfNarrativeResponse:
     return SelfNarrativeResponse(**data)
 
 
-@app.post("/v1/memory/causal-chain", response_model=CausalChainResponse)
+@app.post("/v2/memory/causal-chain", response_model=CausalChainResponse)
 def get_causal_chain(req: CausalChainRequest) -> CausalChainResponse:
     """获取节点的因果链"""
     runtime = get_runtime()
     chain = runtime.get_causal_chain(req.node_id, req.direction)
     return CausalChainResponse(
-        chain=[CausalChainItemV1(**item) for item in chain]
+        chain=[CausalChainItem(**item) for item in chain]
     )
 
 
-@app.post("/v1/memory/evolve")
+@app.post("/v2/memory/evolve")
 def evolve(req: EvolveRequest) -> Dict[str, Any]:
     """触发当前单用户记忆的演化"""
     runtime = get_runtime()
@@ -202,7 +201,7 @@ def evolve(req: EvolveRequest) -> Dict[str, Any]:
     }
 
 
-@app.get("/v1/memory/stats", response_model=MemoryStatsResponse)
+@app.get("/v2/memory/stats", response_model=MemoryStatsResponse)
 def get_stats() -> MemoryStatsResponse:
     """获取当前单用户记忆统计"""
     runtime = get_runtime()

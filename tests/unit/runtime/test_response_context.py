@@ -107,6 +107,7 @@ def test_build_response_context_collects_structured_sections(runtime_settings: A
 
     assert any("当前确认" in item for item in memory_context.known_facts)
     assert any("明显偏好长期记忆系统" in item for item in memory_context.preferences)
+    assert memory_context.system_intuition
     assert memory_context.evidence_refs
     assert trace_summary.hit_count >= 1
     assert all(not hasattr(ref, "snippet") for ref in memory_context.evidence_refs)
@@ -133,6 +134,7 @@ def test_respond_uses_structured_prompt_without_raw_dialogue(runtime_settings: A
     assert result.reply == "这是基于结构化记忆的回复"
     assert result.user_prompt == prompt
     assert "[Known Facts]" in prompt
+    assert "[System Intuition]" in prompt
     assert "Current User Message" in prompt
     assert "USER:" not in prompt
     assert "AGENT:" not in prompt

@@ -151,6 +151,12 @@ AGGREGATION_STOP_WORDS = {
     "sum",
 }
 
+IDENTITY_KEYWORDS = {
+    "你是谁", "你是怎样", "你的性格", "你的价值观", "你的原生人格", "你的前史",
+    "who are you", "what are you", "your personality", "your values",
+    "your identity", "your backstory", "self narrative", "self-model",
+}
+
 
 class QueryType(Enum):
     """用于自适应检索策略的查询类型。"""
@@ -160,6 +166,7 @@ class QueryType(Enum):
     MULTI_HOP = auto()
     CAUSAL = auto()
     USER_FACT = auto()
+    IDENTITY = auto()
 
 
 class TimeAnchor(Enum):
@@ -189,6 +196,8 @@ class QueryAnalysisMixin:
 
         if _contains_any(query_lower, temporal_keywords):
             return QueryType.TEMPORAL
+        if _contains_any(query_lower, IDENTITY_KEYWORDS):
+            return QueryType.IDENTITY
         if _contains_any(query_lower, CAUSAL_KEYWORDS):
             return QueryType.CAUSAL
         if _contains_any(query_lower, AGGREGATION_KEYWORDS):

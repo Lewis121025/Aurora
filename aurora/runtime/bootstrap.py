@@ -130,6 +130,9 @@ def build_memory_config(settings: AuroraSettings) -> MemoryConfig:
         kde_reservoir=settings.kde_reservoir,
         story_alpha=settings.story_alpha,
         theme_alpha=settings.theme_alpha,
+        personality_profile_id=settings.personality_profile_id,
+        subconscious_reservoir=settings.subconscious_reservoir,
+        intuition_leak_probability=settings.intuition_leak_probability,
     )
 
 
@@ -141,4 +144,5 @@ def create_memory(*, settings: AuroraSettings) -> AuroraMemory:
         seed=int(settings.memory_seed),
         embedder=embedder,
         benchmark_mode=cfg.benchmark_mode,
+        bootstrap_profile=True,
     )

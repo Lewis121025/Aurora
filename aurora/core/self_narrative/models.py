@@ -2,7 +2,7 @@
 AURORA 自我叙事模型
 ========================
 
-自我叙事相关的数据结构。
+自我叙事、人格先验与潜意识状态的数据结构。
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from aurora.core.personality import PersonalityProfile
 from aurora.utils.time_utils import now_ts
 
 
@@ -65,6 +66,33 @@ class CapabilityBelief:
         if self.negative_contexts and probability < 0.7:
             narrative += f"，但在{', '.join(self.negative_contexts[:2])}时可能遇到困难"
         return narrative
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "a": self.a,
+            "b": self.b,
+            "positive_contexts": self.positive_contexts,
+            "negative_contexts": self.negative_contexts,
+            "success_count": self.success_count,
+            "failure_count": self.failure_count,
+            "last_updated": self.last_updated,
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "CapabilityBelief":
+        return cls(
+            name=data["name"],
+            description=data["description"],
+            a=float(data.get("a", 1.0)),
+            b=float(data.get("b", 1.0)),
+            positive_contexts=list(data.get("positive_contexts", [])),
+            negative_contexts=list(data.get("negative_contexts", [])),
+            success_count=int(data.get("success_count", 0)),
+            failure_count=int(data.get("failure_count", 0)),
+            last_updated=float(data.get("last_updated", now_ts())),
+        )
 
 
 @dataclass
@@ -148,30 +176,234 @@ class RelationshipBelief:
 
         return "。".join(parts)
 
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "entity_id": self.entity_id,
+            "entity_type": self.entity_type,
+            "trust_a": self.trust_a,
+            "trust_b": self.trust_b,
+            "familiarity_a": self.familiarity_a,
+            "familiarity_b": self.familiarity_b,
+            "collaboration_a": self.collaboration_a,
+            "collaboration_b": self.collaboration_b,
+            "interaction_count": self.interaction_count,
+            "positive_interactions": self.positive_interactions,
+            "negative_interactions": self.negative_interactions,
+            "preferences": self.preferences,
+            "last_interaction": self.last_interaction,
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "RelationshipBelief":
+        return cls(
+            entity_id=data["entity_id"],
+            entity_type=data.get("entity_type", "user"),
+            trust_a=float(data.get("trust_a", 1.0)),
+            trust_b=float(data.get("trust_b", 1.0)),
+            familiarity_a=float(data.get("familiarity_a", 1.0)),
+            familiarity_b=float(data.get("familiarity_b", 1.0)),
+            collaboration_a=float(data.get("collaboration_a", 1.0)),
+            collaboration_b=float(data.get("collaboration_b", 1.0)),
+            interaction_count=int(data.get("interaction_count", 0)),
+            positive_interactions=int(data.get("positive_interactions", 0)),
+            negative_interactions=int(data.get("negative_interactions", 0)),
+            preferences={str(k): float(v) for k, v in (data.get("preferences", {}) or {}).items()},
+            last_interaction=float(data.get("last_interaction", now_ts())),
+        )
+
+
+@dataclass
+class TraitBelief:
+    """人格特质的贝叶斯先验与缓慢更新。"""
+
+    name: str
+    description: str
+    a: float
+    b: float
+    evidence_for: float = 0.0
+    evidence_against: float = 0.0
+    last_updated: float = field(default_factory=now_ts)
+
+    def probability(self) -> float:
+        return self.a / (self.a + self.b)
+
+    def observe(self, positive: bool, magnitude: float = 1.0) -> None:
+        if positive:
+            self.a += magnitude
+            self.evidence_for += magnitude
+        else:
+            self.b += magnitude
+            self.evidence_against += magnitude
+        self.last_updated = now_ts()
+
+    def to_summary(self) -> str:
+        return f"{self.description}（{self.probability():.2f}）"
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "a": self.a,
+            "b": self.b,
+            "evidence_for": self.evidence_for,
+            "evidence_against": self.evidence_against,
+            "last_updated": self.last_updated,
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "TraitBelief":
+        return cls(
+            name=data["name"],
+            description=data["description"],
+            a=float(data["a"]),
+            b=float(data["b"]),
+            evidence_for=float(data.get("evidence_for", 0.0)),
+            evidence_against=float(data.get("evidence_against", 0.0)),
+            last_updated=float(data.get("last_updated", now_ts())),
+        )
+
+    @classmethod
+    def from_profile_trait(cls, name: str, description: str, alpha: float, beta: float) -> "TraitBelief":
+        return cls(
+            name=name,
+            description=description,
+            a=alpha,
+            b=beta,
+        )
+
+
+@dataclass
+class DarkMatterEntry:
+    id: str
+    ts: float
+    embedding: np.ndarray
+    knowledge_type: str = "unknown"
+    affect_hint: str = ""
+    relational_hint: str = ""
+    source_plot_id: Optional[str] = None
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "ts": self.ts,
+            "embedding": self.embedding.tolist(),
+            "knowledge_type": self.knowledge_type,
+            "affect_hint": self.affect_hint,
+            "relational_hint": self.relational_hint,
+            "source_plot_id": self.source_plot_id,
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "DarkMatterEntry":
+        return cls(
+            id=str(data["id"]),
+            ts=float(data["ts"]),
+            embedding=np.asarray(data["embedding"], dtype=np.float32),
+            knowledge_type=str(data.get("knowledge_type", "unknown")),
+            affect_hint=str(data.get("affect_hint", "")),
+            relational_hint=str(data.get("relational_hint", "")),
+            source_plot_id=data.get("source_plot_id"),
+        )
+
+
+@dataclass
+class SubconsciousState:
+    dark_matter_pool: List[DarkMatterEntry] = field(default_factory=list)
+    repressed_plot_ids: List[str] = field(default_factory=list)
+    last_intuition: List[str] = field(default_factory=list)
+    last_updated: float = field(default_factory=now_ts)
+
+    def add_dark_matter(self, entry: DarkMatterEntry, max_entries: int) -> None:
+        self.dark_matter_pool.append(entry)
+        if len(self.dark_matter_pool) > max_entries:
+            self.dark_matter_pool = self.dark_matter_pool[-max_entries:]
+        self.last_updated = now_ts()
+
+    def mark_repressed(self, plot_id: str) -> None:
+        if plot_id not in self.repressed_plot_ids:
+            self.repressed_plot_ids.append(plot_id)
+        self.last_updated = now_ts()
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "dark_matter_pool": [entry.to_state_dict() for entry in self.dark_matter_pool],
+            "repressed_plot_ids": self.repressed_plot_ids,
+            "last_intuition": self.last_intuition,
+            "last_updated": self.last_updated,
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "SubconsciousState":
+        return cls(
+            dark_matter_pool=[DarkMatterEntry.from_state_dict(item) for item in data.get("dark_matter_pool", [])],
+            repressed_plot_ids=list(data.get("repressed_plot_ids", [])),
+            last_intuition=list(data.get("last_intuition", [])),
+            last_updated=float(data.get("last_updated", now_ts())),
+        )
+
+    def summary(self) -> List[str]:
+        fragments: List[str] = []
+        if self.dark_matter_pool:
+            fragments.append(f"潜意识残渣 {len(self.dark_matter_pool)} 条")
+        if self.repressed_plot_ids:
+            fragments.append(f"压抑记忆 {len(self.repressed_plot_ids)} 条")
+        if self.last_intuition:
+            fragments.append("最近直觉：" + "，".join(self.last_intuition))
+        return fragments
+
 
 @dataclass
 class SelfNarrative:
     """演化中的自我叙事。"""
 
+    profile_id: str = "aurora-v2-native"
     identity_statement: str = "我是一个通过记忆和叙事来学习的AI助手"
     core_values: List[str] = field(default_factory=lambda: ["准确性", "帮助性", "持续学习"])
     identity_narrative: str = ""
+    seed_narrative: str = ""
     capability_narrative: str = ""
     capabilities: Dict[str, CapabilityBelief] = field(default_factory=dict)
     relationships: Dict[str, RelationshipBelief] = field(default_factory=dict)
+    trait_beliefs: Dict[str, TraitBelief] = field(default_factory=dict)
+    seed_plot_ids: List[str] = field(default_factory=list)
+    subconscious_summary: List[str] = field(default_factory=list)
     supporting_theme_ids: List[str] = field(default_factory=list)
     coherence_score: float = 1.0
     unresolved_tensions: List[str] = field(default_factory=list)
     evolution_log: List[Tuple[float, str, str]] = field(default_factory=list)
     last_updated: float = field(default_factory=now_ts)
 
+    @classmethod
+    def from_profile(cls, profile: PersonalityProfile) -> "SelfNarrative":
+        narrative = cls(
+            profile_id=profile.profile_id,
+            identity_statement=profile.identity_statement,
+            identity_narrative=profile.identity_narrative,
+            seed_narrative=profile.seed_narrative,
+            core_values=list(profile.core_values),
+        )
+        for trait in profile.trait_priors:
+            narrative.trait_beliefs[trait.name] = TraitBelief.from_profile_trait(
+                name=trait.name,
+                description=trait.description,
+                alpha=trait.alpha,
+                beta=trait.beta,
+            )
+        return narrative
+
     def to_full_narrative(self) -> str:
         sections = [f"## 我是谁\n{self.identity_statement}"]
 
         if self.identity_narrative:
             sections.append(self.identity_narrative)
+        if self.seed_narrative:
+            sections.append(f"## 原生叙事\n{self.seed_narrative}")
         if self.core_values:
             sections.append(f"## 核心价值\n我重视: {', '.join(self.core_values)}")
+        if self.trait_beliefs:
+            sections.append(
+                "## 性格先验\n" + "。".join(trait.to_summary() for trait in self.trait_beliefs.values())
+            )
         if self.capabilities:
             sections.append(
                 "## 能力认知\n" + "。".join(capability.to_narrative() for capability in self.capabilities.values())
@@ -183,6 +415,8 @@ class SelfNarrative:
                     for relationship in list(self.relationships.values())[:3]
                 )
             )
+        if self.subconscious_summary:
+            sections.append("## 潜意识回声\n" + "\n".join(f"- {item}" for item in self.subconscious_summary[:3]))
         if self.unresolved_tensions:
             sections.append(
                 "## 待解决的张力\n" + "\n".join(f"- {tension}" for tension in self.unresolved_tensions[:3])
@@ -203,11 +437,64 @@ class SelfNarrative:
             )
         return self.relationships[entity_id]
 
+    def get_trait(self, name: str) -> Optional[TraitBelief]:
+        return self.trait_beliefs.get(name)
+
     def log_evolution(self, change_type: str, description: str) -> None:
         self.evolution_log.append((now_ts(), change_type, description))
         self.last_updated = now_ts()
         if len(self.evolution_log) > 100:
             self.evolution_log = self.evolution_log[-100:]
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "profile_id": self.profile_id,
+            "identity_statement": self.identity_statement,
+            "identity_narrative": self.identity_narrative,
+            "seed_narrative": self.seed_narrative,
+            "capability_narrative": self.capability_narrative,
+            "core_values": self.core_values,
+            "capabilities": {key: value.to_state_dict() for key, value in self.capabilities.items()},
+            "relationships": {key: value.to_state_dict() for key, value in self.relationships.items()},
+            "trait_beliefs": {key: value.to_state_dict() for key, value in self.trait_beliefs.items()},
+            "seed_plot_ids": self.seed_plot_ids,
+            "subconscious_summary": self.subconscious_summary,
+            "supporting_theme_ids": self.supporting_theme_ids,
+            "coherence_score": self.coherence_score,
+            "unresolved_tensions": self.unresolved_tensions,
+            "evolution_log": self.evolution_log,
+            "last_updated": self.last_updated,
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "SelfNarrative":
+        return cls(
+            profile_id=data.get("profile_id", "aurora-v2-native"),
+            identity_statement=data.get("identity_statement", "我是一个通过记忆和叙事来学习的AI助手"),
+            identity_narrative=data.get("identity_narrative", ""),
+            seed_narrative=data.get("seed_narrative", ""),
+            capability_narrative=data.get("capability_narrative", ""),
+            core_values=list(data.get("core_values", [])),
+            capabilities={
+                key: CapabilityBelief.from_state_dict(value)
+                for key, value in (data.get("capabilities", {}) or {}).items()
+            },
+            relationships={
+                key: RelationshipBelief.from_state_dict(value)
+                for key, value in (data.get("relationships", {}) or {}).items()
+            },
+            trait_beliefs={
+                key: TraitBelief.from_state_dict(value)
+                for key, value in (data.get("trait_beliefs", {}) or {}).items()
+            },
+            seed_plot_ids=list(data.get("seed_plot_ids", [])),
+            subconscious_summary=list(data.get("subconscious_summary", [])),
+            supporting_theme_ids=list(data.get("supporting_theme_ids", [])),
+            coherence_score=float(data.get("coherence_score", 1.0)),
+            unresolved_tensions=list(data.get("unresolved_tensions", [])),
+            evolution_log=[tuple(item) for item in data.get("evolution_log", [])],
+            last_updated=float(data.get("last_updated", now_ts())),
+        )
 
 
 @dataclass

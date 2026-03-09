@@ -61,6 +61,7 @@ class RetrievalTrace:
 
     # 弃权检测
     abstention: Optional[Any] = None  # AbstentionResult（使用 Any 避免循环导入）
+    intuition_source_ids: List[str] = field(default_factory=list)
 
 
 @dataclass

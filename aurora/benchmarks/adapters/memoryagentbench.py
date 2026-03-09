@@ -56,8 +56,13 @@ from aurora.benchmarks.interface import (
     EvaluationMetrics,
     MemoryProtocol,
 )
+from aurora.integrations.llm.Prompt import (
+    MEMORYAGENTBENCH_JUDGE_SYSTEM_PROMPT,
+    MEMORYAGENTBENCH_JUDGE_USER_PROMPT,
+    build_qa_prompt,
+    detect_question_type,
+)
 from aurora.utils.time_utils import now_ts
-from aurora.integrations.llm.prompts import build_qa_prompt, detect_question_type
 
 logger = logging.getLogger(__name__)
 
@@ -88,32 +93,6 @@ TASK_TYPE_CR = "conflict_resolution"
 USER_MARKER = "User:"
 ASSISTANT_MARKER = "Assistant:"
 SYSTEM_MARKER = "System:"
-
-# Evaluation prompts
-LLM_JUDGE_SYSTEM_PROMPT = """You are an expert evaluator for memory system benchmarks.
-Your task is to determine if the predicted answer correctly answers the question based on the expected answer.
-
-Consider:
-1. Semantic equivalence - different wording but same meaning is acceptable
-2. Partial credit - for partially correct answers
-3. Factual accuracy - verify key facts match
-
-Respond with a JSON object:
-{
-    "is_correct": true/false,
-    "score": 0.0-1.0,
-    "reasoning": "explanation"
-}
-"""
-
-LLM_JUDGE_USER_TEMPLATE = """Question: {question}
-
-Expected Answer: {expected_answer}
-
-Predicted Answer: {predicted_answer}
-
-Please evaluate if the predicted answer is correct."""
-
 
 # =============================================================================
 # Helper Functions
@@ -3189,14 +3168,14 @@ Provide concise answers that demonstrate understanding of the learned rules."""
             score: float
             reasoning: str
         
-        user_prompt = LLM_JUDGE_USER_TEMPLATE.format(
+        user_prompt = MEMORYAGENTBENCH_JUDGE_USER_PROMPT.format(
             question="Does the predicted answer correctly match the expected answer?",
             expected_answer=expected,
             predicted_answer=predicted,
         )
         
         result = self.llm.complete_json(
-            system=LLM_JUDGE_SYSTEM_PROMPT,
+            system=MEMORYAGENTBENCH_JUDGE_SYSTEM_PROMPT,
             user=user_prompt,
             schema=JudgeResult,
             temperature=0.0,

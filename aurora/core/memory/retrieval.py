@@ -7,6 +7,7 @@ AURORA 检索模块
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from typing import Dict, List, Optional, Tuple
 
@@ -120,10 +121,11 @@ class RetrievalMixin:
 
         trace.timeline_group = self._group_into_timelines(trace.ranked)
         trace.include_historical = True
-        trace.ranked = self._filter_active_results(trace.ranked)
+        trace.ranked = self._filter_active_results(trace.ranked, query_type=detected_type)
         trace.asker_id = asker_id
         trace.activated_identity = activated_identity
         trace.query_type = detected_type
+        trace.intuition_source_ids = self._collect_intuition_source_ids(trace)
 
         retrieved_scores = [score for _, score, _ in trace.ranked]
         retrieved_texts = []
@@ -162,9 +164,9 @@ class RetrievalMixin:
         return trace
 
     def _filter_active_results(
-        self, ranked: List[Tuple[str, float, str]]
+        self, ranked: List[Tuple[str, float, str]], query_type: Optional[QueryType]
     ) -> List[Tuple[str, float, str]]:
-        """过滤检索结果以仅包含活跃 plot。"""
+        """过滤检索结果以仅包含显性 plot。"""
         filtered: List[Tuple[str, float, str]] = []
 
         for nid, score, kind in ranked:
@@ -172,10 +174,10 @@ class RetrievalMixin:
                 plot = self.plots.get(nid)
                 if plot is None:
                     continue
-                if plot.status != "active":
+                if not self.allow_plot_for_query(plot, query_type):
                     logger.debug(
                         f"过滤掉非活跃 plot {nid[:8]}... "
-                        f"(status={plot.status}，superseded_by={plot.superseded_by_id})"
+                        f"(status={plot.status}，exposure={plot.exposure}，source={plot.source})"
                     )
                     continue
             filtered.append((nid, score, kind))
@@ -306,11 +308,16 @@ class RetrievalMixin:
             for timeline in trace.timeline_group.timelines:
                 for plot_id in timeline.chain:
                     plot = self.plots.get(plot_id)
-                    if plot:
+                    if plot and self.allow_plot_for_query(plot, query_type):
                         score = timeline.match_score
                         all_ranked.append((plot_id, score, "plot"))
 
-            all_ranked.extend(trace.timeline_group.standalone_results)
+            for node_id, score, kind in trace.timeline_group.standalone_results:
+                if kind == "plot":
+                    plot = self.plots.get(node_id)
+                    if plot is None or not self.allow_plot_for_query(plot, query_type):
+                        continue
+                all_ranked.append((node_id, score, kind))
             all_ranked.sort(key=lambda x: x[1], reverse=True)
             trace.ranked = all_ranked[:k]
 
@@ -335,7 +342,7 @@ class RetrievalMixin:
     ) -> RetrievalTrace:
         """使用优先级检索关系的历史。"""
         query_emb = self.embedder.embed(text)
-        relationship_results = self._get_relationship_results(query_emb, relationship_story)
+        relationship_results = self._get_relationship_results(query_emb, relationship_story, query_type)
 
         semantic_trace = self.retriever.retrieve(
             query_text=text,
@@ -357,14 +364,14 @@ class RetrievalMixin:
         return trace
 
     def _get_relationship_results(
-        self, query_emb: np.ndarray, relationship_story: StoryArc
+        self, query_emb: np.ndarray, relationship_story: StoryArc, query_type: Optional[QueryType]
     ) -> List[Tuple[str, float, str]]:
         """从关系的历史获取检索结果。"""
         results: List[Tuple[str, float, str]] = []
 
         for plot_id in relationship_story.plot_ids[-MAX_RECENT_PLOTS_FOR_RETRIEVAL:]:
             plot = self.plots.get(plot_id)
-            if plot is None or plot.status != "active":
+            if plot is None or not self.allow_plot_for_query(plot, query_type):
                 continue
 
             sem_sim = self.metric.sim(query_emb, plot.embedding)
@@ -376,6 +383,53 @@ class RetrievalMixin:
             results.append((relationship_story.id, story_sim + STORY_SIMILARITY_BONUS, "story"))
 
         return results
+
+    def _collect_intuition_source_ids(self, trace: RetrievalTrace) -> List[str]:
+        leaked: List[str] = []
+        seen: set[str] = set()
+        frontier = [node_id for node_id, _score, _kind in trace.ranked[:4]]
+
+        for source_id in frontier:
+            for candidate_id in self._iter_shadow_neighbors(source_id, max_hops=2):
+                plot = self.plots.get(candidate_id)
+                if plot is None or plot.exposure != "repressed":
+                    continue
+                if candidate_id in seen:
+                    continue
+                if not self._allow_stable_leak(trace.query, source_id, candidate_id):
+                    continue
+                seen.add(candidate_id)
+                leaked.append(candidate_id)
+                if len(leaked) >= 2:
+                    return leaked
+
+        return leaked
+
+    def _iter_shadow_neighbors(self, node_id: str, max_hops: int = 2) -> List[str]:
+        if node_id not in self.graph.g:
+            return []
+
+        found: List[str] = []
+        frontier = {node_id}
+        visited = {node_id}
+        for _ in range(max_hops):
+            next_frontier = set()
+            for current in frontier:
+                neighbors = set(self.graph.g.successors(current)) | set(self.graph.g.predecessors(current))
+                for neighbor in neighbors:
+                    if neighbor in visited:
+                        continue
+                    visited.add(neighbor)
+                    next_frontier.add(neighbor)
+                    if self.graph.kind(neighbor) == "plot":
+                        found.append(neighbor)
+            frontier = next_frontier
+        return found
+
+    def _allow_stable_leak(self, query: str, source_id: str, candidate_id: str) -> bool:
+        token = f"{self._seed}:{query}:{source_id}:{candidate_id}".encode("utf-8")
+        bucket = int(hashlib.md5(token).hexdigest()[:6], 16) / float(16 ** 6)
+        return bucket < self.cfg.intuition_leak_probability
 
     def _merge_retrieval_results(
         self,

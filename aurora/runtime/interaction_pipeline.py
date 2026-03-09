@@ -11,6 +11,8 @@ from aurora.integrations.llm.schemas import PlotExtraction
 
 from .plot_extractor import PlotExtractor
 
+RUNTIME_SCHEMA_VERSION = "aurora-runtime-v2"
+
 
 @dataclass(frozen=True)
 class PreparedInteraction:
@@ -92,6 +94,7 @@ class InteractionPreparer:
         prepared: PreparedInteraction,
     ) -> Dict[str, Any]:
         return {
+            "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
             "user_message": user_message,
             "agent_message": agent_message,
             "actors": list(actors) if actors else None,
@@ -175,6 +178,7 @@ def build_plot_document_body(
     agent_message: str,
 ) -> Dict[str, Any]:
     return {
+        "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
         "schema_version": prepared.extraction.schema_version,
         "actors": prepared.extraction.actors,
         "action": prepared.extraction.action,
@@ -194,12 +198,13 @@ def build_plot_document_body(
     }
 
 
-def build_ingest_result_body(*, event_id: str, plot: Plot, encoded: bool) -> Dict[str, Any]:
+def build_ingest_result_body(*, event_id: str, plot: Plot, memory_layer: str) -> Dict[str, Any]:
     return {
+        "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
         "event_id": event_id,
         "plot_id": plot.id,
         "story_id": plot.story_id,
-        "encoded": encoded,
+        "memory_layer": memory_layer,
         "tension": plot.tension,
         "surprise": plot.surprise,
         "pred_error": plot.pred_error,

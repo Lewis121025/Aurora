@@ -31,6 +31,7 @@ class FakeRuntime:
                 relationship_state=[],
                 active_narratives=[],
                 temporal_context=[],
+                system_intuition=["隐约期待"],
                 cautions=[],
                 evidence_refs=[EvidenceRef(id="plot-1", kind="plot", score=0.9, role="current_fact")],
             ),
@@ -50,7 +51,7 @@ class FakeRuntime:
                 event_id="evt_api_001",
                 plot_id="plot-1",
                 story_id="story-1",
-                encoded=True,
+                memory_layer="explicit",
                 tension=0.4,
                 surprise=0.2,
                 pred_error=0.1,
@@ -79,7 +80,7 @@ def test_respond_endpoint_returns_structured_memory_context(monkeypatch):
     client = TestClient(api_module.app)
 
     response = client.post(
-        "/v1/memory/respond",
+        "/v2/memory/respond",
         json={
             "session_id": "chat_api",
             "user_message": "你记得我喜欢什么吗？",
@@ -91,7 +92,9 @@ def test_respond_endpoint_returns_structured_memory_context(monkeypatch):
     payload = response.json()
     assert payload["reply"] == "memory-first reply"
     assert payload["memory_context"]["known_facts"]
+    assert payload["memory_context"]["system_intuition"] == ["隐约期待"]
     assert payload["memory_context"]["evidence_refs"][0]["id"] == "plot-1"
+    assert payload["ingest_result"]["memory_layer"] == "explicit"
     assert "USER:" not in payload["user_prompt"]
 
 
@@ -101,7 +104,7 @@ def test_query_endpoint_remains_low_level(monkeypatch):
     client = TestClient(api_module.app)
 
     response = client.post(
-        "/v1/memory/query",
+        "/v2/memory/query",
         json={"text": "长期记忆系统", "k": 3},
     )
 

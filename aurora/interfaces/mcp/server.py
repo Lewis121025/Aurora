@@ -296,7 +296,7 @@ class AuroraMCPServer:
             "event_id": event_id,
             "plot_id": result.plot_id,
             "story_id": result.story_id,
-            "encoded": result.encoded,
+            "memory_layer": result.memory_layer,
             "tension": result.tension,
         }
 

@@ -4,24 +4,20 @@ import json
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from aurora.integrations.llm import prompts
+from aurora.integrations.llm.Prompt import (
+    MEMORY_BRIEF_COMPILATION_SYSTEM_PROMPT,
+    MEMORY_BRIEF_COMPILATION_USER_PROMPT,
+    RESPONSE_SYSTEM_PROMPT,
+    build_response_user_prompt,
+    instruction,
+    render,
+)
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.integrations.llm.schemas import MemoryBriefCompilation
 from aurora.core.models.story import StoryArc
 from aurora.core.models.trace import KnowledgeTimeline, RetrievalTrace
 from aurora.core.retrieval.query_analysis import QueryType
 from aurora.runtime.results import EvidenceRef, RetrievalTraceSummary, StructuredMemoryContext
-
-
-CHAT_SYSTEM_PROMPT = """你是 AURORA 的终端对话代理。
-
-目标：
-1. 直接回答用户当前这句话。
-2. 优先使用 Memory Brief 里的结构化记忆结论。
-3. 如果 Memory Brief 不足以支持关于历史事实的回答，要明确说你不知道。
-4. 允许基于一般知识正常交流，但要把“记忆中的事实”和“一般性回答”区分开。
-5. 回复自然、直接、简洁，默认使用中文。
-"""
 
 
 @dataclass(frozen=True)
@@ -39,14 +35,12 @@ class ResponseContextBuilder:
         *,
         memory: Any,
         doc_store: Any,
-        self_narrative_engine: Any,
         llm: LLMProvider,
         compile_timeout_s: float = 8.0,
         compile_max_retries: int = 1,
     ):
         self._memory = memory
         self._doc_store = doc_store
-        self._self_narrative_engine = self_narrative_engine
         self._llm = llm
         self._compile_timeout_s = compile_timeout_s
         self._compile_max_retries = compile_max_retries
@@ -59,6 +53,7 @@ class ResponseContextBuilder:
             relationship_state=self._collect_relationship_state(trace=trace, limit=3),
             active_narratives=self._collect_active_narratives(trace=trace, limit=3),
             temporal_context=self._collect_temporal_context(trace=trace, limit=3),
+            system_intuition=self._collect_system_intuition(trace=trace),
             cautions=self._collect_cautions(trace=trace, evidence_refs=evidence_refs),
             evidence_refs=evidence_refs,
         )
@@ -72,6 +67,7 @@ class ResponseContextBuilder:
             relationship_state=self._merge_section(compiled.relationship_state, draft.relationship_state, 3),
             active_narratives=self._merge_section(compiled.active_narratives, draft.active_narratives, 3),
             temporal_context=self._merge_section(compiled.temporal_context, draft.temporal_context, 3),
+            system_intuition=draft.system_intuition,
             cautions=self._merge_section(compiled.cautions, draft.cautions, 4),
             evidence_refs=evidence_refs,
         )
@@ -101,6 +97,7 @@ class ResponseContextBuilder:
             ("Relationship State", context.relationship_state),
             ("Active Narratives", context.active_narratives),
             ("Temporal Context", context.temporal_context),
+            ("System Intuition", context.system_intuition),
             ("Cautions", context.cautions),
             (
                 "Evidence Refs",
@@ -124,20 +121,12 @@ class ResponseContextBuilder:
 
     @staticmethod
     def build_prompt(*, user_message: str, rendered_memory_brief: str) -> ResponsePrompt:
-        user_prompt = (
-            "下面是当前用户的结构化记忆摘要与提问。\n"
-            "只能把 Memory Brief 里的内容当作记忆事实来使用；不要把不存在的历史编造成记忆。\n\n"
-            f"Memory Brief:\n{rendered_memory_brief}\n\n"
-            f"Current User Message:\n{user_message}\n\n"
-            "回答要求：\n"
-            "- 先直接回答用户当前问题。\n"
-            "- 只有在 Memory Brief 支持时，才陈述历史事实。\n"
-            "- 如果历史记忆证据不足，要明确说不知道。\n"
-            "- 不要复述 evidence id，除非用户明确要求。"
-        )
         return ResponsePrompt(
-            system_prompt=CHAT_SYSTEM_PROMPT,
-            user_prompt=user_prompt,
+            system_prompt=RESPONSE_SYSTEM_PROMPT,
+            user_prompt=build_response_user_prompt(
+                user_message=user_message,
+                rendered_memory_brief=rendered_memory_brief,
+            ),
             rendered_memory_brief=rendered_memory_brief,
         )
 
@@ -157,9 +146,9 @@ class ResponseContextBuilder:
             "cautions": draft.cautions,
         }
         evidence_summaries = self._build_evidence_summaries(trace=trace, max_items=max_items)
-        user_prompt = prompts.render(
-            prompts.MEMORY_BRIEF_COMPILATION_USER,
-            instruction=prompts.instruction("MemoryBriefCompilation"),
+        user_prompt = render(
+            MEMORY_BRIEF_COMPILATION_USER_PROMPT,
+            instruction=instruction("MemoryBriefCompilation"),
             user_message=trace.query,
             query_type=getattr(getattr(trace, "query_type", None), "name", "UNKNOWN"),
             abstention_reason=str(getattr(getattr(trace, "abstention", None), "reason", "") or ""),
@@ -168,7 +157,7 @@ class ResponseContextBuilder:
         )
         try:
             return self._llm.complete_json(
-                system=prompts.MEMORY_BRIEF_COMPILATION_SYSTEM,
+                system=MEMORY_BRIEF_COMPILATION_SYSTEM_PROMPT,
                 user=user_prompt,
                 schema=MemoryBriefCompilation,
                 temperature=0.1,
@@ -203,6 +192,9 @@ class ResponseContextBuilder:
                 if plot.knowledge_type:
                     parts.append(f"knowledge_type={plot.knowledge_type}")
                 parts.append(f"status={plot.status}")
+                parts.append(f"exposure={plot.exposure}")
+                if plot.source == "seed":
+                    parts.append(f"seed={plot.text}")
             if doc is not None:
                 claims = [self._format_claim(claim) for claim in doc.body.get("claims", []) or []]
                 claims = [claim for claim in claims if claim]
@@ -287,7 +279,7 @@ class ResponseContextBuilder:
         preferences: List[str] = []
         seen: Set[str] = set()
 
-        narrative = self._self_narrative_engine.narrative
+        narrative = self._memory.self_narrative_engine.narrative
         for relationship in narrative.relationships.values():
             for key, value in sorted(relationship.preferences.items(), key=lambda item: abs(item[1]), reverse=True):
                 direction = "偏好" if value > 0 else "不喜欢"
@@ -332,7 +324,7 @@ class ResponseContextBuilder:
             candidate_ids.append(trace.asker_id)
         candidate_ids.extend(self._relationship_entity_candidates(trace))
 
-        narrative = self._self_narrative_engine.narrative
+        narrative = self._memory.self_narrative_engine.narrative
         for entity_id in candidate_ids:
             if entity_id in seen:
                 continue
@@ -374,7 +366,13 @@ class ResponseContextBuilder:
             key=lambda story: story.updated_ts,
             reverse=True,
         )
-        return [self._story_narrative_summary(story) for story in ordered[:limit]]
+        summaries = [self._story_narrative_summary(story) for story in ordered[:limit]]
+        if summaries:
+            return summaries
+        if getattr(trace.query_type, "name", "") == QueryType.IDENTITY.name:
+            seed_narrative = self._memory.self_narrative_engine.narrative.seed_narrative
+            return [seed_narrative] if seed_narrative else []
+        return []
 
     def _collect_temporal_context(self, *, trace: RetrievalTrace, limit: int) -> List[str]:
         if getattr(trace.query_type, "name", "") != QueryType.TEMPORAL.name:
@@ -392,6 +390,9 @@ class ResponseContextBuilder:
             if len(entries) >= limit:
                 break
         return entries
+
+    def _collect_system_intuition(self, *, trace: RetrievalTrace) -> List[str]:
+        return self._memory.generate_system_intuition(trace)
 
     def _collect_cautions(self, *, trace: RetrievalTrace, evidence_refs: Sequence[EvidenceRef]) -> List[str]:
         cautions: List[str] = []
@@ -446,10 +447,16 @@ class ResponseContextBuilder:
         if trace.timeline_group is not None:
             for timeline in trace.timeline_group.timelines:
                 if timeline.current_id and timeline.current_id not in seen:
+                    plot = self._memory.plots.get(timeline.current_id)
+                    if plot is None or not self._memory.allow_plot_for_query(plot, trace.query_type):
+                        continue
                     seen.add(timeline.current_id)
                     yield timeline.current_id, timeline.match_score
             for nid, score, kind in trace.timeline_group.standalone_results:
                 if kind == "plot" and nid not in seen:
+                    plot = self._memory.plots.get(nid)
+                    if plot is None or not self._memory.allow_plot_for_query(plot, trace.query_type):
+                        continue
                     seen.add(nid)
                     yield nid, score
             return
@@ -494,6 +501,9 @@ class ResponseContextBuilder:
 
         if not facts and plot.fact_keys:
             facts.extend(str(fact) for fact in plot.fact_keys if str(fact).strip())
+
+        if not facts and plot.source == "seed":
+            facts.append(plot.text)
 
         if not facts and plot.relational is not None:
             facts.append(plot.relational.what_this_says_about_us)

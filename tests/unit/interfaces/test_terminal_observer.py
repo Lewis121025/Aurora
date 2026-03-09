@@ -124,6 +124,7 @@ class FakeRuntime:
                 relationship_state=["关系对象=user | 状态=developing | 我的角色=长期记忆助手 | 关系健康度=0.80"],
                 active_narratives=["story=story-1 | status=developing | relationship=user | identity=长期记忆助手"],
                 temporal_context=[],
+                system_intuition=["隐约期待"],
                 cautions=[],
                 evidence_refs=[EvidenceRef(id="plot-1", kind="plot", score=0.91, role="current_fact")],
             ),
@@ -149,7 +150,7 @@ class FakeRuntime:
                 event_id="evt_obs_001",
                 plot_id="plot-1",
                 story_id="story-1",
-                encoded=True,
+                memory_layer="explicit",
                 tension=0.4,
                 surprise=0.2,
                 pred_error=0.1,
@@ -174,11 +175,15 @@ class FakeRuntime:
 
     def get_self_narrative(self):
         return {
+            "profile_id": "aurora-v2-native",
             "identity_statement": "我是一个长期记忆助手",
+            "seed_narrative": "我带着长期记忆人格底色进入对话",
             "capability_narrative": "我会记住长期上下文",
             "coherence_score": 1.0,
             "capabilities": {},
+            "trait_beliefs": {},
             "relationships": {},
+            "subconscious": {"dark_matter_count": 0, "repressed_count": 0, "last_intuition": []},
             "unresolved_tensions": [],
         }
 

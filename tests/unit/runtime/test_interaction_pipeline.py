@@ -84,12 +84,14 @@ def test_document_body_builders_capture_canonical_runtime_state(sample_plot):
         user_message="hi",
         agent_message="hello",
     )
-    ingest_body = build_ingest_result_body(event_id="evt_1", plot=sample_plot, encoded=True)
+    ingest_body = build_ingest_result_body(event_id="evt_1", plot=sample_plot, memory_layer="explicit")
 
     assert plot_body["action"] == "remember preference"
     assert plot_body["raw"] == {"user_message": "hi", "agent_message": "hello"}
     assert plot_body["resolved_actors"] == ["user", "agent"]
     assert plot_body["plot_state"]["id"] == sample_plot.id
+    assert plot_body["runtime_schema_version"] == "aurora-runtime-v2"
     assert ingest_body["event_id"] == "evt_1"
     assert ingest_body["plot_id"] == sample_plot.id
-    assert ingest_body["encoded"] is True
+    assert ingest_body["memory_layer"] == "explicit"
+    assert ingest_body["runtime_schema_version"] == "aurora-runtime-v2"

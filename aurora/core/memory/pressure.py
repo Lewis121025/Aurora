@@ -47,17 +47,28 @@ class PressureMixin:
             return
         
         max_plots = self.cfg.max_plots
-        if len(self.plots) <= max_plots:
+        explicit_count = sum(
+            1 for plot in self.plots.values()
+            if plot.exposure == "explicit" and plot.source != "seed"
+        )
+        if explicit_count <= max_plots:
             return
 
         # 获取要移除的候选对象
-        candidates = [plot for plot in self.plots.values() if plot.status == "active" and plot.story_id is not None]
+        candidates = [
+            plot
+            for plot in self.plots.values()
+            if plot.status == "active"
+            and plot.story_id is not None
+            and plot.exposure == "explicit"
+            and plot.source != "seed"
+        ]
         if not candidates:
             return
 
         # 对候选对象进行评分并选择要移除的对象
         self._score_candidates_for_removal(candidates)
-        remove_ids = self._select_plots_to_forget(candidates, len(self.plots) - max_plots)
+        remove_ids = self._select_plots_to_forget(candidates, explicit_count - max_plots)
         
         # 遗忘选定的情节(plots)
         for pid in remove_ids:

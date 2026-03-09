@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from aurora.core.models.trace import QueryHit
 
@@ -11,7 +11,7 @@ class IngestResult:
     event_id: str
     plot_id: str
     story_id: Optional[str]
-    encoded: bool
+    memory_layer: Literal["explicit", "shadow"]
     tension: float
     surprise: float
     pred_error: float
@@ -54,6 +54,7 @@ class StructuredMemoryContext:
     relationship_state: List[str] = field(default_factory=list)
     active_narratives: List[str] = field(default_factory=list)
     temporal_context: List[str] = field(default_factory=list)
+    system_intuition: List[str] = field(default_factory=list)
     cautions: List[str] = field(default_factory=list)
     evidence_refs: List[EvidenceRef] = field(default_factory=list)
 

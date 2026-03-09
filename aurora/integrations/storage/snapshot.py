@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import json
 import os
-import pickle
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
@@ -13,41 +13,54 @@ class Snapshot:
 
 
 class SnapshotStore:
-    """使用 pickle 的简单快照存储。
-
-    安全提示：
-      - 仅加载您信任的快照（pickle 对不受信任的数据不安全）。
-      - 对于不受信任的环境，序列化为 JSON 并重新构造。
-    """
+    """Aurora V2 结构化快照存储。"""
 
     def __init__(self, dirpath: str):
         self.dirpath = dirpath
         os.makedirs(self.dirpath, exist_ok=True)
 
     def _path(self, last_seq: int) -> str:
-        return os.path.join(self.dirpath, f"snapshot_{last_seq}.pkl")
+        return os.path.join(self.dirpath, f"snapshot_{last_seq}.json")
 
     def save(self, snap: Snapshot) -> str:
         path = self._path(snap.last_seq)
-        with open(path, "wb") as f:
-            pickle.dump(snap, f, protocol=pickle.HIGHEST_PROTOCOL)
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(
+                {
+                    "last_seq": snap.last_seq,
+                    "state": snap.state,
+                },
+                handle,
+                ensure_ascii=False,
+                indent=2,
+            )
         return path
 
     def latest(self) -> Optional[Tuple[int, Snapshot]]:
-        # 选择最高的序列号
+        self._ensure_no_legacy_snapshots()
+
         best_seq = None
         best_path = None
         for fn in os.listdir(self.dirpath):
-            if not fn.startswith("snapshot_") or not fn.endswith(".pkl"):
+            if not fn.startswith("snapshot_") or not fn.endswith(".json"):
                 continue
             try:
-                seq = int(fn[len("snapshot_") : -len(".pkl")])
+                seq = int(fn[len("snapshot_") : -len(".json")])
             except ValueError:
                 continue
             if best_seq is None or seq > best_seq:
                 best_seq, best_path = seq, os.path.join(self.dirpath, fn)
         if best_seq is None or best_path is None:
             return None
-        with open(best_path, "rb") as f:
-            snap: Snapshot = pickle.load(f)
+
+        with open(best_path, "r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        snap = Snapshot(last_seq=int(payload["last_seq"]), state=payload["state"])
         return best_seq, snap
+
+    def _ensure_no_legacy_snapshots(self) -> None:
+        for fn in os.listdir(self.dirpath):
+            if fn.endswith(".pkl"):
+                raise ValueError(
+                    "Detected legacy pickle snapshots. Aurora V2 requires a fresh data directory."
+                )

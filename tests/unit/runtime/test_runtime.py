@@ -11,6 +11,7 @@ import pytest
 
 import aurora.runtime.runtime as runtime_module
 from aurora.core.memory import AuroraMemory
+from aurora.core.personality import load_personality_profile
 from aurora.integrations.embeddings.base import EmbeddingProvider
 from aurora.integrations.embeddings.hash import HashEmbedding
 from aurora.integrations.llm.provider import LLMProvider
@@ -69,7 +70,13 @@ def build_test_memory(settings: AuroraSettings, embedder: EmbeddingProvider) -> 
         seed=int(settings.memory_seed),
         embedder=embedder,
         benchmark_mode=cfg.benchmark_mode,
+        bootstrap_profile=True,
     )
+
+
+def expected_profile_embedding_calls() -> int:
+    profile = load_personality_profile("aurora-v2-native")
+    return len(profile.seed_plots) + len(profile.intuition_anchors)
 
 
 @pytest.fixture
@@ -94,6 +101,8 @@ def test_runtime_uses_single_storage_directory(runtime: AuroraRuntime, runtime_s
     assert runtime.settings is runtime_settings
     assert Path(runtime.event_log.path).parent == Path(runtime_settings.data_dir)
     assert Path(runtime.doc_store.path).parent == Path(runtime_settings.data_dir)
+    assert runtime.mem.self_narrative_engine.narrative.profile_id == "aurora-v2-native"
+    assert runtime.mem.self_narrative_engine.narrative.seed_plot_ids
 
 
 def test_runtime_persists_and_queries_single_conversation(runtime: AuroraRuntime):
@@ -121,7 +130,7 @@ def test_runtime_replays_existing_history(runtime_settings: AuroraSettings):
 
     second = AuroraRuntime(settings=runtime_settings)
 
-    if created.encoded:
+    if created.memory_layer == "explicit":
         assert created.plot_id in second.mem.plots
 
 
@@ -151,9 +160,9 @@ def test_runtime_replay_deterministic_ids():
 
         replayed = AuroraRuntime(settings=settings)
 
-        if first.encoded:
+        if first.memory_layer == "explicit":
             assert first.plot_id in replayed.mem.plots
-        if second.encoded:
+        if second.memory_layer == "explicit":
             assert second.plot_id in replayed.mem.plots
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -181,6 +190,7 @@ def test_runtime_persists_canonical_replay_payload(runtime_settings: AuroraSetti
     assert len(events) == 1
 
     payload = events[0][1].payload
+    assert payload["runtime_schema_version"] == "aurora-runtime-v2"
     assert payload["plot_extraction"]["outcome"] == "user prefers narrative memory"
     assert payload["interaction_text"].startswith("USER: 我喜欢长期记忆系统。")
     assert payload["resolved_actors"] == ["user", "agent"]
@@ -189,7 +199,7 @@ def test_runtime_persists_canonical_replay_payload(runtime_settings: AuroraSetti
     assert llm.json_calls == 1
     assert llm.last_kwargs["max_retries"] == runtime_module.PLOT_EXTRACTION_MAX_RETRIES
     assert llm.last_kwargs["timeout_s"] == runtime_module.PLOT_EXTRACTION_TIMEOUT_S
-    assert embedder.calls == 2
+    assert embedder.calls == 2 + expected_profile_embedding_calls()
 
 
 def test_runtime_replay_uses_persisted_payload_without_model_calls(
@@ -211,7 +221,7 @@ def test_runtime_replay_uses_persisted_payload_without_model_calls(
         context="memory_preference",
     )
 
-    second_embedder = TrackingEmbedding(dim=runtime_settings.dim, fail_on_call=True)
+    second_embedder = TrackingEmbedding(dim=runtime_settings.dim)
     monkeypatch.setattr(
         runtime_module,
         "create_memory",
@@ -220,7 +230,7 @@ def test_runtime_replay_uses_persisted_payload_without_model_calls(
     replayed = AuroraRuntime(settings=runtime_settings, llm=ExplodingLLM())
 
     assert created.plot_id in replayed.mem.plots
-    assert second_embedder.calls == 0
+    assert second_embedder.calls == expected_profile_embedding_calls()
 
 
 def test_runtime_ingest_idempotent():

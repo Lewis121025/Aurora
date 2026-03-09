@@ -3,6 +3,12 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional, Sequence
 
+from aurora.integrations.llm.Prompt import (
+    PLOT_EXTRACTION_SYSTEM_PROMPT,
+    PLOT_EXTRACTION_USER_PROMPT,
+    instruction,
+    render,
+)
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.integrations.llm.schemas import PlotExtraction
 from aurora.integrations.storage.doc_store import Document, SQLiteDocStore
@@ -37,19 +43,16 @@ class PlotExtractor:
         context: Optional[str],
         actors: Optional[Sequence[str]],
     ) -> PlotExtraction:
-        from aurora.integrations.llm import prompts
-
-        instruction = prompts.instruction("PlotExtraction")
-        user_prompt = prompts.render(
-            prompts.PLOT_EXTRACTION_USER,
-            instruction=instruction,
+        user_prompt = render(
+            PLOT_EXTRACTION_USER_PROMPT,
+            instruction=instruction("PlotExtraction"),
             user_message=user_message,
             agent_message=agent_message,
             context=context or "",
         )
         try:
             return self._llm.complete_json(
-                system=prompts.PLOT_EXTRACTION_SYSTEM,
+                system=PLOT_EXTRACTION_SYSTEM_PROMPT,
                 user=user_prompt,
                 schema=PlotExtraction,
                 temperature=0.2,

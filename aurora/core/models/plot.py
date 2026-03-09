@@ -183,6 +183,8 @@ class Plot:
 
     # 分配
     story_id: Optional[str] = None
+    source: Literal["interaction", "seed"] = "interaction"
+    exposure: Literal["explicit", "shadow", "repressed"] = "explicit"
 
     # === 知识更新追踪 ===
     # 用于重新叙述：旧信息不被删除，而是重新定位为"过去的自我"
@@ -256,6 +258,8 @@ class Plot:
             "goal_relevance": self.goal_relevance,
             "tension": self.tension,
             "story_id": self.story_id,
+            "source": self.source,
+            "exposure": self.exposure,
             "supersedes_id": self.supersedes_id,
             "superseded_by_id": self.superseded_by_id,
             "update_type": self.update_type,
@@ -305,6 +309,8 @@ class Plot:
             relational=relational,
             identity_impact=identity_impact,
             story_id=d.get("story_id"),
+            source=d.get("source", "interaction"),
+            exposure=d.get("exposure", "explicit"),
             supersedes_id=d.get("supersedes_id"),
             superseded_by_id=d.get("superseded_by_id"),
             update_type=d.get("update_type"),

@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import deque
-from typing import Any, Deque, Dict, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 import numpy as np
 
@@ -50,12 +50,14 @@ from aurora.core.models.config import MemoryConfig
 from aurora.core.models.plot import Plot
 from aurora.core.models.story import StoryArc
 from aurora.core.models.theme import Theme
+from aurora.core.personality import PersonalityProfile, load_personality_profile
 from aurora.core.retrieval.field_retriever import FieldRetriever
+from aurora.core.self_narrative import SelfNarrativeEngine, SubconsciousState
 from aurora.integrations.embeddings.hash import HashEmbedding
 from aurora.integrations.embeddings.local_semantic import LocalSemanticEmbedding
 from aurora.exceptions import MemoryNotFoundError
 from aurora.utils.id_utils import det_id
-from aurora.utils.math_utils import sigmoid
+from aurora.utils.math_utils import cosine_sim, sigmoid
 from aurora.utils.time_utils import now_ts
 
 logger = logging.getLogger(__name__)
@@ -78,6 +80,7 @@ class AuroraMemory(
         seed: int = 0,
         embedder=None,
         benchmark_mode: bool = False,
+        bootstrap_profile: bool = False,
     ):
         """初始化 AURORA 内存系统。"""
         cfg = cfg or MemoryConfig()
@@ -93,6 +96,11 @@ class AuroraMemory(
 
         self._warn_if_hash_embedding()
         self.kde = OnlineKDE(dim=cfg.dim, reservoir=cfg.kde_reservoir, seed=seed)
+        self.subconscious_kde = OnlineKDE(
+            dim=cfg.dim,
+            reservoir=cfg.subconscious_reservoir,
+            seed=seed + 7,
+        )
         self.metric = LowRankMetric(dim=cfg.dim, rank=cfg.metric_rank, seed=seed)
         self.gate = ThompsonBernoulliGate(feature_dim=cfg.gate_feature_dim, seed=seed)
 
@@ -123,6 +131,18 @@ class AuroraMemory(
         self.abstention_detector = AbstentionDetector()
         self.entity_tracker = EntityTracker(seed=seed)
         self.fact_extractor = FactExtractor()
+        self.personality_profile: PersonalityProfile = load_personality_profile(cfg.personality_profile_id)
+        self.subconscious_state = SubconsciousState()
+        self.self_narrative_engine = SelfNarrativeEngine(
+            self.metric,
+            profile=self.personality_profile,
+            embedder=self.embedder,
+            seed=seed,
+        )
+        self._personality_bootstrapped = False
+
+        if bootstrap_profile:
+            self.bootstrap_personality()
 
     def _warn_if_hash_embedding(self) -> None:
         """如果使用 HashEmbedding，则发出警告。"""
@@ -293,6 +313,118 @@ class AuroraMemory(
             summary["dominant_dimension"] = dominant
 
         return summary
+
+    def bootstrap_personality(self) -> None:
+        """在空内存上注入原生人格种子。"""
+        if self._personality_bootstrapped or self.plots:
+            return
+
+        seed_plot_ids: List[str] = []
+        for seed_spec in self.personality_profile.seed_plots:
+            emb = self.embedder.embed(seed_spec.text)
+            plot = Plot(
+                id=det_id("plot", f"seed:{seed_spec.seed_id}"),
+                ts=now_ts(),
+                text=seed_spec.text,
+                actors=("self",),
+                embedding=emb,
+                knowledge_type="identity_value",
+                knowledge_confidence=1.0,
+                source="seed",
+                exposure="explicit",
+                fact_keys=[seed_spec.text],
+            )
+            self.plots[plot.id] = plot
+            self.graph.add_node(plot.id, "plot", plot)
+            self.vindex.add(plot.id, plot.embedding, kind="plot")
+            seed_plot_ids.append(plot.id)
+
+        self.self_narrative_engine.bootstrap_seed_plot_ids(seed_plot_ids)
+        self.self_narrative_engine.refresh_subconscious_summary(self.subconscious_state)
+        self._personality_bootstrapped = True
+
+    def is_identity_query(self, query_type: Any) -> bool:
+        return getattr(query_type, "name", "") == "IDENTITY"
+
+    def allow_plot_for_query(self, plot: Plot, query_type: Any) -> bool:
+        if plot.exposure != "explicit":
+            return False
+        if plot.source == "seed" and not self.is_identity_query(query_type):
+            return False
+        if plot.status != "active" and not self.is_identity_query(query_type):
+            return False
+        return True
+
+    def _dark_matter_entry_from_plot(self, *, plot: Plot, entry_id: str, affect_hint: str = ""):
+        from aurora.core.self_narrative.models import DarkMatterEntry
+
+        relational_hint = ""
+        if plot.relational is not None:
+            relational_hint = plot.relational.what_this_says_about_us
+        return DarkMatterEntry(
+            id=entry_id,
+            ts=plot.ts,
+            embedding=plot.embedding.copy(),
+            knowledge_type=plot.knowledge_type or "unknown",
+            affect_hint=affect_hint,
+            relational_hint=relational_hint,
+            source_plot_id=plot.id,
+        )
+
+    def note_shadow_plot(self, plot: Plot) -> None:
+        affect_hint = ""
+        if plot.relational is not None and plot.relational.relationship_quality_delta < 0:
+            affect_hint = "guarded"
+        elif plot.relational is not None and plot.relational.relationship_quality_delta > 0:
+            affect_hint = "warm"
+        elif plot.knowledge_type in {"identity_trait", "identity_value"}:
+            affect_hint = "identity"
+
+        entry_id = det_id("shadow", plot.id)
+        self.subconscious_state.add_dark_matter(
+            entry=self._dark_matter_entry_from_plot(plot=plot, entry_id=entry_id, affect_hint=affect_hint),
+            max_entries=self.cfg.subconscious_reservoir,
+        )
+        self.subconscious_kde.add(plot.embedding)
+        self.self_narrative_engine.refresh_subconscious_summary(self.subconscious_state)
+
+    def mark_plot_repressed(self, plot_id: str) -> None:
+        plot = self.plots.get(plot_id)
+        if plot is None:
+            return
+        plot.exposure = "repressed"
+        self.subconscious_state.mark_repressed(plot_id)
+        self.self_narrative_engine.refresh_subconscious_summary(self.subconscious_state)
+
+    def generate_system_intuition(self, trace: Any, max_items: int = 2) -> List[str]:
+        candidate_vectors: List[np.ndarray] = []
+        for plot_id in getattr(trace, "intuition_source_ids", []) or []:
+            plot = self.plots.get(plot_id)
+            if plot is not None:
+                candidate_vectors.append(plot.embedding)
+
+        if not candidate_vectors and self.subconscious_state.dark_matter_pool:
+            scored_entries = sorted(
+                self.subconscious_state.dark_matter_pool,
+                key=lambda entry: cosine_sim(trace.query_emb, entry.embedding),
+                reverse=True,
+            )
+            candidate_vectors.extend(entry.embedding for entry in scored_entries[:max_items])
+
+        if not candidate_vectors and self.personality_profile.intuition_anchors:
+            self.subconscious_state.last_intuition = [
+                self.personality_profile.intuition_anchors[0].keywords[0]
+            ]
+            self.self_narrative_engine.refresh_subconscious_summary(self.subconscious_state)
+            return list(self.subconscious_state.last_intuition)
+
+        keywords = self.self_narrative_engine.intuition_keywords_for_vectors(
+            candidate_vectors,
+            max_items=max_items,
+        )
+        self.subconscious_state.last_intuition = keywords
+        self.self_narrative_engine.refresh_subconscious_summary(self.subconscious_state)
+        return keywords
 
 
 if __name__ == "__main__":

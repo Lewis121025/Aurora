@@ -10,6 +10,7 @@ import pytest
 from aurora.core.models.plot import Plot
 from aurora.core.models.theme import Theme
 from aurora.core.components.metric import LowRankMetric
+from aurora.core.personality import load_personality_profile
 from aurora.core.self_narrative import (
     CapabilityBelief,
     RelationshipBelief,
@@ -262,7 +263,7 @@ class TestSelfNarrativeEngine:
     """Tests for SelfNarrativeEngine"""
     
     def test_update_from_themes(self, metric, sample_themes):
-        engine = SelfNarrativeEngine(metric)
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
         
         changed = engine.update_from_themes(sample_themes)
         
@@ -270,7 +271,7 @@ class TestSelfNarrativeEngine:
         assert len(engine.narrative.capabilities) > 0
     
     def test_update_from_interaction(self, metric, sample_plot):
-        engine = SelfNarrativeEngine(metric)
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
         
         engine.update_from_interaction(
             plot=sample_plot,
@@ -282,7 +283,7 @@ class TestSelfNarrativeEngine:
         assert "user1" in engine.narrative.relationships
     
     def test_add_and_resolve_tension(self, metric):
-        engine = SelfNarrativeEngine(metric)
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
         
         engine.add_tension("需要实时数据但无法获取")
         
@@ -293,7 +294,7 @@ class TestSelfNarrativeEngine:
         assert "需要实时数据但无法获取" not in engine.narrative.unresolved_tensions
     
     def test_check_coherence(self, metric):
-        engine = SelfNarrativeEngine(metric)
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
         
         # Add some capabilities
         engine.narrative.get_capability("test").update(success=True)
@@ -303,7 +304,7 @@ class TestSelfNarrativeEngine:
         assert 0 <= score <= 1
     
     def test_momentum_slows_changes(self, metric):
-        engine = SelfNarrativeEngine(metric)
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
         engine.momentum = 0.99  # Very high momentum
         
         ts = now_ts()
@@ -396,7 +397,7 @@ class TestIntegration:
         """Test complete self-narrative workflow"""
         
         # 1. Create engine
-        engine = SelfNarrativeEngine(metric)
+        engine = SelfNarrativeEngine(metric, profile=load_personality_profile("aurora-v2-native"))
         tracker = IdentityTracker()
         
         # 2. Initial snapshot

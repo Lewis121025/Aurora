@@ -11,7 +11,8 @@ import logging
 import math
 import uuid
 from collections import Counter
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -65,6 +66,13 @@ INTERACTION_FIELD_ALIASES: Dict[str, Tuple[str, ...]] = {
 }
 
 
+@dataclass(frozen=True)
+class StorageDecision:
+    memory_layer: Literal["explicit", "shadow"]
+    probability: float
+    reason: str
+
+
 class IngestionMixin:
     """提供 ingest、批量摄入、冲突处理与图编织能力。"""
 
@@ -99,10 +107,15 @@ class IngestionMixin:
         most_similar_plot: Optional[Plot] = None
 
         for pid, sim in hits:
+            candidate_plot = self.plots.get(pid)
+            if candidate_plot is None:
+                continue
+            if candidate_plot.source == "seed" or candidate_plot.exposure != "explicit":
+                continue
             if sim > max_sim:
                 max_sim = sim
                 most_similar_id = pid
-                most_similar_plot = self.plots.get(pid)
+                most_similar_plot = candidate_plot
 
         potential_updates = self.entity_tracker.find_potential_updates(text, ts)
 
@@ -316,15 +329,28 @@ class IngestionMixin:
             context_emb = None
         self._compute_plot_signals(plot, emb, context_emb)
 
-        encode = self._compute_storage_decision(plot)
+        decision = self._compute_storage_decision(plot)
+        plot.exposure = decision.memory_layer
+        storage_prob = float(getattr(plot, "_storage_prob", decision.probability))
 
-        if encode:
+        if decision.memory_layer == "explicit":
             self._store_plot(plot)
             self._recent_encoded_plot_ids.append(plot.id)
             self.entity_tracker.update(interaction_text, plot.id, plot.ts)
-            logger.debug(f"编码 plot {plot.id}，combined_prob={plot._storage_prob:.3f}")
+            self.self_narrative_engine.update_from_interaction(
+                plot=plot,
+                success=True,
+                entity_id=plot.get_relationship_entity() or "user",
+            )
+            logger.debug(
+                f"显性编码 plot {plot.id}，combined_prob={storage_prob:.3f}，reason={decision.reason}"
+            )
         else:
-            logger.debug(f"丢弃 plot，combined_prob={plot._storage_prob:.3f}")
+            self.plots[plot.id] = plot
+            self.note_shadow_plot(plot)
+            logger.debug(
+                f"shadow plot {plot.id}，combined_prob={storage_prob:.3f}，reason={decision.reason}"
+            )
 
         self._pressure_manage()
         return plot
@@ -392,20 +418,29 @@ class IngestionMixin:
             self.kde.add(emb)
             self._compute_plot_signals(plot, emb, context_emb)
 
-            encode = self._compute_storage_decision(plot)
+            decision = self._compute_storage_decision(plot)
+            plot.exposure = decision.memory_layer
+            storage_prob = float(getattr(plot, "_storage_prob", decision.probability))
 
-            if encode:
+            if decision.memory_layer == "explicit":
                 self._store_plot(plot)
                 self._recent_encoded_plot_ids.append(plot.id)
                 self.entity_tracker.update(text, plot.id, plot.ts)
+                self.self_narrative_engine.update_from_interaction(
+                    plot=plot,
+                    success=True,
+                    entity_id=plot.get_relationship_entity() or "user",
+                )
                 stored_count += 1
                 logger.debug(
-                    f"[{i+1}/{total}] 编码 plot {plot.id[:8]}...，"
-                    f"combined_prob={plot._storage_prob:.3f}"
+                    f"[{i+1}/{total}] 显性编码 plot {plot.id[:8]}...，"
+                    f"combined_prob={storage_prob:.3f}，reason={decision.reason}"
                 )
             else:
+                self.plots[plot.id] = plot
+                self.note_shadow_plot(plot)
                 logger.debug(
-                    f"[{i+1}/{total}] 丢弃 plot，combined_prob={plot._storage_prob:.3f}"
+                    f"[{i+1}/{total}] shadow plot，combined_prob={storage_prob:.3f}，reason={decision.reason}"
                 )
 
             plots.append(plot)
@@ -523,6 +558,7 @@ class IngestionMixin:
                     plot.update_type = update_signals.get("update_type")
                     old_plot.status = "superseded"
                     old_plot.superseded_by_id = plot.id
+                    self.mark_plot_repressed(old_plot.id)
                     logger.info(
                         f"检测到更新：{plot.id[:8]}... 替代 {supersedes_id[:8]}... "
                         f"(update_type={plot.update_type})"
@@ -559,17 +595,24 @@ class IngestionMixin:
 
         return False
 
-    def _compute_storage_decision(self, plot: Plot) -> bool:
-        """计算是否存储此 plot。"""
+    def _compute_storage_decision(self, plot: Plot) -> StorageDecision:
+        """计算 plot 应进入显性层还是潜意识 shadow 层。"""
         if self.benchmark_mode:
             plot._storage_prob = 1.0
             logger.debug(f"基准模式：强制存储 plot {plot.id[:8]}...")
-            return True
+            return StorageDecision(memory_layer="explicit", probability=1.0, reason="benchmark_mode")
 
-        if len(self.plots) < COLD_START_FORCE_STORE_COUNT:
+        explicit_interactions = sum(
+            1
+            for existing_plot in self.plots.values()
+            if existing_plot.source != "seed" and existing_plot.exposure == "explicit"
+        )
+        if explicit_interactions < COLD_START_FORCE_STORE_COUNT:
             plot._storage_prob = 1.0
-            logger.debug(f"冷启动：强制存储 plot {len(self.plots) + 1}/{COLD_START_FORCE_STORE_COUNT}")
-            return True
+            logger.debug(
+                f"冷启动：强制存储 plot {explicit_interactions + 1}/{COLD_START_FORCE_STORE_COUNT}"
+            )
+            return StorageDecision(memory_layer="explicit", probability=1.0, reason="cold_start")
 
         if plot.redundancy_type == "update":
             plot._storage_prob = 1.0
@@ -577,7 +620,7 @@ class IngestionMixin:
                 f"检测到知识更新：强制存储 plot，"
                 f"supersedes={plot.supersedes_id}，update_type={plot.update_type}"
             )
-            return True
+            return StorageDecision(memory_layer="explicit", probability=1.0, reason="knowledge_update")
 
         x = self._compute_voi_features(plot)
         voi_decision = self.gate.prob(x)
@@ -601,7 +644,18 @@ class IngestionMixin:
         combined_prob = min(combined_prob, 1.0)
         plot._storage_prob = combined_prob
 
-        return self.rng.random() < combined_prob
+        if self.rng.random() < combined_prob:
+            return StorageDecision(
+                memory_layer="explicit",
+                probability=combined_prob,
+                reason="voi_gate",
+            )
+
+        return StorageDecision(
+            memory_layer="shadow",
+            probability=combined_prob,
+            reason="subconscious_dark_matter",
+        )
 
     def _store_plot(self, plot: Plot) -> None:
         """使用关系优先组织和冲突检测存储 plot。"""
@@ -634,6 +688,8 @@ class IngestionMixin:
 
             old_plot = self.plots.get(pid)
             if old_plot is None or old_plot.status != "active":
+                continue
+            if old_plot.source == "seed" or old_plot.exposure != "explicit":
                 continue
 
             prob, explanation = self.coherence_guardian.detector.detect_contradiction(
@@ -698,6 +754,7 @@ class IngestionMixin:
             new_plot.supersedes_id = old_plot.id
             old_plot.superseded_by_id = new_plot.id
             old_plot.status = "superseded"
+            self.mark_plot_repressed(old_plot.id)
             new_plot.update_type = "state_change"
             new_plot.redundancy_type = "update"
 
@@ -733,6 +790,7 @@ class IngestionMixin:
             new_plot.supersedes_id = old_plot.id
             old_plot.superseded_by_id = new_plot.id
             old_plot.status = "corrected"
+            self.mark_plot_repressed(old_plot.id)
             new_plot.update_type = "correction"
             new_plot.redundancy_type = "update"
 
@@ -746,6 +804,7 @@ class IngestionMixin:
             new_plot.update_type = "refinement"
             new_plot.redundancy_type = "update"
             self.graph.ensure_edge(old_plot.id, new_plot.id, "evolved_to")
+            self.mark_plot_repressed(old_plot.id)
 
             logger.info(
                 f"EVOLVE 解决方案：{old_plot.id} 演化为 {new_plot.id}。"

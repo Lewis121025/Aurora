@@ -249,7 +249,7 @@ class TerminalObserver:
             ),
             (
                 f"event={result.event_id} | plot={ingest.plot_id} | story={ingest.story_id or '-'} | "
-                f"encoded={ingest.encoded}"
+                f"layer={ingest.memory_layer}"
             ),
             (
                 f"tension={ingest.tension:.3f} | surprise={ingest.surprise:.3f} | "
@@ -539,11 +539,15 @@ class TerminalObserver:
     def _render_narrative(self) -> None:
         narrative = self.runtime.get_self_narrative()
         payload = {
+            "profile_id": narrative["profile_id"],
             "identity_statement": narrative["identity_statement"],
+            "seed_narrative": narrative["seed_narrative"],
             "capability_narrative": narrative["capability_narrative"],
             "coherence_score": narrative["coherence_score"],
+            "trait_beliefs": narrative["trait_beliefs"],
             "capability_count": len(narrative["capabilities"]),
             "relationship_count": len(narrative["relationships"]),
+            "subconscious": narrative["subconscious"],
             "unresolved_tensions": narrative["unresolved_tensions"],
         }
         self._render_panel("Self Narrative", json.dumps(payload, ensure_ascii=False, indent=2).splitlines(), tone="accent")
