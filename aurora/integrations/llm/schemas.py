@@ -17,22 +17,6 @@ class Claim(BaseModel):
     qualifiers: Dict[str, str] = Field(default_factory=dict)
 
 
-class PlotExtraction(BaseModel):
-    schema_version: str = SCHEMA_VERSION
-    actors: List[str] = Field(default_factory=list)
-    action: str = ""
-    context: str = ""
-    outcome: str = ""
-    # 叙述信号
-    goal: str = ""
-    obstacles: List[str] = Field(default_factory=list)
-    decision: str = ""
-    emotion_valence: float = Field(ge=-1.0, le=1.0, default=0.0)
-    emotion_arousal: float = Field(ge=0.0, le=1.0, default=0.2)
-    # 知识层
-    claims: List[Claim] = Field(default_factory=list)
-
-
 class StoryUpdate(BaseModel):
     schema_version: str = SCHEMA_VERSION
     title: str
@@ -55,32 +39,12 @@ class ThemeCandidate(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0, default=0.6)
 
 
-class SelfNarrativeUpdate(BaseModel):
-    schema_version: str = SCHEMA_VERSION
-    identity_statement: str
-    identity_narrative: str
-    capability_narrative: str
-    relationship_narratives: Dict[str, str] = Field(default_factory=dict)
-    core_beliefs: List[str] = Field(default_factory=list)
-    unresolved_tensions: List[str] = Field(default_factory=list)
-
-
 class ContradictionJudgement(BaseModel):
     schema_version: str = SCHEMA_VERSION
     is_contradiction: bool
     explanation: str = ""
     # e.g. "contextual" meaning both can be true under different conditions
     reconciliation_hint: str = ""
-
-
-class MemoryBriefCompilation(BaseModel):
-    schema_version: str = SCHEMA_VERSION
-    known_facts: List[str] = Field(default_factory=list)
-    preferences: List[str] = Field(default_factory=list)
-    relationship_state: List[str] = Field(default_factory=list)
-    active_narratives: List[str] = Field(default_factory=list)
-    temporal_context: List[str] = Field(default_factory=list)
-    cautions: List[str] = Field(default_factory=list)
 
 
 # -----------------------------------------------------------------------------

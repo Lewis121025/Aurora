@@ -26,12 +26,9 @@ import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence, Tuple
 
 import numpy as np
-
-if TYPE_CHECKING:
-    from aurora.core.memory import AuroraMemory
 
 from aurora.utils.time_utils import now_ts
 
@@ -109,7 +106,7 @@ def verify_benchmark_ready(
     这不反映实际系统性能。
 
     Args:
-        memory: 要检查的 AuroraMemory 实例
+        memory: 要检查的 AURORA 内存实例
         llm: 可选的 LLM 提供者检查
         verbose: 如果为 True，打印警告到控制台
 
@@ -120,9 +117,9 @@ def verify_benchmark_ready(
 
     Example:
         from aurora.benchmarks.interface import verify_benchmark_ready
-        from aurora.core.memory import AuroraMemory
+        from aurora.core.soul_memory import AuroraSoulMemory, SoulMemoryConfig
 
-        memory = AuroraMemory(seed=42)
+        memory = AuroraSoulMemory(cfg=SoulMemoryConfig())
         is_ready, warnings = verify_benchmark_ready(memory)
 
         if not is_ready:
@@ -842,11 +839,11 @@ class AURORABenchmarkRunner:
         adapters: 将基准名称映射到适配器的字典
 
     Example:
-        from aurora import AuroraMemory
+        from aurora import AuroraSoulMemory, SoulMemoryConfig
         from aurora.benchmarks import AURORABenchmarkRunner
         from aurora.benchmarks.adapters import MemoryAgentBenchAdapter
 
-        memory = AuroraMemory(seed=42)
+        memory = AuroraSoulMemory(cfg=SoulMemoryConfig())
         adapters = {"mab": MemoryAgentBenchAdapter()}
 
         runner = AURORABenchmarkRunner(memory, adapters)

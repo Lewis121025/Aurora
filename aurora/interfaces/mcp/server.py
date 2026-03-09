@@ -97,17 +97,8 @@ AURORA_TOOLS = [
         },
     ),
     ToolDefinition(
-        name="get_narrative",
-        description="获取当前自叙述摘要。提供身份、能力和关系信息。",
-        parameters={
-            "type": "object",
-            "properties": {},
-            "required": [],
-        },
-    ),
-    ToolDefinition(
-        name="check_coherence",
-        description="检查内存一致性并获取解决冲突的建议。",
+        name="get_identity",
+        description="获取当前 identity snapshot 与 narrative summary。",
         parameters={
             "type": "object",
             "properties": {},
@@ -156,12 +147,12 @@ AURORA_RESOURCES = [
     ResourceDefinition(
         uri="aurora://memory/stats",
         name="Memory Statistics",
-        description="当前内存统计（plot/story/theme 计数、一致性分数）",
+        description="当前内存统计（plot/story/theme 计数、phase、pressure、dream/repair 计数）",
     ),
     ResourceDefinition(
-        uri="aurora://memory/narrative",
-        name="Self Narrative",
-        description="当前自叙述摘要",
+        uri="aurora://memory/identity",
+        name="Identity Snapshot",
+        description="当前身份快照与叙事摘要",
     ),
 ]
 
@@ -221,10 +212,8 @@ class AuroraMCPServer:
                 return await self._handle_save_memory(arguments)
             elif name == "search_memory":
                 return await self._handle_search_memory(arguments)
-            elif name == "get_narrative":
-                return await self._handle_get_narrative()
-            elif name == "check_coherence":
-                return await self._handle_check_coherence()
+            elif name == "get_identity":
+                return await self._handle_get_identity()
             elif name == "provide_feedback":
                 return await self._handle_provide_feedback(arguments)
             else:
@@ -256,8 +245,8 @@ class AuroraMCPServer:
         try:
             if uri == "aurora://memory/stats":
                 return await self._read_stats()
-            elif uri == "aurora://memory/narrative":
-                return await self._read_narrative()
+            elif uri == "aurora://memory/identity":
+                return await self._read_identity()
             else:
                 return {"error": f"Resource not implemented: {uri}"}
         except Exception as e:
@@ -296,7 +285,7 @@ class AuroraMCPServer:
             "event_id": event_id,
             "plot_id": result.plot_id,
             "story_id": result.story_id,
-            "memory_layer": result.memory_layer,
+            "phase": result.phase,
             "tension": result.tension,
         }
 
@@ -335,32 +324,15 @@ class AuroraMCPServer:
             "attractor_path_len": result.attractor_path_len,
         }
 
-    async def _handle_get_narrative(
+    async def _handle_get_identity(
         self,
     ) -> Dict[str, Any]:
-        """处理 get_narrative 工具调用。"""
-        def _sync_narrative():
-            return self.runtime.get_self_narrative()
+        """处理 get_identity 工具调用。"""
+        def _sync_identity():
+            return self.runtime.get_identity()
 
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _sync_narrative)
-
-    async def _handle_check_coherence(
-        self,
-    ) -> Dict[str, Any]:
-        """处理 check_coherence 工具调用。"""
-        def _sync_coherence():
-            return self.runtime.check_coherence()
-
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(None, _sync_coherence)
-
-        return {
-            "overall_score": result.overall_score,
-            "conflict_count": result.conflict_count,
-            "unfinished_story_count": result.unfinished_story_count,
-            "recommendations": result.recommendations,
-        }
+        return await loop.run_in_executor(None, _sync_identity)
 
     async def _handle_provide_feedback(
         self,
@@ -385,35 +357,28 @@ class AuroraMCPServer:
 
     async def _read_stats(self) -> Dict[str, Any]:
         """读取内存统计资源。"""
-        mem = self.runtime.mem
-        coherence = self.runtime.check_coherence()
+        stats = self.runtime.get_stats()
 
         return {
             "contents": [
                 {
                     "uri": "aurora://memory/stats",
                     "mimeType": "application/json",
-                    "text": json.dumps({
-                        "plot_count": len(mem.plots),
-                        "story_count": len(mem.stories),
-                        "theme_count": len(mem.themes),
-                        "coherence_score": coherence.overall_score,
-                        "gate_pass_rate": mem.gate.pass_rate(),
-                    }),
+                    "text": json.dumps(stats),
                 }
             ]
         }
 
-    async def _read_narrative(self) -> Dict[str, Any]:
-        """读取自叙述资源。"""
-        narrative = await self._handle_get_narrative()
+    async def _read_identity(self) -> Dict[str, Any]:
+        """读取身份资源。"""
+        identity = await self._handle_get_identity()
 
         return {
             "contents": [
                 {
-                    "uri": "aurora://memory/narrative",
+                    "uri": "aurora://memory/identity",
                     "mimeType": "application/json",
-                    "text": json.dumps(narrative),
+                    "text": json.dumps(identity),
                 }
             ]
         }

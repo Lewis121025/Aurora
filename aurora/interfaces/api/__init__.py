@@ -2,15 +2,18 @@
 Aurora REST API
 ================
 
-Aurora V2 REST API。
+Aurora Soul-Memory V3 REST API。
 """
 
 from aurora.interfaces.api.schemas import (
+    IdentityResponse,
     IngestRequest,
     IngestResponse,
+    MemoryStatsResponse,
     QueryHit,
     QueryRequest,
     QueryResponse,
+    RespondRequest,
 )
 
 
@@ -26,7 +29,10 @@ __all__ = [
     "app",
     "IngestRequest",
     "IngestResponse",
+    "IdentityResponse",
+    "MemoryStatsResponse",
     "QueryHit",
     "QueryRequest",
     "QueryResponse",
+    "RespondRequest",
 ]

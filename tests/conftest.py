@@ -8,7 +8,6 @@ Provides:
 - metric: LowRankMetric instance for similarity computation
 - sample_plots: Pre-generated plot fixtures
 - sample_themes: Pre-generated theme fixtures
-- aurora_memory: Fresh AuroraMemory instance
 - temp_data_dir: Temporary directory for test data
 """
 
@@ -27,7 +26,6 @@ from aurora.core.models.story import StoryArc
 from aurora.core.models.theme import Theme
 from aurora.core.components.metric import LowRankMetric
 from aurora.core.components.density import OnlineKDE
-from aurora.core.memory import AuroraMemory
 from aurora.utils.time_utils import now_ts
 from aurora.utils.id_utils import det_id
 
@@ -58,33 +56,6 @@ def config() -> MemoryConfig:
         story_alpha=1.0,
         theme_alpha=0.5,
     )
-
-
-# =============================================================================
-# Memory Instances
-# =============================================================================
-
-@pytest.fixture
-def aurora_memory(config: MemoryConfig) -> AuroraMemory:
-    """Create a fresh AuroraMemory instance."""
-    return AuroraMemory(cfg=config, seed=42)
-
-
-@pytest.fixture
-def populated_memory(aurora_memory: AuroraMemory) -> AuroraMemory:
-    """Create an AuroraMemory with some pre-populated data."""
-    interactions = [
-        ("用户：我想学习编程。助理：好的，我们从Python基础开始。", ("user", "assistant")),
-        ("用户：什么是变量？助理：变量是存储数据的容器。", ("user", "assistant")),
-        ("用户：谢谢你的解释！助理：不客气，继续加油！", ("user", "assistant")),
-        ("用户：我遇到了一个bug。助理：让我帮你分析一下。", ("user", "assistant")),
-        ("用户：这个问题解决了！助理：太好了！", ("user", "assistant")),
-    ]
-    
-    for text, actors in interactions:
-        aurora_memory.ingest(text, actors=actors)
-    
-    return aurora_memory
 
 
 # =============================================================================

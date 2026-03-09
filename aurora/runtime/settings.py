@@ -41,10 +41,11 @@ class AuroraSettings(BaseSettings):
     max_plots: int = 5000
     kde_reservoir: int = 4096
     story_alpha: float = 1.0
-    theme_alpha: float = 0.5
-    personality_profile_id: str = "aurora-v2-child-elara"
+    theme_alpha: float = 0.6
     subconscious_reservoir: int = 1024
-    intuition_leak_probability: float = 0.18
+    initial_archetype: Literal["dependent_child", "guarded_teen"] = "dependent_child"
+    meaning_extractor: Literal["heuristic", "llm"] = "heuristic"
+    dreams_per_evolve: int = 2
     
     # --- 算法稳定性参数 ---
     

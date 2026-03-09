@@ -128,13 +128,6 @@ class MemoryConfig:
     # 检索偏好
     retrieval_kinds: Tuple[str, ...] = ("theme", "story", "plot")
 
-    # 基准模式：强制存储所有 Plot，绕过 VOI 门控
-    # 对于 LongMemEval 等基准至关重要，其中每个回合可能包含关键信息
-    benchmark_mode: bool = False
-    personality_profile_id: str = "aurora-v2-child-elara"
-    subconscious_reservoir: int = 1024
-    intuition_leak_probability: float = 0.18
-
     # 算法配置（嵌套，为了向后兼容是可选的）
     algo: Optional[AlgorithmConfig] = field(default=None)
 
@@ -153,10 +146,6 @@ class MemoryConfig:
             "theme_alpha": self.theme_alpha,
             "gate_feature_dim": self.gate_feature_dim,
             "retrieval_kinds": list(self.retrieval_kinds),
-            "benchmark_mode": self.benchmark_mode,
-            "personality_profile_id": self.personality_profile_id,
-            "subconscious_reservoir": self.subconscious_reservoir,
-            "intuition_leak_probability": self.intuition_leak_probability,
             "algo": self.algo.to_state_dict() if self.algo else None,
         }
 
@@ -174,9 +163,5 @@ class MemoryConfig:
             theme_alpha=d.get("theme_alpha", 0.5),
             gate_feature_dim=d.get("gate_feature_dim", 6),
             retrieval_kinds=tuple(d.get("retrieval_kinds", ["theme", "story", "plot"])),
-            benchmark_mode=d.get("benchmark_mode", False),
-            personality_profile_id=d.get("personality_profile_id", "aurora-v2-child-elara"),
-            subconscious_reservoir=d.get("subconscious_reservoir", 1024),
-            intuition_leak_probability=d.get("intuition_leak_probability", 0.18),
             algo=algo,
         )

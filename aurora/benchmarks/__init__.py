@@ -10,10 +10,10 @@ AURORA 基准测试模块
 
 使用方法:
     from aurora.benchmarks import MemoryAgentBenchAdapter, BenchmarkCapability
-    from aurora.core.memory import AuroraMemory
+    from aurora.core.soul_memory import AuroraSoulMemory, SoulMemoryConfig
 
     adapter = MemoryAgentBenchAdapter()
-    memory = AuroraMemory()
+    memory = AuroraSoulMemory(cfg=SoulMemoryConfig())
 
     results, metrics = adapter.run_benchmark_with_config(
         memory=memory,

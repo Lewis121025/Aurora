@@ -5,7 +5,7 @@ import types
 
 from aurora.integrations.llm.ark import ArkLLM
 from aurora.integrations.llm.bailian import BailianLLM
-from aurora.integrations.llm.schemas import PlotExtraction
+from aurora.core.soul_memory.extractors import MeaningFramePayload
 
 
 class _FakeMessage:
@@ -80,34 +80,22 @@ def test_bailian_complete_json_uses_structured_schema_and_no_thinking():
     fake_client = _FakeClient(
         """
         {
-          "schema_version": "1.0",
-          "actors": ["user", "agent"],
-          "action": "exchange greetings",
-          "context": "initial interaction",
-          "outcome": "greeting acknowledged",
-          "goal": "start conversation",
-          "obstacles": [],
-          "decision": "respond warmly",
-          "emotion_valence": 0.8,
-          "emotion_arousal": 0.2,
-          "claims": [
-            {
-              "subject": "user",
-              "predicate": "said",
-              "object": "hello",
-              "polarity": "positive",
-              "certainty": 0.95,
-              "qualifiers": {}
-            },
-            {
-              "subject": "agent",
-              "predicate": "returned",
-              "object": "greeting",
-              "polarity": "positive",
-              "certainty": 0.9,
-              "qualifiers": {}
-            }
-          ]
+          "trait_evidence": {
+            "trust": 0.4,
+            "openness": 0.1
+          },
+          "belief_evidence": {
+            "others_reliable": 0.3
+          },
+          "valence": 0.8,
+          "arousal": 0.2,
+          "tags": ["warmth", "care"],
+          "threat": 0.0,
+          "care": 0.7,
+          "control": 0.0,
+          "abandonment": 0.0,
+          "agency": 0.1,
+          "shame": 0.0
         }
         """.strip()
     )
@@ -116,14 +104,14 @@ def test_bailian_complete_json_uses_structured_schema_and_no_thinking():
     result = llm.complete_json(
         system="sys",
         user="user",
-        schema=PlotExtraction,
+        schema=MeaningFramePayload,
         timeout_s=9.0,
     )
 
     call = fake_client.calls[0]
-    assert result.action == "exchange greetings"
+    assert result.trait_evidence["trust"] == 0.4
     assert call["extra_body"] == {"enable_thinking": False}
     assert call["max_tokens"] == 512
     assert call["timeout"] == 9.0
     assert call["response_format"]["type"] == "json_schema"
-    assert call["response_format"]["json_schema"]["name"] == "PlotExtraction"
+    assert call["response_format"]["json_schema"]["name"] == "MeaningFramePayload"

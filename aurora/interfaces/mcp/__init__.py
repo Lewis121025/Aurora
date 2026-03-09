@@ -8,12 +8,11 @@ Aurora MCP（模型上下文协议）服务器
 工具:
 - save_memory: 保存内存交互
 - search_memory: 按语义相似度搜索内存
-- get_narrative: 获取自叙述摘要
-- check_coherence: 检查内存一致性
+- get_identity: 获取身份快照与叙事摘要
 
 资源:
 - aurora://memory/stats: 内存统计
-- aurora://memory/narrative: 当前自叙述
+- aurora://memory/identity: 当前身份快照
 """
 
 from aurora.interfaces.mcp.server import AuroraMCPServer, create_mcp_server

@@ -21,10 +21,10 @@ AURORA Capability Mapping:
 
 Usage:
     from aurora.benchmarks.adapters import MemoryAgentBenchAdapter
-    from aurora.core.memory import AuroraMemory
+    from aurora.core.soul_memory import AuroraSoulMemory, SoulMemoryConfig
     
     adapter = MemoryAgentBenchAdapter(llm_provider=llm)
-    memory = AuroraMemory()
+    memory = AuroraSoulMemory(cfg=SoulMemoryConfig())
     
     results, metrics = adapter.run_benchmark(
         dataset_path="ai-hyz/MemoryAgentBench",
@@ -1101,7 +1101,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         
         Args:
             instance: Benchmark instance with conversation history
-            memory: AURORA memory instance (AuroraMemory or AuroraRuntime)
+            memory: AURORA memory instance (direct engine or AuroraRuntime)
             clear_first: Whether to clear memory before ingestion
         """
         # Clear previous instance's memory to prevent pollution
@@ -1154,7 +1154,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
                     )
                     
             elif has_ingest:
-                # AuroraMemory style
+                # Direct memory-engine style
                 if role == "user":
                     assistant_response = ""
                     if i + 1 < len(turns):
@@ -1649,7 +1649,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         Returns:
             True if using HashEmbedding (unreliable), False otherwise
         """
-        # Check via method if available (AuroraMemory)
+        # Check via capability method if available
         if hasattr(memory, "is_using_hash_embedding"):
             using_hash = memory.is_using_hash_embedding()
         # Check embedder directly
@@ -1683,7 +1683,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
     ) -> Dict[str, Any]:
         """Query AURORA memory and return results.
         
-        Handles both AuroraMemory and AuroraRuntime interfaces.
+        Handles both direct memory engines and AuroraRuntime.
         
         Args:
             memory: AURORA memory instance

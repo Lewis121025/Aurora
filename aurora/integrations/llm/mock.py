@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import re
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
@@ -35,6 +34,12 @@ class MockLLM(LLMProvider):
         对于基准测试，这提供基本的基于模式的提取
         而不是随机文本。
         """
+        if "Current User Message:" in prompt:
+            match = re.search(r"Current User Message:\n(.*?)(?:\n\n|$)", prompt, re.DOTALL)
+            user_message = match.group(1).strip() if match else ""
+            if user_message:
+                return f"我听到了你的问题：{user_message}。如果你愿意，我们可以继续把它一起展开。"
+
         # 用于基准评估的基本答案提取模式
         prompt_lower = prompt.lower()
 
@@ -84,22 +89,34 @@ class MockLLM(LLMProvider):
         max_retries: Optional[int] = None,
     ) -> T:
         name = schema.__name__
-        if name == "PlotExtraction":
-            # 朴素提取：将第一句作为动作
-            m_user = re.search(r"user_message: (.*)", user)
-            umsg = m_user.group(1).strip() if m_user else ""
-            action = umsg[:120] or "interaction"
+        if name == "MeaningFramePayload":
             data = {
-                "actors": ["user", "agent"],
-                "action": action,
-                "context": "",
-                "outcome": "",
-                "goal": "",
-                "obstacles": [],
-                "decision": "",
-                "emotion_valence": 0.0,
-                "emotion_arousal": 0.2,
-                "claims": [],
+                "trait_evidence": {
+                    "attachment": 0.0,
+                    "autonomy": 0.0,
+                    "trust": 0.0,
+                    "vigilance": 0.0,
+                    "openness": 0.0,
+                    "defensiveness": 0.0,
+                    "assertiveness": 0.0,
+                    "coherence": 0.0,
+                },
+                "belief_evidence": {
+                    "closeness_safe": 0.0,
+                    "others_reliable": 0.0,
+                    "boundaries_allowed": 0.0,
+                    "independence_safe": 0.0,
+                    "vulnerability_safe": 0.0,
+                },
+                "valence": 0.0,
+                "arousal": 0.2,
+                "tags": ["neutral"],
+                "threat": 0.0,
+                "care": 0.0,
+                "control": 0.0,
+                "abandonment": 0.0,
+                "agency": 0.0,
+                "shame": 0.0,
             }
             return schema.model_validate(data)
 
@@ -116,44 +133,11 @@ class MockLLM(LLMProvider):
             }
             return schema.model_validate(data)
 
-        if name == "SelfNarrativeUpdate":
-            data = {
-                "identity_statement": "I am a helpful assistant.",
-                "identity_narrative": "I support the user with reliable help.",
-                "capability_narrative": "I can reason, write, and plan; I may be uncertain without data.",
-                "relationship_narratives": {},
-                "core_beliefs": [],
-                "unresolved_tensions": [],
-            }
-            return schema.model_validate(data)
-
         if name == "ContradictionJudgement":
             data = {
                 "is_contradiction": False,
                 "explanation": "",
                 "reconciliation_hint": "",
-            }
-            return schema.model_validate(data)
-
-        if name == "MemoryBriefCompilation":
-            def extract_json_block(label: str) -> Dict[str, Any]:
-                pattern = rf"{label}:\n(.*?)(?:\n[A-Z_ ]+:\n|\Z)"
-                match = re.search(pattern, user, re.DOTALL)
-                if not match:
-                    return {}
-                try:
-                    return json.loads(match.group(1).strip())
-                except Exception:
-                    return {}
-
-            candidate_memory = extract_json_block("CANDIDATE_MEMORY")
-            data = {
-                "known_facts": candidate_memory.get("known_facts", []),
-                "preferences": candidate_memory.get("preferences", []),
-                "relationship_state": candidate_memory.get("relationship_state", []),
-                "active_narratives": candidate_memory.get("active_narratives", []),
-                "temporal_context": candidate_memory.get("temporal_context", []),
-                "cautions": candidate_memory.get("cautions", []),
             }
             return schema.model_validate(data)
 

@@ -33,12 +33,12 @@ LOCOMO (ACL 2024) - 长期对话记忆基准的适配器。
 
 使用示例:
     from aurora.benchmarks.adapters.locomo import LOCOMOAdapter, LOCOMOTaskType
-    from aurora.core.memory import AuroraMemory
+    from aurora.core.soul_memory import AuroraSoulMemory, SoulMemoryConfig
 
     adapter = LOCOMOAdapter(llm_provider=my_llm)
     instances = adapter.load_dataset("path/to/locomo")
 
-    memory = AuroraMemory(seed=42)
+    memory = AuroraSoulMemory(cfg=SoulMemoryConfig())
     results = []
 
     for instance in instances:
@@ -1450,8 +1450,7 @@ def create_locomo_adapter(
 # =============================================================================
 
 if __name__ == "__main__":
-    from aurora.core.memory import AuroraMemory
-    from aurora.core.models.config import MemoryConfig
+    from aurora.core.soul_memory import AuroraSoulMemory, SoulMemoryConfig
     
     # Create adapter (without LLM for demo)
     adapter = LOCOMOAdapter(seed=42)
@@ -1472,8 +1471,8 @@ if __name__ == "__main__":
     )
     
     # Create memory and prepare
-    config = MemoryConfig(dim=64, max_plots=100)
-    memory = AuroraMemory(cfg=config, seed=42)
+    config = SoulMemoryConfig(dim=64, max_plots=100)
+    memory = AuroraSoulMemory(cfg=config, seed=42)
     
     adapter.prepare_memory(sample_instance.conversation_history, memory)
     

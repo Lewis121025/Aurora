@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Literal, Optional
+from typing import Dict, List, Literal, Optional
 
-from aurora.core.models.trace import QueryHit
+from aurora.core.soul_memory.models import IdentitySnapshot, NarrativeSummary
 
 
 @dataclass
@@ -11,11 +11,21 @@ class IngestResult:
     event_id: str
     plot_id: str
     story_id: Optional[str]
-    memory_layer: Literal["explicit", "shadow"]
+    phase: str
+    source: Literal["wake", "dream", "repair", "phase"]
     tension: float
-    surprise: float
-    pred_error: float
-    redundancy: float
+    contradiction: float
+    active_energy: float
+    repressed_energy: float
+
+
+@dataclass(frozen=True)
+class QueryHit:
+    id: str
+    kind: str
+    score: float
+    snippet: str
+    metadata: Optional[Dict[str, str]] = None
 
 
 @dataclass
@@ -36,26 +46,19 @@ class EvidenceRef:
 @dataclass(frozen=True)
 class RetrievalTraceSummary:
     query: str
-    query_type: str
     attractor_path_len: int
     hit_count: int
-    timeline_count: int
-    standalone_count: int
-    abstain: bool
-    abstention_reason: str = ""
-    asker_id: Optional[str] = None
-    activated_identity: Optional[str] = None
+    ranked_kinds: List[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
 class StructuredMemoryContext:
-    known_facts: List[str] = field(default_factory=list)
-    preferences: List[str] = field(default_factory=list)
-    relationship_state: List[str] = field(default_factory=list)
-    active_narratives: List[str] = field(default_factory=list)
-    temporal_context: List[str] = field(default_factory=list)
-    system_intuition: List[str] = field(default_factory=list)
-    cautions: List[str] = field(default_factory=list)
+    phase: str
+    narrative_pressure: float
+    intuition: List[str] = field(default_factory=list)
+    identity: Optional[IdentitySnapshot] = None
+    narrative_summary: Optional[NarrativeSummary] = None
+    retrieval_hits: List[str] = field(default_factory=list)
     evidence_refs: List[EvidenceRef] = field(default_factory=list)
 
 
@@ -79,11 +82,3 @@ class ChatTurnResult:
     ingest_result: IngestResult
     timings: ChatTimings
     llm_error: Optional[str] = None
-
-
-@dataclass
-class CoherenceResult:
-    overall_score: float
-    conflict_count: int
-    unfinished_story_count: int
-    recommendations: List[str]
