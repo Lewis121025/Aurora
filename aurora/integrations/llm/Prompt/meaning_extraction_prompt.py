@@ -1,4 +1,4 @@
-MEANING_EXTRACTION_SYSTEM_PROMPT = """你在为 Aurora Soul-Memory 提取一个 EventFrame。
+MEANING_EXTRACTION_SYSTEM_PROMPT = """你在为 Aurora Soul 提取一个 EventFrame。
 
 要求：
 1. 只输出符合 schema 的 JSON。

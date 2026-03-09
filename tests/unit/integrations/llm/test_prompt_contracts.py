@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aurora.integrations.llm.Prompt import (
+from aurora.integrations.llm.Prompt.plot_extraction_prompt import (
     PLOT_EXTRACTION_SYSTEM_PROMPT,
     PLOT_EXTRACTION_USER_PROMPT,
 )

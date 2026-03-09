@@ -3,9 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, List
 
-from aurora.core.soul_memory import RetrievalTrace
-from aurora.integrations.llm.Prompt import RESPONSE_SYSTEM_PROMPT, build_response_user_prompt
+from aurora.integrations.llm.Prompt.response_prompt import RESPONSE_SYSTEM_PROMPT, build_response_user_prompt
 from aurora.runtime.results import EvidenceRef, RetrievalTraceSummary, StructuredMemoryContext
+from aurora.soul.models import RetrievalTrace
 
 
 @dataclass(frozen=True)
@@ -44,6 +44,11 @@ class ResponseContextBuilder:
             attractor_path_len=len(trace.attractor_path),
             hit_count=len(trace.ranked),
             ranked_kinds=[kind for _, _, kind in trace.ranked],
+            query_type=trace.query_type.name if trace.query_type is not None else None,
+            time_relation=trace.time_range.relation if trace.time_range is not None else None,
+            time_start=trace.time_range.start if trace.time_range is not None else None,
+            time_end=trace.time_range.end if trace.time_range is not None else None,
+            time_anchor_event=trace.time_range.anchor_event if trace.time_range is not None else None,
         )
 
     @staticmethod

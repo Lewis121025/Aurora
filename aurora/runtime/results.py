@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
-from aurora.core.soul_memory.models import IdentitySnapshot, NarrativeSummary
+from aurora.soul.models import IdentitySnapshot, NarrativeSummary
 
 
 @dataclass
@@ -49,6 +49,11 @@ class RetrievalTraceSummary:
     attractor_path_len: int
     hit_count: int
     ranked_kinds: List[str] = field(default_factory=list)
+    query_type: Optional[str] = None
+    time_relation: Optional[str] = None
+    time_start: Optional[float] = None
+    time_end: Optional[float] = None
+    time_anchor_event: Optional[str] = None
 
 
 @dataclass(frozen=True)

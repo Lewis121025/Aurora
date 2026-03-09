@@ -103,23 +103,25 @@ aurora/
 
 ### 设计原则
 
-- **core**：纯领域逻辑，不包含 API、CLI 或评测编排代码
+- **soul**：Aurora 的唯一生产核心，负责记忆摄入、检索与演化
 - **runtime**：负责系统组件的装配和生命周期管理
 - **integrations**：provider 与本地持久化的接入点，保持算法主链解耦
-- **interfaces**：用户可直接调用的入口，与 core 保持独立
+- **interfaces**：用户可直接调用的入口，与 soul / lab 的内部实现保持独立
+- **lab**：研究与实验能力，不参与默认生产主链
 
 ### 关键目录
 
 ```
 aurora/
 ├── __init__.py                    # 公共 API 导出
-├── core/memory/engine.py         # 记忆主引擎
-├── core/graph/                   # MemoryGraph 与本地精确 VectorIndex
+├── soul/engine.py                # Aurora Soul 主引擎
+├── soul/retrieval.py             # 检索与图扩散主链
 ├── runtime/runtime.py            # 单用户运行时与重放
 ├── runtime/bootstrap.py          # provider 装配
 ├── integrations/storage/         # SQLite event/doc store 与 snapshot
 ├── interfaces/api/               # FastAPI 接口
 ├── interfaces/mcp/               # MCP 接口
+├── lab/                          # 研究能力与实验算法
 ├── benchmarks/                   # 评测与研究适配器
 └── tests/                        # 单元与集成测试
 ```
@@ -128,8 +130,8 @@ aurora/
 
 1. `AuroraRuntime.respond()` 先检索证据，并构造结构化 `Memory Brief`
 2. 运行时只把结构化 brief 和当前用户输入发送给 LLM，不把原始历史对话直接塞进 prompt
-3. 回复生成后，`AuroraRuntime.ingest_interaction()` 把本轮交互写入本地 event log 并调用 `AuroraMemory.ingest()`
-4. `AuroraMemory` 在内存中更新向量索引、关系图和 plot/story/theme 状态
+3. 回复生成后，`AuroraRuntime.ingest_interaction()` 把本轮交互写入本地 event log 并调用 `AuroraSoul.ingest()`
+4. `AuroraSoul` 在内存中更新向量索引、关系图和 plot/story/theme 状态
 5. 运行时把 plot 提取结果和 ingest 结果写入本地 SQLite doc store；定期 snapshot 保存整个记忆状态
 
 ## 开发指南
@@ -142,12 +144,12 @@ aurora/
 1. `aurora/__init__.py` - 公共 API 入口
 2. `aurora/runtime/bootstrap.py` - 系统初始化
 3. `aurora/runtime/runtime.py` - 单用户运行时
-4. `aurora/core/memory/engine.py` - 记忆引擎
+4. `aurora/soul/engine.py` - Aurora Soul 引擎
 
 **核心算法开发**（修改记忆逻辑）
-- 从 `aurora/core/memory/engine.py` 开始
-- 关系管理：`aurora/core/memory/relations.py`
-- 记忆演化：`aurora/core/memory/evolution.py`
+- 从 `aurora/soul/engine.py` 开始
+- 检索与图扩散：`aurora/soul/retrieval.py`
+- 数据模型与查询语义：`aurora/soul/models.py` / `aurora/soul/query.py`
 
 **集成与扩展**（添加新的 provider）
 - 嵌入器：`aurora/integrations/embeddings/`
@@ -158,8 +160,8 @@ aurora/
 
 | 需求 | 文件位置 |
 |------|---------|
-| 修改记忆编码/检索算法 | `aurora/core/memory/engine.py` |
-| 修改关系图谱或演化机制 | `aurora/core/memory/` |
+| 修改记忆编码/检索算法 | `aurora/soul/engine.py` / `aurora/soul/retrieval.py` |
+| 修改关系图谱或演化机制 | `aurora/soul/` |
 | 切换嵌入模型或 LLM | `aurora/runtime/bootstrap.py` |
 | 修改运行时持久化策略 | `aurora/runtime/runtime.py` |
 | 扩展 CLI/API/MCP 接口 | `aurora/interfaces/` |
@@ -208,7 +210,7 @@ aurora observe --observe full
 或者直接运行脚本入口：
 
 ```bash
-python scripts/observe_runtime.py --observe full
+python scripts/runtime/observe.py --observe full
 ```
 
 ### REST API

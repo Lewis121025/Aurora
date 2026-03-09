@@ -1,12 +1,15 @@
 # 07 批量导入与评估问题
 
+> [!WARNING]
+> 本文档在 Aurora Soul canonical migration 之后已过时。当前生产主线请以 `aurora.soul.AuroraSoul` 和 `aurora.runtime` 为准。
+
 ## 问题发现
 
 ### 1. 性能瓶颈：串行 Embedding
 
 **问题**：LongMemEval 每个样本有 300-500 个对话轮次，每次 embedding API 调用 0.4-0.8s，导致一个样本需要 200+ 秒。
 
-**根本原因**：`AuroraMemory.ingest()` 是为实时在线场景设计的（一次处理一条），不适合基准测试场景（需要批量导入大量历史数据）。
+**根本原因**：`AuroraSoul.ingest()` 是为实时在线场景设计的（一次处理一条），不适合基准测试场景（需要批量导入大量历史数据）。
 
 **解决方案**：
 - 添加 `ingest_batch()` 方法

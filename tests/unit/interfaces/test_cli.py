@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from aurora.interfaces import cli
+import aurora.interfaces.cli.entry as cli
 
 
 def test_cli_observe_dispatches_to_terminal_observer(monkeypatch):

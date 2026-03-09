@@ -139,6 +139,11 @@ class RetrievalTraceSummary(BaseModel):
     attractor_path_len: int
     hit_count: int
     ranked_kinds: List[str] = Field(default_factory=list)
+    query_type: Optional[str] = None
+    time_relation: Optional[str] = None
+    time_start: Optional[float] = None
+    time_end: Optional[float] = None
+    time_anchor_event: Optional[str] = None
 
 
 class ChatTimings(BaseModel):

@@ -4,17 +4,13 @@ import logging
 import os
 from typing import Optional
 
-from aurora.core.soul_memory import (
-    AuroraSoulMemory,
-    HeuristicMeaningExtractor,
-    LLMMeaningExtractor,
-    SoulMemoryConfig,
-)
-from aurora.exceptions import ConfigurationError
+from aurora.system.errors import ConfigurationError
 from aurora.integrations.embeddings.base import EmbeddingProvider
 from aurora.integrations.llm.mock import MockLLM
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.runtime.settings import AuroraSettings
+from aurora.soul.engine import AuroraSoul, SoulConfig
+from aurora.soul.extractors import HeuristicMeaningExtractor, LLMMeaningExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -98,8 +94,8 @@ def create_embedding_provider(settings: AuroraSettings) -> EmbeddingProvider:
     return LocalSemanticEmbedding(dim=settings.dim)
 
 
-def build_memory_config(settings: AuroraSettings) -> SoulMemoryConfig:
-    return SoulMemoryConfig(
+def build_memory_config(settings: AuroraSettings) -> SoulConfig:
+    return SoulConfig(
         dim=settings.dim,
         metric_rank=settings.metric_rank,
         max_plots=settings.max_plots,
@@ -126,11 +122,11 @@ def create_meaning_extractor(*, settings: AuroraSettings, llm: Optional[LLMProvi
     return HeuristicMeaningExtractor()
 
 
-def create_memory(*, settings: AuroraSettings, llm: Optional[LLMProvider] = None) -> AuroraSoulMemory:
+def create_memory(*, settings: AuroraSettings, llm: Optional[LLMProvider] = None) -> AuroraSoul:
     cfg = build_memory_config(settings)
     embedder = create_embedding_provider(settings)
     extractor = create_meaning_extractor(settings=settings, llm=llm)
-    return AuroraSoulMemory(
+    return AuroraSoul(
         cfg=cfg,
         seed=int(settings.memory_seed),
         embedder=embedder,

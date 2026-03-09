@@ -1,5 +1,8 @@
 # AURORA 叙事记忆：生产级拼图补全包（可插拔 / 可观测 / 可回放）
 
+> [!WARNING]
+> 本文档在 Aurora Soul canonical migration 之后已过时。当前生产主线请以 `aurora.soul.AuroraSoul` 和 `aurora.runtime` 为准，文中的旧类名仅供历史参考。
+
 > 你之前要的“从第一性原理出发、不要被原文档束缚”的算法核心，我已经用 `AURORA_memory_algorithm.md` 给出了可运行实现（Thompson gate + CRP + attractor retrieval + Beta edge + learnable metric）。  
 > 这份文档与代码仓库则专注于你说的“**补齐生产级拼图**”：把算法从“能跑”推进到“能上线、能回放、能演进、能排障”。  
 >
@@ -65,7 +68,7 @@
   - 幂等写 event log
   - PII redaction（可插拔）
   - PlotExtraction（LLM 可选，失败可降级）
-  - 调用核心算法 `AuroraMemory.ingest(..., event_id=...)`
+  - 调用核心算法 `AuroraSoul.ingest(..., event_id=...)`
   - 只写“轻量 derived doc”：plot_extraction / ingest_result
 
 - **Narrator（查询路径）**
@@ -116,9 +119,9 @@
 
 ### 4.2 我在核心算法里做了什么改动？
 
-在 `aurora/core/memory/engine.py` 我做了**最小侵入式补丁**：
+在 `aurora/soul/engine.py` 我做了**最小侵入式补丁**：
 
-- `AuroraMemory.ingest(..., event_id=...)` 支持传入事件 ID
+- `AuroraSoul.ingest(..., event_id=...)` 支持传入事件 ID
 - plot/story/theme id 使用 `uuid5(namespace, seed)` 生成：
   - plot_id = det_id("plot", event_id)
   - story_id = det_id("story", plot_id)
@@ -221,7 +224,7 @@
 - `aurora/integrations/storage/snapshot.py`：pickle snapshot
 - `aurora/integrations/storage/doc_store.py`：sqlite derived doc store
 - `aurora/integrations/llm/*`：schema + prompts + mock provider
-- `aurora/core/memory/engine.py`：核心算法（已补确定性 id）
+- `aurora/soul/engine.py`：核心算法（已补确定性 id）
 - `aurora/interfaces/api/app.py`：FastAPI endpoints（可选）
 - `tests/*`：确定性回放/幂等测试
 

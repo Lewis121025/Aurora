@@ -1,23 +1,4 @@
+"""Aurora MCP package.
+
+直接从 `aurora.interfaces.mcp.server` 导入实现。
 """
-Aurora MCP（模型上下文协议）服务器
-==========================================
-
-为 AI 助手（Claude Desktop、Cursor 等）提供 MCP 兼容接口
-与 Aurora 内存系统交互。
-
-工具:
-- save_memory: 保存内存交互
-- search_memory: 按语义相似度搜索内存
-- get_identity: 获取身份快照与叙事摘要
-
-资源:
-- aurora://memory/stats: 内存统计
-- aurora://memory/identity: 当前身份快照
-"""
-
-from aurora.interfaces.mcp.server import AuroraMCPServer, create_mcp_server
-
-__all__ = [
-    "AuroraMCPServer",
-    "create_mcp_server",
-]

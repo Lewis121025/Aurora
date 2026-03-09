@@ -1,37 +1,8 @@
-from aurora.runtime.bootstrap import (
-    check_embedding_api_keys,
-    create_embedding_provider,
-    create_llm_provider,
-    build_memory_config,
-    create_memory,
-)
-from aurora.runtime.runtime import AuroraRuntime
-from aurora.runtime.results import (
-    ChatTimings,
-    ChatTurnResult,
-    EvidenceRef,
-    IngestResult,
-    QueryHit,
-    QueryResult,
-    RetrievalTraceSummary,
-    StructuredMemoryContext,
-)
-from aurora.runtime.settings import AuroraSettings
+"""Aurora runtime package.
 
-__all__ = [
-    'AuroraRuntime',
-    'AuroraSettings',
-    'ChatTimings',
-    'ChatTurnResult',
-    'IngestResult',
-    'QueryHit',
-    'QueryResult',
-    'EvidenceRef',
-    'RetrievalTraceSummary',
-    'StructuredMemoryContext',
-    'check_embedding_api_keys',
-    'create_embedding_provider',
-    'create_llm_provider',
-    'build_memory_config',
-    'create_memory',
-]
+直接从具体模块导入：
+- `aurora.runtime.runtime`
+- `aurora.runtime.bootstrap`
+- `aurora.runtime.results`
+- `aurora.runtime.settings`
+"""

@@ -20,11 +20,11 @@ AURORA Capability Mapping:
 | Conflict Resolution | TensionManager + CoherenceGuardian |
 
 Usage:
-    from aurora.benchmarks.adapters import MemoryAgentBenchAdapter
-    from aurora.core.soul_memory import AuroraSoulMemory, SoulMemoryConfig
+    from aurora.benchmarks.adapters.memoryagentbench import MemoryAgentBenchAdapter
+    from aurora.soul.engine import AuroraSoul, SoulConfig
     
     adapter = MemoryAgentBenchAdapter(llm_provider=llm)
-    memory = AuroraSoulMemory(cfg=SoulMemoryConfig())
+    memory = AuroraSoul(cfg=SoulConfig())
     
     results, metrics = adapter.run_benchmark(
         dataset_path="ai-hyz/MemoryAgentBench",
@@ -56,12 +56,11 @@ from aurora.benchmarks.interface import (
     EvaluationMetrics,
     MemoryProtocol,
 )
-from aurora.integrations.llm.Prompt import (
+from aurora.integrations.llm.Prompt.memoryagentbench_prompt import (
     MEMORYAGENTBENCH_JUDGE_SYSTEM_PROMPT,
     MEMORYAGENTBENCH_JUDGE_USER_PROMPT,
-    build_qa_prompt,
-    detect_question_type,
 )
+from aurora.integrations.llm.Prompt.qa_prompt import build_qa_prompt, detect_question_type
 from aurora.utils.time_utils import now_ts
 
 logger = logging.getLogger(__name__)
@@ -2739,7 +2738,7 @@ Provide concise answers that demonstrate understanding of the learned rules."""
             
             if plots:
                 try:
-                    from aurora.core.narrator import NarratorEngine
+                    from aurora.lab.narrator.reconstruction import NarratorEngine
                     
                     # Get vindex and graph from memory if available
                     vindex = getattr(memory, "vindex", None)

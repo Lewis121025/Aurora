@@ -26,7 +26,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, TYPE_CHECKING
 
 import numpy as np
 
-from aurora.integrations.llm.Prompt import METRICS_LLM_JUDGE_PROMPT
+from aurora.integrations.llm.Prompt.metrics_prompt import METRICS_LLM_JUDGE_PROMPT
 
 logger = logging.getLogger(__name__)
 

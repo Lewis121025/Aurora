@@ -1,5 +1,8 @@
 # AURORA 叙事记忆算法（第一性原理版）参考实现
 
+> [!WARNING]
+> 本文档在 Aurora Soul canonical migration 之后已过时。当前可运行主线已经收敛到 `aurora.soul`，文中的旧命名和示例代码未完全同步。
+
 > 目标：用**可学习的概率机制**替代“阈值/固定权重/规则硬编码”，在资源约束下，让记忆结构 **Plot→Story→Theme** 自组织涌现，并且能被反馈持续塑形。  
 > 参考：你上传的两份文档分别强调了“叙事层级/涌现结构”与“自由能、场论、信息几何”等方向，我这里在不被原思路束缚的前提下，把这些动机从第一性原理重构成一个可运行的算法骨架。  
 > 文档引用：fileciteturn0file0 fileciteturn0file1
@@ -688,7 +691,7 @@ class FieldRetriever:
 # -----------------------------------------------------------------------------
 
 @dataclass
-class MemoryConfig:
+class SoulConfig:
     dim: int = 384
     metric_rank: int = 64
 
@@ -707,8 +710,8 @@ class MemoryConfig:
     retrieval_kinds: Tuple[str, ...] = ("theme", "story", "plot")
 
 
-class AuroraMemory:
-    """AURORA Memory: emergent narrative memory from first principles.
+class AuroraSoul:
+    """AURORA Soul: emergent narrative memory from first principles.
 
     Key APIs:
         ingest(interaction_text, actors, context_text) -> Plot (may or may not be stored)
@@ -717,7 +720,7 @@ class AuroraMemory:
         evolve() -> consolidate plots->stories->themes, manage pressure, update statuses
     """
 
-    def __init__(self, cfg: MemoryConfig = MemoryConfig(), seed: int = 0):
+    def __init__(self, cfg: SoulConfig = SoulConfig(), seed: int = 0):
         self.cfg = cfg
         self.rng = np.random.default_rng(seed)
 
@@ -1108,7 +1111,7 @@ class AuroraMemory:
 # -----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    mem = AuroraMemory(cfg=MemoryConfig(dim=96, metric_rank=32, max_plots=2000), seed=42)
+    mem = AuroraSoul(cfg=SoulConfig(dim=96, metric_rank=32, max_plots=2000), seed=42)
 
     # Ingest a few interactions
     mem.ingest("用户：我想做一个记忆系统。助理：好的，我们从第一性原理开始。", context_text="memory algorithm")

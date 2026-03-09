@@ -7,8 +7,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Sequence
 
-from aurora.core.soul_memory import AuroraSoulMemory
-from aurora.exceptions import ConfigurationError
+from aurora.system.errors import ConfigurationError
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.integrations.storage.doc_store import Document, SQLiteDocStore
 from aurora.integrations.storage.event_log import Event, SQLiteEventLog
@@ -31,6 +30,7 @@ from aurora.runtime.results import (
     StructuredMemoryContext,
 )
 from aurora.runtime.settings import AuroraSettings
+from aurora.soul.engine import AuroraSoul
 
 logger = logging.getLogger(__name__)
 
@@ -57,18 +57,18 @@ class AuroraRuntime:
         self._ensure_v3_doc_store()
         self._replay()
 
-    def _load_or_init(self) -> AuroraSoulMemory:
+    def _load_or_init(self) -> AuroraSoul:
         try:
             latest = self.snapshots.latest()
         except ValueError as exc:
-            raise ConfigurationError(str(exc).replace("V2", "Soul-Memory V3")) from exc
+            raise ConfigurationError(str(exc).replace("V2", "Aurora Soul V3")) from exc
         if latest is not None:
             _seq, snap = latest
             self.last_seq = snap.last_seq
             embedder = create_embedding_provider(self.settings)
             extractor = create_meaning_extractor(settings=self.settings, llm=self.llm)
             try:
-                return AuroraSoulMemory.from_state_dict(snap.state, embedder=embedder, extractor=extractor)
+                return AuroraSoul.from_state_dict(snap.state, embedder=embedder, extractor=extractor)
             except ValueError as exc:
                 raise ConfigurationError(str(exc)) from exc
         return create_memory(settings=self.settings, llm=self.llm)
@@ -78,13 +78,13 @@ class AuroraRuntime:
             for doc in self.doc_store.iter_kind(kind=kind, limit=5):
                 if doc.body.get("runtime_schema_version") != RUNTIME_SCHEMA_VERSION:
                     raise ConfigurationError(
-                        "Detected legacy documents in docs.sqlite3. Aurora Soul-Memory requires a fresh data directory."
+                        "Detected legacy documents in docs.sqlite3. Aurora Soul requires a fresh data directory."
                     )
 
     def _ensure_v3_event_payload(self, payload: Dict[str, Any]) -> None:
         if payload.get("runtime_schema_version") != RUNTIME_SCHEMA_VERSION:
             raise ConfigurationError(
-                "Detected legacy event payloads. Aurora Soul-Memory requires a fresh data directory."
+                "Detected legacy event payloads. Aurora Soul requires a fresh data directory."
             )
 
     def _replay(self) -> None:

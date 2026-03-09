@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aurora.exceptions import ConfigurationError
+from aurora.system.errors import ConfigurationError
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings

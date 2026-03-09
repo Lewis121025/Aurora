@@ -47,7 +47,7 @@ all = [
 ]
 
 [project.scripts]
-aurora = "aurora.interfaces.cli:main"
+aurora = "aurora.interfaces.cli.entry:main"
 
 [tool.ruff]
 line-length = 100

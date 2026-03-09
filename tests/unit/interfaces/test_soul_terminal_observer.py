@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from io import StringIO
 
-from aurora.interfaces.terminal_observer import TerminalObserver
+from aurora.interfaces.terminal.observer import TerminalObserver
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
 

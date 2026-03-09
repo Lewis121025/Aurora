@@ -117,9 +117,9 @@ def verify_benchmark_ready(
 
     Example:
         from aurora.benchmarks.interface import verify_benchmark_ready
-        from aurora.core.soul_memory import AuroraSoulMemory, SoulMemoryConfig
+        from aurora.soul.engine import AuroraSoul, SoulConfig
 
-        memory = AuroraSoulMemory(cfg=SoulMemoryConfig())
+        memory = AuroraSoul(cfg=SoulConfig())
         is_ready, warnings = verify_benchmark_ready(memory)
 
         if not is_ready:
@@ -839,11 +839,11 @@ class AURORABenchmarkRunner:
         adapters: 将基准名称映射到适配器的字典
 
     Example:
-        from aurora import AuroraSoulMemory, SoulMemoryConfig
-        from aurora.benchmarks import AURORABenchmarkRunner
-        from aurora.benchmarks.adapters import MemoryAgentBenchAdapter
+        from aurora.soul.engine import AuroraSoul, SoulConfig
+        from aurora.benchmarks.interface import AURORABenchmarkRunner
+        from aurora.benchmarks.adapters.memoryagentbench import MemoryAgentBenchAdapter
 
-        memory = AuroraSoulMemory(cfg=SoulMemoryConfig())
+        memory = AuroraSoul(cfg=SoulConfig())
         adapters = {"mab": MemoryAgentBenchAdapter()}
 
         runner = AURORABenchmarkRunner(memory, adapters)

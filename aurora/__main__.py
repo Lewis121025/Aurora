@@ -1,4 +1,4 @@
-from aurora.interfaces.cli import main
+from aurora.interfaces.cli.entry import main
 
 if __name__ == '__main__':
     main()

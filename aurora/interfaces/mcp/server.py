@@ -8,7 +8,7 @@ Aurora MCP 服务器实现
 Claude Desktop、Cursor 和其他 MCP 兼容客户端调用。
 
 使用方法:
-    from aurora.interfaces.mcp import create_mcp_server
+    from aurora.interfaces.mcp.server import create_mcp_server
 
     server = create_mcp_server(aurora_runtime)
     await server.serve_stdio()

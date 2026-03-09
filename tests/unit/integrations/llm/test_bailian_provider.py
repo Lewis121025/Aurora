@@ -5,7 +5,7 @@ import types
 
 from aurora.integrations.llm.ark import ArkLLM
 from aurora.integrations.llm.bailian import BailianLLM
-from aurora.core.soul_memory.extractors import MeaningFramePayload
+from aurora.soul.extractors import MeaningFramePayload
 
 
 class _FakeMessage:

@@ -33,12 +33,12 @@ LOCOMO (ACL 2024) - 长期对话记忆基准的适配器。
 
 使用示例:
     from aurora.benchmarks.adapters.locomo import LOCOMOAdapter, LOCOMOTaskType
-    from aurora.core.soul_memory import AuroraSoulMemory, SoulMemoryConfig
+    from aurora.soul.engine import AuroraSoul, SoulConfig
 
     adapter = LOCOMOAdapter(llm_provider=my_llm)
     instances = adapter.load_dataset("path/to/locomo")
 
-    memory = AuroraSoulMemory(cfg=SoulMemoryConfig())
+    memory = AuroraSoul(cfg=SoulConfig())
     results = []
 
     for instance in instances:
@@ -77,13 +77,13 @@ from aurora.benchmarks.interface import (
     exact_match_score,
     fuzzy_match_score,
 )
-from aurora.integrations.llm.Prompt import (
+from aurora.integrations.llm.Prompt.locomo_prompt import (
     LOCOMO_QA_EVALUATION_SYSTEM_PROMPT,
     LOCOMO_QA_EVALUATION_USER_PROMPT,
     LOCOMO_SUMMARIZATION_EVALUATION_SYSTEM_PROMPT,
     LOCOMO_SUMMARIZATION_EVALUATION_USER_PROMPT,
-    build_qa_prompt,
 )
+from aurora.integrations.llm.Prompt.qa_prompt import build_qa_prompt
 from aurora.utils.time_utils import now_ts
 
 try:
@@ -1078,7 +1078,7 @@ Be concise and answer directly."""
             生成的摘要文本
         """
         try:
-            from aurora.core.narrator import NarratorEngine
+            from aurora.lab.narrator.reconstruction import NarratorEngine
             
             # Get all plots
             plots = list(memory.plots.values())
@@ -1450,7 +1450,7 @@ def create_locomo_adapter(
 # =============================================================================
 
 if __name__ == "__main__":
-    from aurora.core.soul_memory import AuroraSoulMemory, SoulMemoryConfig
+    from aurora.soul.engine import AuroraSoul, SoulConfig
     
     # Create adapter (without LLM for demo)
     adapter = LOCOMOAdapter(seed=42)
@@ -1471,8 +1471,8 @@ if __name__ == "__main__":
     )
     
     # Create memory and prepare
-    config = SoulMemoryConfig(dim=64, max_plots=100)
-    memory = AuroraSoulMemory(cfg=config, seed=42)
+    config = SoulConfig(dim=64, max_plots=100)
+    memory = AuroraSoul(cfg=config, seed=42)
     
     adapter.prepare_memory(sample_instance.conversation_history, memory)
     

@@ -1,5 +1,8 @@
 # 08 上下文截断问题修复
 
+> [!WARNING]
+> 本文档在 Aurora Soul canonical migration 之后已过时。当前生产主线请以 `aurora.soul.AuroraSoul` 和 `aurora.runtime` 为准。
+
 ## 问题发现日期
 2026-02-02
 
@@ -41,8 +44,8 @@ ValueError: vector dim mismatch: (1024,) vs (384,)
 
 **解决方案**：创建正确的配置：
 ```python
-cfg = MemoryConfig(dim=1024)
-memory = AuroraMemory(cfg=cfg, embedder=embedder, ...)
+cfg = SoulConfig(dim=1024)
+memory = AuroraSoul(cfg=cfg, embedder=embedder, ...)
 ```
 
 ### 3. 上下文截断丢失关键信息（核心问题）
@@ -101,6 +104,6 @@ filtered_context = _extract_relevant_context(
 
 ## 相关文件
 
-- `aurora/integrations/llm/prompts.py`：添加 `_extract_relevant_context()` 函数
-- `MemoryConfig`：需要传入正确的 `dim` 参数
+- `aurora/integrations/llm/Prompt/qa_prompt.py`：添加 `_extract_relevant_context()` 函数
+- `SoulConfig`：需要传入正确的 `dim` 参数
 - 测试脚本：需要正确解析 `haystack_sessions`

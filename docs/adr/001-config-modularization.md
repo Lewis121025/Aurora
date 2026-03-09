@@ -63,7 +63,7 @@ aurora/core/config/
 
 ### 缓解措施
 
-- 提供自动迁移脚本 `aurora/scripts/migrate_constants.py`
+- 提供自动迁移脚本 `aurora/scripts/migrations/constants.py`
 - 通过迁移脚本和文档示例降低切换成本
 - 在文档中明确说明配置的模块划分原则
 

@@ -1,5 +1,8 @@
 # AURORA 基准测试指南
 
+> [!NOTE]
+> 当前基准适配器默认支持直接传入 `AuroraSoul`，部分场景也兼容 `AuroraRuntime`。下面的示例统一使用 `aurora.soul.AuroraSoul` 与 `SoulConfig`。
+
 本指南说明如何使用 AURORA 记忆系统参与学术基准测试。
 
 ## 支持的基准测试
@@ -69,12 +72,11 @@ cp .env.example .env
 
 ```python
 from aurora.benchmarks import MemoryAgentBenchAdapter, EvaluationConfig
-from aurora.core.memory import AuroraMemory
-from aurora.core.models.config import MemoryConfig
+from aurora.soul.engine import AuroraSoul, SoulConfig
 
 # 1. 创建记忆实例
-config = MemoryConfig(dim=96, metric_rank=32, max_plots=2000)
-memory = AuroraMemory(cfg=config, seed=42)
+config = SoulConfig(dim=96, metric_rank=32, max_plots=2000)
+memory = AuroraSoul(cfg=config, seed=42)
 
 # 2. 创建适配器
 adapter = MemoryAgentBenchAdapter(seed=42)
@@ -132,12 +134,11 @@ eval_config = EvaluationConfig(use_llm_judge=True)
 
 ```python
 from aurora.benchmarks.adapters.locomo import LOCOMOAdapter
-from aurora.core.memory import AuroraMemory
-from aurora.core.models.config import MemoryConfig
+from aurora.soul.engine import AuroraSoul, SoulConfig
 
 # 1. 创建记忆实例
-config = MemoryConfig(dim=96, metric_rank=32, max_plots=2000)
-memory = AuroraMemory(cfg=config, seed=42)
+config = SoulConfig(dim=96, metric_rank=32, max_plots=2000)
+memory = AuroraSoul(cfg=config, seed=42)
 
 # 2. 创建适配器
 adapter = LOCOMOAdapter(seed=42)
@@ -156,7 +157,7 @@ for instance in instances:
     results.append(result)
     
     # 重置记忆（可选）
-    memory = AuroraMemory(cfg=config, seed=42)
+    memory = AuroraSoul(cfg=config, seed=42)
 
 # 5. 聚合结果
 metrics = adapter.aggregate_results(results)
@@ -284,7 +285,9 @@ A: 考虑以下优化：
 
 A: 调整配置：
 ```python
-config = MemoryConfig(
+from aurora.soul.engine import SoulConfig
+
+config = SoulConfig(
     dim=64,  # 降低嵌入维度
     max_plots=500,  # 限制存储数量
     kde_reservoir=500,  # 减少 KDE 样本

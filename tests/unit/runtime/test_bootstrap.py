@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from aurora.exceptions import ConfigurationError
+from aurora.system.errors import ConfigurationError
 from aurora.integrations.llm.mock import MockLLM
 from aurora.runtime.bootstrap import create_embedding_provider, create_llm_provider
 from aurora.runtime.settings import AuroraSettings

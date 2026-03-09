@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from aurora.core.config.query_types import (
+from aurora.soul.query import (
     QUESTION_STOP_WORDS,
     SINGLE_SESSION_USER_MAX_CONTEXT,
     USER_ROLE_PRIORITY_BOOST,

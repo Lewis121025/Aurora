@@ -1,5 +1,8 @@
 # AURORA LongMemEval Baseline Report
 
+> [!WARNING]
+> 本文档在 Aurora Soul canonical migration 之后已过时。当前生产主线请以 `aurora.soul.AuroraSoul` 和 `aurora.runtime` 为准。
+
 **Date:** 2026-02-01  
 **Dataset:** LongMemEval Oracle (500 questions)  
 **AURORA Version:** Current develop branch
@@ -105,13 +108,13 @@ Most errors occurred in multi-session questions, likely due to:
 
 ### Configuration Used
 ```python
-config = MemoryConfig(dim=1024, max_plots=5000)
+config = SoulConfig(dim=1024, max_plots=5000)
 embedder = BailianEmbedding(model='text-embedding-v4', dimension=1024)
 llm = ArkLLM(model='doubao-1-5-pro-32k-250115')
 ```
 
 ### Evaluation Method
-- Fresh `AuroraMemory` instance per question
+- Fresh `AuroraSoul` instance per question
 - Ingest all sessions, then query
 - Top-5 retrieval for context building
 - LLM-based answer generation

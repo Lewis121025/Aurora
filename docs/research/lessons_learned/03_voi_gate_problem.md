@@ -1,5 +1,8 @@
 # VOI 门控导致信息丢失问题
 
+> [!WARNING]
+> 本文档在 Aurora Soul canonical migration 之后已过时。文中的旧类名和结构仅保留为历史分析材料。
+
 ## 问题背景
 
 AURORA 使用 Value of Information (VOI) 门控决定是否存储新信息。
@@ -54,7 +57,7 @@ Actual: 无法计算，因为 Session 5 被过滤了
 **添加 benchmark_mode 参数**：
 
 ```python
-class AuroraMemory:
+class AuroraSoul:
     def __init__(self, cfg, benchmark_mode=False):
         self.benchmark_mode = benchmark_mode or cfg.benchmark_mode
     

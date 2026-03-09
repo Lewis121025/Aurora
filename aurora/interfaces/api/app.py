@@ -26,14 +26,14 @@ from aurora.interfaces.api.schemas import (
 )
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
-from aurora.version import __version__
+from aurora.system.version import __version__
 
 try:
     from fastapi import FastAPI
 except Exception as exc:  # pragma: no cover
     raise RuntimeError("FastAPI未安装。使用以下命令安装: pip install -e '.[api]'") from exc
 
-app = FastAPI(title="Aurora Soul-Memory API", version=__version__)
+app = FastAPI(title="Aurora Soul API", version=__version__)
 
 
 @lru_cache(maxsize=1)
