@@ -8,13 +8,12 @@ AURORA 追踪和快照模型
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
 if TYPE_CHECKING:
-    from aurora.core.retrieval.field_retriever import QueryType
+    from aurora.core.retrieval.query_analysis import QueryType
     from aurora.core.abstention import AbstentionResult
 
 
@@ -35,7 +34,6 @@ class RetrievalTrace:
     关系中心扩展：
         asker_id: 提出查询的实体 ID
         activated_identity: 为此关系激活的身份
-        relationship_context: 关系背景摘要
 
     查询类型感知：
         query_type: 检测到的或指定的查询类型，用于自适应检索
@@ -53,7 +51,6 @@ class RetrievalTrace:
     # 关系中心扩展
     asker_id: Optional[str] = None
     activated_identity: Optional[str] = None
-    relationship_context: Optional[str] = None
 
     # 查询类型感知（使用 Any 避免运行时循环导入）
     query_type: Optional[Any] = None  # QueryType 枚举

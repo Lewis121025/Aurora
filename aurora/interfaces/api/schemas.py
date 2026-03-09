@@ -148,7 +148,46 @@ class QueryRequestV1(BaseModel):
         default=False,
         description="在响应中包含详细元数据。",
     )
-    
+
+
+class RespondRequestV1(BaseModel):
+    """V1 对话请求 - 基于结构化记忆上下文生成回复。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
+
+    session_id: str = Field(
+        default="default",
+        description="会话标识符，用于分组相关交互；单用户场景下默认即可。",
+    )
+    user_message: str = Field(
+        ...,
+        description="当前用户输入。",
+        min_length=1,
+    )
+    event_id: Optional[str] = Field(
+        default=None,
+        description="可选的事件标识符；未提供则由运行时生成。",
+    )
+    context: Optional[str] = Field(
+        default=None,
+        description="本轮对话的额外上下文。",
+    )
+    actors: Optional[List[str]] = Field(
+        default=None,
+        description="本轮交互的参与者列表。",
+    )
+    k: int = Field(
+        default=6,
+        ge=1,
+        le=20,
+        description="构建 memory brief 时使用的最大证据数量。",
+    )
+    ts: Optional[float] = Field(
+        default=None,
+        description="本轮交互的 Unix 时间戳；未提供则自动设置。",
+    )
+
+
 class FeedbackRequestV1(BaseModel):
     """V1 反馈请求 - 提供关于检索质量的反馈。"""
 
@@ -275,7 +314,76 @@ class QueryResponseV1(BaseModel):
         default=None,
         description="查询延迟 (毫秒)。",
     )
-    
+
+
+class EvidenceRefV1(BaseModel):
+    """V1 证据引用 - 结构化引用，不包含原始文本。"""
+
+    id: str = Field(..., description="记忆单元 ID。")
+    kind: MemoryKind = Field(..., description="记忆单元类型。")
+    score: float = Field(..., description="相关性分数。")
+    role: str = Field(..., description="证据在 memory brief 中的角色。")
+
+
+class StructuredMemoryContextV1(BaseModel):
+    """V1 结构化记忆上下文。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
+
+    known_facts: List[str] = Field(default_factory=list)
+    preferences: List[str] = Field(default_factory=list)
+    relationship_state: List[str] = Field(default_factory=list)
+    active_narratives: List[str] = Field(default_factory=list)
+    temporal_context: List[str] = Field(default_factory=list)
+    cautions: List[str] = Field(default_factory=list)
+    evidence_refs: List[EvidenceRefV1] = Field(default_factory=list)
+
+
+class RetrievalTraceSummaryV1(BaseModel):
+    """V1 检索追踪摘要。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
+
+    query: str
+    query_type: str
+    attractor_path_len: int
+    hit_count: int
+    timeline_count: int
+    standalone_count: int
+    abstain: bool
+    abstention_reason: str = ""
+    asker_id: Optional[str] = None
+    activated_identity: Optional[str] = None
+
+
+class ChatTimingsV1(BaseModel):
+    """V1 对话各阶段耗时。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
+
+    retrieval_ms: float
+    generation_ms: float
+    ingest_ms: float
+    total_ms: float
+
+
+class ChatTurnResponseV1(BaseModel):
+    """V1 对话响应 - reply + memory brief + debug trace。"""
+
+    model_config = ConfigDict(json_schema_extra={"version": "v1"})
+
+    reply: str
+    event_id: str
+    memory_context: StructuredMemoryContextV1
+    rendered_memory_brief: str
+    system_prompt: str
+    user_prompt: str
+    retrieval_trace_summary: RetrievalTraceSummaryV1
+    ingest_result: IngestResponseV1
+    timings: ChatTimingsV1
+    llm_error: Optional[str] = None
+
+
 class CoherenceResponseV1(BaseModel):
     """V1 一致性响应 - 记忆一致性检查结果。"""
 
@@ -462,6 +570,8 @@ IngestResponse = IngestResponseV1
 QueryRequest = QueryRequestV1
 QueryResponse = QueryResponseV1
 QueryHit = QueryHitV1
+RespondRequest = RespondRequestV1
+ChatTurnResponse = ChatTurnResponseV1
 FeedbackRequest = FeedbackRequestV1
 EvolveRequest = EvolveRequestV1
 CoherenceResponse = CoherenceResponseV1

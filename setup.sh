@@ -39,8 +39,5 @@ echo "默认已包含百炼依赖。"
 echo "如需接入火山方舟，额外运行:"
 echo "  pip install -e '.[ark]'"
 echo
-echo "如需本地 FAISS 加速，额外运行:"
-echo "  pip install -e '.[faiss]'"
-echo
 echo "要启动 API 服务，运行:"
 echo "  aurora serve --port 8000"

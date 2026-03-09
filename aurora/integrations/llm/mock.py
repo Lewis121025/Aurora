@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from typing import Any, Dict, List, Optional, Type, TypeVar
 
@@ -131,6 +132,28 @@ class MockLLM(LLMProvider):
                 "is_contradiction": False,
                 "explanation": "",
                 "reconciliation_hint": "",
+            }
+            return schema.model_validate(data)
+
+        if name == "MemoryBriefCompilation":
+            def extract_json_block(label: str) -> Dict[str, Any]:
+                pattern = rf"{label}:\n(.*?)(?:\n[A-Z_ ]+:\n|\Z)"
+                match = re.search(pattern, user, re.DOTALL)
+                if not match:
+                    return {}
+                try:
+                    return json.loads(match.group(1).strip())
+                except Exception:
+                    return {}
+
+            candidate_memory = extract_json_block("CANDIDATE_MEMORY")
+            data = {
+                "known_facts": candidate_memory.get("known_facts", []),
+                "preferences": candidate_memory.get("preferences", []),
+                "relationship_state": candidate_memory.get("relationship_state", []),
+                "active_narratives": candidate_memory.get("active_narratives", []),
+                "temporal_context": candidate_memory.get("temporal_context", []),
+                "cautions": candidate_memory.get("cautions", []),
             }
             return schema.model_validate(data)
 

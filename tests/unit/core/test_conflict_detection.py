@@ -18,7 +18,7 @@ import numpy as np
 
 from aurora.core.memory import AuroraMemory
 from aurora.core.models.config import MemoryConfig
-from aurora.core.knowledge_classifier import (
+from aurora.core.knowledge import (
     KnowledgeClassifier,
     KnowledgeType,
     ConflictResolution,

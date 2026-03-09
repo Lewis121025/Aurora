@@ -4,8 +4,9 @@ import argparse
 import json
 import os
 import time
-from typing import Optional
+from typing import Optional, Sequence
 
+from aurora.interfaces.terminal_observer import run_observer
 from aurora.runtime.settings import AuroraSettings
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.utils.logging import setup_logging
@@ -235,10 +236,20 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     )
 
 
-def main() -> None:
+def _cmd_observe(args: argparse.Namespace) -> None:
+    """启动终端观测模式。"""
+    run_observer(
+        data_dir=args.data_dir,
+        session_id=args.session_id,
+        max_hits=args.max_hits,
+        observe_mode=args.observe,
+    )
+
+
+def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = argparse.ArgumentParser(
         prog="aurora",
-        description="AURORA 记忆系统 CLI"
+        description="AURORA 记忆系统 CLI。无子命令时直接进入实时对话/观测模式。"
     )
     parser.add_argument("--data-dir", type=str, help="Data directory")
 
@@ -283,9 +294,26 @@ def main() -> None:
     serve_p.add_argument("--port", "-p", type=int, default=8000, help="绑定的端口")
     serve_p.add_argument("--reload", action="store_true", help="启用自动重载")
 
-    args = parser.parse_args()
+    observe_p = sub.add_parser("observe", help="启动终端观测模式")
+    observe_p.add_argument("--session-id", default="terminal_observer", help="会话 ID")
+    observe_p.add_argument("--max-hits", type=int, default=6, help="每次展示的最大检索命中数")
+    observe_p.add_argument(
+        "--observe",
+        choices=["off", "brief", "full"],
+        default="full",
+        help="观测输出级别",
+    )
 
-    if args.cmd == "demo":
+    args = parser.parse_args(argv)
+
+    if args.cmd is None:
+        run_observer(
+            data_dir=args.data_dir,
+            session_id="terminal_observer",
+            max_hits=6,
+            observe_mode="full",
+        )
+    elif args.cmd == "demo":
         _cmd_demo()
     elif args.cmd == "ingest":
         _cmd_ingest(args)
@@ -303,6 +331,8 @@ def main() -> None:
         _cmd_causal(args)
     elif args.cmd == "serve":
         _cmd_serve(args)
+    elif args.cmd == "observe":
+        _cmd_observe(args)
     else:
         parser.print_help()
 

@@ -27,9 +27,6 @@ ark = [
   "openai>=1.12",
   "volcengine-python-sdk[ark]",
 ]
-faiss = [
-  "faiss-cpu>=1.7.4",
-]
 benchmark = [
   "datasets>=2.14",
   "rouge-score>=0.1.2",
@@ -42,10 +39,10 @@ dev = [
   "radon>=6.0",
 ]
 production = [
-  "aurora-memory[api,bailian,faiss]",
+  "aurora-memory[api,bailian]",
 ]
 all = [
-  "aurora-memory[api,bailian,ark,faiss,benchmark,dev]",
+  "aurora-memory[api,bailian,ark,benchmark,dev]",
 ]
 
 [project.scripts]

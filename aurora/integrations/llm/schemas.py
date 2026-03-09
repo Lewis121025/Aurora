@@ -73,6 +73,16 @@ class ContradictionJudgement(BaseModel):
     reconciliation_hint: str = ""
 
 
+class MemoryBriefCompilation(BaseModel):
+    schema_version: str = SCHEMA_VERSION
+    known_facts: List[str] = Field(default_factory=list)
+    preferences: List[str] = Field(default_factory=list)
+    relationship_state: List[str] = Field(default_factory=list)
+    active_narratives: List[str] = Field(default_factory=list)
+    temporal_context: List[str] = Field(default_factory=list)
+    cautions: List[str] = Field(default_factory=list)
+
+
 # -----------------------------------------------------------------------------
 # 因果推理 Schema
 # -----------------------------------------------------------------------------

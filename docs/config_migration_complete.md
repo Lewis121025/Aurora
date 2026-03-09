@@ -107,7 +107,7 @@ aurora/core/config/
 
 ## 迁移的文件
 
-1. `aurora/core/coherence.py`
+1. `aurora/core/coherence/__init__.py`
 2. `aurora/core/memory/engine.py`
 3. `aurora/core/memory/pressure.py`
 4. `aurora/core/memory/relationship.py`

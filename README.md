@@ -27,7 +27,6 @@ pip install -e .
 pip install -e '.[api]'
 pip install -e '.[bailian]'
 pip install -e '.[ark]'
-pip install -e '.[faiss]'
 ```
 
 ### 基础示例
@@ -51,6 +50,14 @@ runtime.ingest_interaction(
 )
 
 results = runtime.query(text="持续学习的聊天记忆系统", k=5)
+
+chat = runtime.respond(
+    session_id="chat_main",
+    user_message="你记得我偏向什么样的记忆系统吗？",
+)
+
+print(chat.reply)
+print(chat.rendered_memory_brief)
 ```
 
 **推荐本地配置**：使用百炼 `qwen3.5-plus` 作为文本模型、`text-embedding-v4` 作为嵌入模型，事件日志和派生文档保存在本地 SQLite 中。
@@ -107,7 +114,7 @@ aurora/
 aurora/
 ├── __init__.py                    # 公共 API 导出
 ├── core/memory/engine.py         # 记忆主引擎
-├── core/graph/                   # MemoryGraph、VectorIndex、FAISSIndex
+├── core/graph/                   # MemoryGraph 与本地精确 VectorIndex
 ├── runtime/runtime.py            # 单用户运行时与重放
 ├── runtime/bootstrap.py          # provider 装配
 ├── integrations/storage/         # SQLite event/doc store 与 snapshot
@@ -119,11 +126,11 @@ aurora/
 
 ### 核心运行链路
 
-1. `AuroraRuntime.ingest_interaction()` 写入本地 event log，并调用 `AuroraMemory.ingest()`
-2. `AuroraMemory` 在内存中更新向量索引、关系图和 plot/story/theme 状态
-3. 运行时把 plot 提取结果和 ingest 结果写入本地 SQLite doc store
-4. `runtime.query()` 直接基于内存中的索引检索，再从 doc store 补摘要
-5. 定期 snapshot 会把整个记忆状态保存到本地目录，供重启后回放恢复
+1. `AuroraRuntime.respond()` 先检索证据，并构造结构化 `Memory Brief`
+2. 运行时只把结构化 brief 和当前用户输入发送给 LLM，不把原始历史对话直接塞进 prompt
+3. 回复生成后，`AuroraRuntime.ingest_interaction()` 把本轮交互写入本地 event log 并调用 `AuroraMemory.ingest()`
+4. `AuroraMemory` 在内存中更新向量索引、关系图和 plot/story/theme 状态
+5. 运行时把 plot 提取结果和 ingest 结果写入本地 SQLite doc store；定期 snapshot 保存整个记忆状态
 
 ## 开发指南
 
@@ -174,6 +181,36 @@ aurora/
 aurora [command] [options]
 ```
 
+### 终端观测脚本
+
+```bash
+aurora
+```
+
+默认会直接进入实时对话/观测模式，并在 full 模式下显示每轮最终发给 LLM 的 prompt。LLM 只看到结构化 `Memory Brief`，不会直接看到原始历史对话；终端额外展示 evidence/debug 面板。内建命令用于观察系统内部状态：
+
+- `/query <text>`：只做检索，不生成回复
+- `/events 5`：看最近写入的事件日志
+- `/inspect <id>`：看 plot/story/theme/doc 的摘要
+- `/coherence`：看一致性检查结果
+- `/narrative`：看自我叙事摘要
+- `/pipeline`：看每轮对话的处理链路
+- `/context`：回看上一次结构化 memory context
+- `/prompt`：回看上一次发给 LLM 的最终 prompt
+- `/observe off|brief|full`：切换观测输出级别
+
+如果你想显式指定模式，也可以：
+
+```bash
+aurora observe --observe full
+```
+
+或者直接运行脚本入口：
+
+```bash
+python scripts/observe_runtime.py --observe full
+```
+
 ### REST API
 
 ```bash
@@ -181,6 +218,15 @@ uvicorn aurora.interfaces.api.app:app \
   --host 0.0.0.0 \
   --port 8000
 ```
+
+核心对话入口是 `POST /v1/memory/respond`，返回：
+- `reply`
+- `memory_context`
+- `rendered_memory_brief`
+- `system_prompt` / `user_prompt`
+- `retrieval_trace_summary`
+- `ingest_result`
+- `timings`
 
 ### MCP 协议
 

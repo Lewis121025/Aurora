@@ -1,21 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import os
 import threading
 import time
-from typing import Any, Dict, List, Optional, Sequence, Tuple
-
-import numpy as np
+import uuid
+from typing import Any, Dict, List, Optional, Sequence
 
 from aurora.core.causal import CausalEdgeBelief, CausalMemoryGraph
 from aurora.core.coherence import CoherenceGuardian
 from aurora.core.memory import AuroraMemory
+from aurora.core.models.plot import Plot
 from aurora.core.models.trace import QueryHit
 from aurora.core.self_narrative import SelfNarrativeEngine
 from aurora.integrations.llm.provider import LLMProvider
-from aurora.integrations.llm.schemas import PlotExtraction
 from aurora.integrations.storage.doc_store import Document, SQLiteDocStore
 from aurora.integrations.storage.event_log import Event, SQLiteEventLog
 from aurora.integrations.storage.snapshot import Snapshot, SnapshotStore
@@ -26,23 +24,31 @@ from aurora.runtime.bootstrap import (
     create_llm_provider,
     create_memory,
 )
-from aurora.runtime.results import CoherenceResult, IngestResult, QueryResult
+from aurora.runtime.interaction_pipeline import (
+    InteractionPreparer,
+    PreparedInteraction,
+    build_ingest_result_body,
+    build_plot_document_body,
+)
+from aurora.runtime.plot_extractor import (
+    PLOT_EXTRACTION_MAX_RETRIES,
+    PLOT_EXTRACTION_TIMEOUT_S,
+    PlotExtractor,
+)
+from aurora.runtime.response_context import ResponseContextBuilder
+from aurora.runtime.results import (
+    ChatTimings,
+    ChatTurnResult,
+    CoherenceResult,
+    IngestResult,
+    QueryResult,
+    RetrievalTraceSummary,
+    StructuredMemoryContext,
+)
 from aurora.runtime.settings import AuroraSettings
 from aurora.utils.logging import log_event
 
 logger = logging.getLogger(__name__)
-
-PLOT_EXTRACTION_TIMEOUT_S = 8.0
-PLOT_EXTRACTION_MAX_RETRIES = 1
-
-
-@dataclass(frozen=True)
-class PreparedInteraction:
-    extraction: PlotExtraction
-    interaction_text: str
-    resolved_actors: Tuple[str, ...]
-    interaction_embedding: np.ndarray
-    context_embedding: Optional[np.ndarray]
 
 
 class AuroraRuntime:
@@ -63,8 +69,18 @@ class AuroraRuntime:
 
         self.last_seq: int = 0
         self.mem: AuroraMemory = self._load_or_init()
+        self.plot_extractor = PlotExtractor(llm=self.llm, doc_store=self.doc_store)
+        self.interactions = InteractionPreparer(embedder=self.mem.embedder, extractor=self.plot_extractor)
         self.coherence_guardian = CoherenceGuardian(self.mem.metric)
         self.self_narrative_engine = SelfNarrativeEngine(self.mem.metric)
+        self.response_contexts = ResponseContextBuilder(
+            memory=self.mem,
+            doc_store=self.doc_store,
+            self_narrative_engine=self.self_narrative_engine,
+            llm=self.llm,
+            compile_timeout_s=min(self.settings.llm_timeout, 8.0),
+            compile_max_retries=1,
+        )
         self.causal_beliefs: Dict[tuple, CausalEdgeBelief] = {}
 
         self._replay()
@@ -85,25 +101,24 @@ class AuroraRuntime:
             if ev.type != "interaction":
                 continue
             payload = ev.payload
-            prepared = self._prepare_replay_interaction(
+            prepared = self.interactions.prepare_replay(
                 event_id=ev.id,
+                payload=payload,
                 user_message=payload.get("user_message", ""),
                 agent_message=payload.get("agent_message", ""),
                 actors=payload.get("actors"),
                 context=payload.get("context"),
-                payload=payload,
             )
             self._apply_interaction(
                 event_id=ev.id,
                 user_message=payload.get("user_message", ""),
                 agent_message=payload.get("agent_message", ""),
-                actors=payload.get("actors"),
                 context=payload.get("context"),
                 ts=ev.ts,
                 persist=False,
                 prepared=prepared,
             )
-            canonical_payload = self._build_event_payload(
+            canonical_payload = self.interactions.build_event_payload(
                 user_message=payload.get("user_message", ""),
                 agent_message=payload.get("agent_message", ""),
                 actors=payload.get("actors"),
@@ -131,26 +146,13 @@ class AuroraRuntime:
         with self._lock:
             existing_seq = self.event_log.get_seq_by_id(event_id)
             if existing_seq is not None:
-                doc = self.doc_store.get(f"ingest:{event_id}")
-                if doc:
-                    body = doc.body
-                    return IngestResult(
-                        event_id=event_id,
-                        plot_id=body["plot_id"],
-                        story_id=body.get("story_id"),
-                        encoded=bool(body.get("encoded", True)),
-                        tension=float(body.get("tension", 0.0)),
-                        surprise=float(body.get("surprise", 0.0)),
-                        pred_error=float(body.get("pred_error", 0.0)),
-                        redundancy=float(body.get("redundancy", 0.0)),
-                    )
-                return IngestResult(event_id=event_id, plot_id="", story_id=None, encoded=False, tension=0.0, surprise=0.0, pred_error=0.0, redundancy=0.0)
+                return self._load_existing_ingest_result(event_id)
 
             if self.settings.pii_redaction_enabled:
                 user_message = redact(user_message).redacted_text
                 agent_message = redact(agent_message).redacted_text
 
-            prepared = self._prepare_live_interaction(
+            prepared = self.interactions.prepare_live(
                 user_message=user_message,
                 agent_message=agent_message,
                 actors=actors,
@@ -163,7 +165,7 @@ class AuroraRuntime:
                     ts=ts,
                     session_id=session_id,
                     type="interaction",
-                    payload=self._build_event_payload(
+                    payload=self.interactions.build_event_payload(
                         user_message=user_message,
                         agent_message=agent_message,
                         actors=actors,
@@ -177,7 +179,6 @@ class AuroraRuntime:
                 event_id=event_id,
                 user_message=user_message,
                 agent_message=agent_message,
-                actors=actors,
                 context=context,
                 ts=ts,
                 persist=True,
@@ -192,6 +193,91 @@ class AuroraRuntime:
                 log_event(logger, "aurora_ingest", event_id=event_id, plot_id=res.plot_id)
 
             return res
+
+    def build_response_context(
+        self,
+        *,
+        user_message: str,
+        k: int = 6,
+        asker_id: str = "user",
+    ) -> tuple[StructuredMemoryContext, RetrievalTraceSummary]:
+        with self._lock:
+            trace = self.mem.query_with_timeline(text=user_message, k=k, asker_id=asker_id)
+            memory_context = self.response_contexts.build(trace=trace, max_items=k)
+            trace_summary = self.response_contexts.summarize_trace(trace)
+        return memory_context, trace_summary
+
+    def respond(
+        self,
+        *,
+        session_id: str,
+        user_message: str,
+        event_id: Optional[str] = None,
+        context: Optional[str] = None,
+        actors: Optional[Sequence[str]] = None,
+        k: int = 6,
+        ts: Optional[float] = None,
+        logger: Optional[Any] = None,
+    ) -> ChatTurnResult:
+        total_started = time.perf_counter()
+        resolved_event_id = event_id or f"evt_resp_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+
+        retrieval_started = time.perf_counter()
+        memory_context, trace_summary = self.build_response_context(
+            user_message=user_message,
+            k=k,
+            asker_id="user",
+        )
+        retrieval_ms = (time.perf_counter() - retrieval_started) * 1000.0
+
+        prompt = self.response_contexts.build_prompt(
+            user_message=user_message,
+            rendered_memory_brief=self.response_contexts.render_memory_brief(memory_context),
+        )
+
+        generation_started = time.perf_counter()
+        llm_error: Optional[str] = None
+        reply = self._generate_reply(
+            prompt=prompt,
+            memory_context=memory_context,
+            user_message=user_message,
+        )
+        if reply.startswith("__LLM_ERROR__:"):
+            llm_error = reply.removeprefix("__LLM_ERROR__:")
+            reply = self._build_response_fallback(memory_context=memory_context, user_message=user_message)
+        generation_ms = (time.perf_counter() - generation_started) * 1000.0
+
+        ingest_started = time.perf_counter()
+        ingest_result = self.ingest_interaction(
+            event_id=resolved_event_id,
+            session_id=session_id,
+            user_message=user_message,
+            agent_message=reply,
+            actors=actors,
+            context=context,
+            ts=ts,
+            logger=logger,
+        )
+        ingest_ms = (time.perf_counter() - ingest_started) * 1000.0
+
+        total_ms = (time.perf_counter() - total_started) * 1000.0
+        return ChatTurnResult(
+            reply=reply,
+            event_id=resolved_event_id,
+            memory_context=memory_context,
+            rendered_memory_brief=prompt.rendered_memory_brief,
+            system_prompt=prompt.system_prompt,
+            user_prompt=prompt.user_prompt,
+            retrieval_trace_summary=trace_summary,
+            ingest_result=ingest_result,
+            timings=ChatTimings(
+                retrieval_ms=retrieval_ms,
+                generation_ms=generation_ms,
+                ingest_ms=ingest_ms,
+                total_ms=total_ms,
+            ),
+            llm_error=llm_error,
+        )
 
     def query(self, *, text: str, k: int = 8) -> QueryResult:
         with self._lock:
@@ -292,13 +378,52 @@ class AuroraRuntime:
             if plot:
                 self.self_narrative_engine.update_from_interaction(plot=plot, success=success, entity_id=entity_id or "self")
 
+    def _generate_reply(
+        self,
+        *,
+        prompt: Any,
+        memory_context: StructuredMemoryContext,
+        user_message: str,
+    ) -> str:
+        try:
+            reply = self.llm.complete(
+                prompt.user_prompt,
+                system=prompt.system_prompt,
+                temperature=0.3,
+                max_tokens=400,
+                timeout_s=self.settings.llm_timeout,
+                max_retries=max(1, min(2, int(self.settings.llm_max_retries))),
+            ).strip()
+        except Exception as exc:
+            return f"__LLM_ERROR__:{exc}"
+
+        if reply:
+            return reply
+        return self._build_response_fallback(memory_context=memory_context, user_message=user_message)
+
+    @staticmethod
+    def _build_response_fallback(*, memory_context: StructuredMemoryContext, user_message: str) -> str:
+        if memory_context.known_facts:
+            return (
+                "这轮语言模型调用失败了。"
+                f"我当前能确认的记忆是：{memory_context.known_facts[0]}"
+            )
+        if memory_context.preferences:
+            return (
+                "这轮语言模型调用失败了。"
+                f"我目前只确认到一个偏好相关记忆：{memory_context.preferences[0]}"
+            )
+        return (
+            "这轮语言模型调用失败了，而且当前没有足够稳定的记忆证据来回答这句话。"
+            f"我会先把这轮对话记住：{user_message[:80]}"
+        )
+
     def _apply_interaction(
         self,
         *,
         event_id: str,
         user_message: str,
         agent_message: str,
-        actors: Optional[Sequence[str]],
         context: Optional[str],
         ts: float,
         persist: bool,
@@ -316,47 +441,14 @@ class AuroraRuntime:
         encoded = plot.id in self.mem.plots
 
         if persist:
-            self.doc_store.upsert(
-                Document(
-                    id=plot.id,
-                    kind="plot",
-                    ts=ts,
-                    body={
-                        "schema_version": prepared.extraction.schema_version,
-                        "actors": prepared.extraction.actors,
-                        "action": prepared.extraction.action,
-                        "context": prepared.extraction.context,
-                        "outcome": prepared.extraction.outcome,
-                        "goal": prepared.extraction.goal,
-                        "obstacles": prepared.extraction.obstacles,
-                        "decision": prepared.extraction.decision,
-                        "emotion_valence": prepared.extraction.emotion_valence,
-                        "emotion_arousal": prepared.extraction.emotion_arousal,
-                        "claims": [claim.model_dump() for claim in prepared.extraction.claims],
-                        "interaction_text": prepared.interaction_text,
-                        "resolved_actors": list(prepared.resolved_actors),
-                        "context_embedding": prepared.context_embedding.tolist() if prepared.context_embedding is not None else None,
-                        "plot_state": plot.to_state_dict(),
-                        "raw": {"user_message": user_message, "agent_message": agent_message},
-                    },
-                )
-            )
-            self.doc_store.upsert(
-                Document(
-                    id=f"ingest:{event_id}",
-                    kind="ingest_result",
-                    ts=ts,
-                    body={
-                        "event_id": event_id,
-                        "plot_id": plot.id,
-                        "story_id": plot.story_id,
-                        "encoded": encoded,
-                        "tension": plot.tension,
-                        "surprise": plot.surprise,
-                        "pred_error": plot.pred_error,
-                        "redundancy": plot.redundancy,
-                    },
-                )
+            self._persist_interaction_artifacts(
+                event_id=event_id,
+                ts=ts,
+                plot=plot,
+                encoded=encoded,
+                prepared=prepared,
+                user_message=user_message,
+                agent_message=agent_message,
             )
 
         return IngestResult(
@@ -370,228 +462,67 @@ class AuroraRuntime:
             redundancy=float(plot.redundancy),
         )
 
-    def _prepare_live_interaction(
-        self,
-        *,
-        user_message: str,
-        agent_message: str,
-        actors: Optional[Sequence[str]],
-        context: Optional[str],
-    ) -> PreparedInteraction:
-        extraction = self._extract_plot(user_message=user_message, agent_message=agent_message, context=context, actors=actors)
-        return self._prepare_interaction(
-            user_message=user_message,
-            agent_message=agent_message,
-            actors=actors,
-            context=context,
-            extraction=extraction,
-            interaction_embedding=None,
-            context_embedding=None,
-        )
-
-    def _prepare_replay_interaction(
-        self,
-        *,
-        event_id: str,
-        user_message: str,
-        agent_message: str,
-        actors: Optional[Sequence[str]],
-        context: Optional[str],
-        payload: Dict[str, Any],
-    ) -> PreparedInteraction:
-        extraction = self._load_plot_extraction(
-            event_id=event_id,
-            payload=payload,
-            user_message=user_message,
-            agent_message=agent_message,
-            actors=actors,
-            context=context,
-        )
-        return self._prepare_interaction(
-            user_message=user_message,
-            agent_message=agent_message,
-            actors=payload.get("resolved_actors") or actors,
-            context=context,
-            extraction=extraction,
-            interaction_embedding=self._deserialize_embedding(payload.get("interaction_embedding")),
-            context_embedding=self._deserialize_embedding(payload.get("context_embedding")),
-            interaction_text=payload.get("interaction_text"),
-        )
-
-    def _prepare_interaction(
-        self,
-        *,
-        user_message: str,
-        agent_message: str,
-        actors: Optional[Sequence[str]],
-        context: Optional[str],
-        extraction: PlotExtraction,
-        interaction_embedding: Optional[np.ndarray],
-        context_embedding: Optional[np.ndarray],
-        interaction_text: Optional[str] = None,
-    ) -> PreparedInteraction:
-        resolved_actors = self._resolve_actors(actors=actors, extraction=extraction)
-        canonical_text = interaction_text or self._build_interaction_text(
-            user_message=user_message,
-            agent_message=agent_message,
-            extraction=extraction,
-        )
-        text_embedding = interaction_embedding
-        if text_embedding is None:
-            text_embedding = self.mem.embedder.embed(canonical_text)
-        ctx_embedding = context_embedding
-        if ctx_embedding is None and context:
-            ctx_embedding = self.mem.embedder.embed(context)
-        return PreparedInteraction(
-            extraction=extraction,
-            interaction_text=canonical_text,
-            resolved_actors=resolved_actors,
-            interaction_embedding=np.asarray(text_embedding, dtype=np.float32),
-            context_embedding=np.asarray(ctx_embedding, dtype=np.float32) if ctx_embedding is not None else None,
-        )
-
-    def _build_event_payload(
-        self,
-        *,
-        user_message: str,
-        agent_message: str,
-        actors: Optional[Sequence[str]],
-        context: Optional[str],
-        prepared: PreparedInteraction,
-    ) -> Dict[str, Any]:
-        return {
-            "user_message": user_message,
-            "agent_message": agent_message,
-            "actors": list(actors) if actors else None,
-            "context": context,
-            "plot_extraction": prepared.extraction.model_dump(),
-            "interaction_text": prepared.interaction_text,
-            "resolved_actors": list(prepared.resolved_actors),
-            "interaction_embedding": prepared.interaction_embedding.tolist(),
-            "context_embedding": prepared.context_embedding.tolist() if prepared.context_embedding is not None else None,
-        }
-
-    def _load_plot_extraction(
-        self,
-        *,
-        event_id: str,
-        payload: Dict[str, Any],
-        user_message: str,
-        agent_message: str,
-        actors: Optional[Sequence[str]],
-        context: Optional[str],
-    ) -> PlotExtraction:
-        stored = payload.get("plot_extraction")
-        if isinstance(stored, dict):
-            try:
-                return PlotExtraction.model_validate(stored)
-            except Exception as exc:
-                logger.warning("Invalid stored plot extraction for event %s: %s", event_id, exc)
-
-        plot_doc = self._load_plot_doc(event_id)
-        if plot_doc is not None:
-            try:
-                return PlotExtraction.model_validate(plot_doc.body)
-            except Exception as exc:
-                logger.warning("Invalid plot document extraction for event %s: %s", event_id, exc)
-
-        return self._build_minimal_plot_extraction(
-            user_message=user_message,
-            agent_message=agent_message,
-            actors=actors,
-            context=context,
-        )
-
-    def _load_plot_doc(self, event_id: str) -> Optional[Document]:
-        ingest_doc = self.doc_store.get(f"ingest:{event_id}")
-        if ingest_doc is None:
-            return None
-        plot_id = ingest_doc.body.get("plot_id")
-        if not plot_id:
-            return None
-        return self.doc_store.get(str(plot_id))
-
-    def _resolve_actors(self, *, actors: Optional[Sequence[str]], extraction: PlotExtraction) -> Tuple[str, ...]:
-        if actors:
-            return tuple(str(actor) for actor in actors)
-        if extraction.actors:
-            return tuple(str(actor) for actor in extraction.actors)
-        return ("user", "agent")
-
-    def _build_interaction_text(
-        self,
-        *,
-        user_message: str,
-        agent_message: str,
-        extraction: PlotExtraction,
-    ) -> str:
-        return f"USER: {user_message}\nAGENT: {agent_message}\nOUTCOME: {extraction.outcome}".strip()
-
-    def _deserialize_embedding(self, raw: Any) -> Optional[np.ndarray]:
-        if raw is None:
-            return None
-        try:
-            arr = np.asarray(raw, dtype=np.float32)
-        except Exception:
-            return None
-        if arr.ndim != 1 or arr.size == 0:
-            return None
-        return arr
-
-    def _build_minimal_plot_extraction(
-        self,
-        *,
-        user_message: str,
-        agent_message: str,
-        actors: Optional[Sequence[str]],
-        context: Optional[str],
-    ) -> PlotExtraction:
-        action_source = user_message or agent_message or "interaction"
-        fallback_actors = list(actors) if actors else ["user", "agent"]
-        return PlotExtraction(
-            action=action_source[:120],
-            actors=fallback_actors,
-            context=context or "",
-        )
-
-    def _extract_plot(
-        self,
-        *,
-        user_message: str,
-        agent_message: str,
-        context: Optional[str],
-        actors: Optional[Sequence[str]],
-    ) -> PlotExtraction:
-        from aurora.integrations.llm import prompts
-
-        instruction = prompts.instruction("PlotExtraction")
-        user_prompt = prompts.render(
-            prompts.PLOT_EXTRACTION_USER,
-            instruction=instruction,
-            user_message=user_message,
-            agent_message=agent_message,
-            context=context or "",
-        )
-        try:
-            return self.llm.complete_json(
-                system=prompts.PLOT_EXTRACTION_SYSTEM,
-                user=user_prompt,
-                schema=PlotExtraction,
-                temperature=0.2,
-                timeout_s=PLOT_EXTRACTION_TIMEOUT_S,
-                max_retries=PLOT_EXTRACTION_MAX_RETRIES,
-            )
-        except Exception as exc:
-            logger.debug("LLM plot extraction failed, using minimal fallback: %s", exc)
-            return self._build_minimal_plot_extraction(
-                user_message=user_message,
-                agent_message=agent_message,
-                actors=actors,
-                context=context,
-            )
-
     def _snapshot(self, *, logger: Optional[Any] = None) -> None:
         snap = Snapshot(last_seq=self.last_seq, state=self.mem)
         path = self.snapshots.save(snap)
         if logger:
             log_event(logger, "aurora_snapshot", last_seq=self.last_seq, path=path)
+
+    def _load_existing_ingest_result(self, event_id: str) -> IngestResult:
+        doc = self.doc_store.get(f"ingest:{event_id}")
+        if doc is None:
+            return IngestResult(
+                event_id=event_id,
+                plot_id="",
+                story_id=None,
+                encoded=False,
+                tension=0.0,
+                surprise=0.0,
+                pred_error=0.0,
+                redundancy=0.0,
+            )
+
+        body = doc.body
+        return IngestResult(
+            event_id=event_id,
+            plot_id=body["plot_id"],
+            story_id=body.get("story_id"),
+            encoded=bool(body.get("encoded", True)),
+            tension=float(body.get("tension", 0.0)),
+            surprise=float(body.get("surprise", 0.0)),
+            pred_error=float(body.get("pred_error", 0.0)),
+            redundancy=float(body.get("redundancy", 0.0)),
+        )
+
+    def _persist_interaction_artifacts(
+        self,
+        *,
+        event_id: str,
+        ts: float,
+        plot: Plot,
+        encoded: bool,
+        prepared: PreparedInteraction,
+        user_message: str,
+        agent_message: str,
+    ) -> None:
+        self.doc_store.upsert(
+            Document(
+                id=plot.id,
+                kind="plot",
+                ts=ts,
+                body=build_plot_document_body(
+                    prepared=prepared,
+                    plot=plot,
+                    user_message=user_message,
+                    agent_message=agent_message,
+                ),
+            )
+        )
+        self.doc_store.upsert(
+            Document(
+                id=f"ingest:{event_id}",
+                kind="ingest_result",
+                ts=ts,
+                body=build_ingest_result_body(event_id=event_id, plot=plot, encoded=encoded),
+            )
+        )

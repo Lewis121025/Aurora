@@ -128,14 +128,6 @@ class MemoryConfig:
     # 检索偏好
     retrieval_kinds: Tuple[str, ...] = ("theme", "story", "plot")
 
-    # 向量索引："auto"（如果可用则使用 FAISS）、"faiss"、"brute"
-    vector_backend: str = "auto"
-
-    # FAISS HNSW 参数（仅在 vector_backend 为 "faiss" 或 "auto" 时使用）
-    faiss_m: int = 32  # 每层 HNSW 连接数（8-64，更高 = 更好的召回率）
-    faiss_ef_construction: int = 64  # 构造时搜索深度
-    faiss_ef_search: int = 32  # 查询时搜索深度（增加以获得更好的召回率）
-
     # 基准模式：强制存储所有 Plot，绕过 VOI 门控
     # 对于 LongMemEval 等基准至关重要，其中每个回合可能包含关键信息
     benchmark_mode: bool = False
@@ -158,10 +150,6 @@ class MemoryConfig:
             "theme_alpha": self.theme_alpha,
             "gate_feature_dim": self.gate_feature_dim,
             "retrieval_kinds": list(self.retrieval_kinds),
-            "vector_backend": self.vector_backend,
-            "faiss_m": self.faiss_m,
-            "faiss_ef_construction": self.faiss_ef_construction,
-            "faiss_ef_search": self.faiss_ef_search,
             "benchmark_mode": self.benchmark_mode,
             "algo": self.algo.to_state_dict() if self.algo else None,
         }
@@ -180,10 +168,6 @@ class MemoryConfig:
             theme_alpha=d.get("theme_alpha", 0.5),
             gate_feature_dim=d.get("gate_feature_dim", 6),
             retrieval_kinds=tuple(d.get("retrieval_kinds", ["theme", "story", "plot"])),
-            vector_backend=d.get("vector_backend", "auto"),
-            faiss_m=d.get("faiss_m", 32),
-            faiss_ef_construction=d.get("faiss_ef_construction", 64),
-            faiss_ef_search=d.get("faiss_ef_search", 32),
             benchmark_mode=d.get("benchmark_mode", False),
             algo=algo,
         )

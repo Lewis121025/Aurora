@@ -8,7 +8,7 @@ AURORA 密度估计
 from __future__ import annotations
 
 import math
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from aurora.core.config.storage import DEFAULT_COLD_START_SURPRISE, DENSITY_MIN_SAMPLES
@@ -46,6 +46,7 @@ class OnlineKDE:
         self.rng = np.random.default_rng(seed)
         self._seed = seed
         self._vecs: List[np.ndarray] = []
+        self._matrix_cache: Optional[np.ndarray] = None
 
     def add(self, x: np.ndarray) -> None:
         """将向量添加到密度估计中。
@@ -63,6 +64,15 @@ class OnlineKDE:
             j = int(self.rng.integers(0, len(self._vecs) + 1))
             if j < len(self._vecs):
                 self._vecs[j] = x
+        self._matrix_cache = None
+
+    def _matrix(self) -> Optional[np.ndarray]:
+        """返回当前水库的矩阵视图。"""
+        if not self._vecs:
+            return None
+        if self._matrix_cache is None:
+            self._matrix_cache = np.asarray(self._vecs, dtype=np.float32)
+        return self._matrix_cache
 
     def _sigma(self, x: np.ndarray) -> float:
         """使用k最近邻计算自适应带宽。
@@ -73,12 +83,18 @@ class OnlineKDE:
         返回:
             带宽估计（到k个最近邻的中位数距离）
         """
-        if not self._vecs:
+        matrix = self._matrix()
+        if matrix is None:
             return 1.0
-        dists = [float(np.linalg.norm(x - v)) for v in self._vecs]
-        dists.sort()
-        k = min(self.k_sigma, len(dists))
-        med = float(np.median(dists[:k])) if k > 0 else float(np.median(dists))
+
+        deltas = matrix - x
+        distances = np.sqrt(np.einsum("ij,ij->i", deltas, deltas))
+        k = min(self.k_sigma, len(distances))
+        if k <= 0:
+            med = float(np.median(distances))
+        else:
+            nearest = np.partition(distances, k - 1)[:k]
+            med = float(np.median(nearest))
         return med + 1e-6
 
     def log_density(self, x: np.ndarray) -> float:
@@ -90,16 +106,16 @@ class OnlineKDE:
         返回:
             对数密度估计
         """
-        if not self._vecs:
+        matrix = self._matrix()
+        if matrix is None:
             # Weak prior: very low density
             return -10.0
         sigma = self._sigma(x)
         inv2 = 1.0 / (2.0 * sigma * sigma)
-        vals = []
-        for v in self._vecs:
-            d2 = float(np.dot(x - v, x - v))
-            vals.append(math.exp(-d2 * inv2))
-        p = sum(vals) / len(vals)
+        deltas = matrix - x
+        squared_distances = np.einsum("ij,ij->i", deltas, deltas)
+        vals = np.exp(-squared_distances * inv2)
+        p = float(np.mean(vals))
         return math.log(p + 1e-12)
 
     def surprise(self, x: np.ndarray) -> float:
@@ -141,4 +157,5 @@ class OnlineKDE:
             seed=d["seed"],
         )
         obj._vecs = [np.array(v, dtype=np.float32) for v in d.get("vecs", [])]
+        obj._matrix_cache = None
         return obj

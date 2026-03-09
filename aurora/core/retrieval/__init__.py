@@ -7,11 +7,8 @@ AURORA 检索
 时间作为一等公民：具有锚点检测的时间检索。
 """
 
-from aurora.core.retrieval.field_retriever import (
-    FieldRetriever,
-    QueryType,
-    TimeAnchor,
-)
+from aurora.core.retrieval.field_retriever import FieldRetriever
+from aurora.core.retrieval.query_analysis import QueryType, TimeAnchor
 from aurora.core.retrieval.time_filter import (
     TimeRange,
     TimeRangeExtractor,

@@ -368,42 +368,25 @@ class TestTimelineGroup:
         assert "p1" not in current_ids  # Historical
 
 
-class TestTemporalMarkerFormatting:
-    """Test the format_retrieval_with_temporal_markers method."""
+class TestTimelineStructuredBoundary:
+    """Ensure timeline-aware retrieval stays structured instead of prompt-formatted."""
 
-    def test_format_single_current_plot(self):
-        """Test formatting a single current plot."""
+    def test_query_with_timeline_returns_structured_trace_only(self):
         mem = AuroraMemory(cfg=MemoryConfig(dim=64), seed=42)
-        
-        plot = mem.ingest("User: I like Python programming")
-        
-        trace = mem.query("Python", k=5)
-        
-        formatted = mem.format_retrieval_with_temporal_markers(trace, max_results=5)
-        
-        # Should contain CURRENT marker
-        assert "[CURRENT]" in formatted or "Python" in formatted or formatted == ""
 
-    def test_format_evolution_timeline(self):
-        """Test formatting an evolution timeline."""
-        mem = AuroraMemory(cfg=MemoryConfig(dim=64), seed=42)
-        
-        # Create update chain
         plot1 = mem.ingest("User: I live in Beijing")
         time.sleep(0.01)
         plot2 = mem.ingest("User: I moved to Shanghai")
-        
+
         if plot1.id in mem.plots and plot2.id in mem.plots:
             mem.plots[plot2.id].supersedes_id = plot1.id
             mem.plots[plot1.id].superseded_by_id = plot2.id
             mem.plots[plot1.id].status = "superseded"
-        
+
         trace = mem.query_with_timeline("where I live", k=5)
-        
-        formatted = mem.format_retrieval_with_temporal_markers(trace, max_results=5)
-        
-        # Should contain evolution markers if timeline is found
-        # Note: With hash embedding, this may not always find the relevant plots
+
+        assert trace.timeline_group is not None
+        assert trace.ranked
 
 
 class TestFirstPrinciplesValidation:

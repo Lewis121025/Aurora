@@ -1,4 +1,4 @@
-"""AURORA 向量索引 - 用于测试的暴力搜索基线。"""
+"""AURORA 向量索引 - 本地精确检索实现。"""
 
 from __future__ import annotations
 
@@ -10,10 +10,7 @@ from aurora.utils.math_utils import cosine_sim
 
 
 class VectorIndex:
-    """支持类型过滤的暴力向量索引。
-
-    生产环境请使用 FAISSVectorIndex（快 100 倍）。
-    """
+    """支持类型过滤的本地精确向量索引。"""
 
     def __init__(self, dim: int):
         """初始化向量索引。

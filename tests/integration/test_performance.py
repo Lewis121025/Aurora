@@ -219,18 +219,28 @@ class TestMemoryScaling:
     """Tests for memory scaling behavior."""
     
     def test_linear_scaling_ingest(self):
-        """Test that ingest scales roughly linearly."""
+        """Test that ingest scaling stays comfortably below quadratic.
+
+        This benchmark is sensitive to scheduler noise when measured with a
+        single short run. Use the median of several fresh runs per size so the
+        assertion reflects the implementation rather than momentary machine
+        jitter.
+        """
         sizes = [50, 100, 200]
         times: List[float] = []
+        samples_per_size = 3
         
         for size in sizes:
-            config = MemoryConfig(dim=64, max_plots=size * 2)
-            memory = AuroraMemory(cfg=config, seed=42)
-            
-            start = time.perf_counter()
-            for i in range(size):
-                memory.ingest(f"交互{i}", actors=("user", "assistant"))
-            times.append(time.perf_counter() - start)
+            samples: List[float] = []
+            for sample_idx in range(samples_per_size):
+                config = MemoryConfig(dim=64, max_plots=size * 2)
+                memory = AuroraMemory(cfg=config, seed=42 + sample_idx)
+
+                start = time.perf_counter()
+                for i in range(size):
+                    memory.ingest(f"交互{i}", actors=("user", "assistant"))
+                samples.append(time.perf_counter() - start)
+            times.append(float(np.median(samples)))
         
         # Check that time doesn't grow faster than O(n^2)
         # (allowing super-linear behavior for graph operations and KDE updates)

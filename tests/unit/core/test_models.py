@@ -790,7 +790,6 @@ class TestRetrievalTrace:
             ],
             asker_id="user_001",
             activated_identity="teacher",
-            relationship_context="Teaching relationship",
         )
         
         assert trace.query == "What did we discuss about recursion?"
@@ -811,7 +810,6 @@ class TestRetrievalTrace:
         
         assert trace.asker_id is None
         assert trace.activated_identity is None
-        assert trace.relationship_context is None
 
 
 # =============================================================================

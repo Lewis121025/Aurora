@@ -277,7 +277,7 @@ all_results = runner.run_all({
 
 A: 考虑以下优化：
 - 减少 `max_plots` 限制
-- 使用 FAISS 向量索引：`pip install faiss-cpu`
+- 优先控制记忆规模与检索窗口；Aurora 默认使用本地精确向量检索
 - 禁用 LLM-as-Judge 使用精确匹配
 
 **Q: 内存占用过高**

@@ -12,13 +12,19 @@ from aurora.interfaces.api.schemas import (
     # Request models
     IngestRequest,
     QueryRequest,
+    RespondRequest,
     FeedbackRequest,
     EvolveRequest,
     CausalChainRequest,
     # Response models
+    ChatTimingsV1,
+    ChatTurnResponse,
     IngestResponse,
     QueryResponse,
     QueryHit,
+    RetrievalTraceSummaryV1,
+    StructuredMemoryContextV1,
+    EvidenceRefV1,
     CoherenceResponse,
     SelfNarrativeResponse,
     CausalChainResponse,
@@ -78,6 +84,65 @@ def query(req: QueryRequest) -> QueryResponse:
         query=r.query,
         attractor_path_len=r.attractor_path_len,
         hits=[QueryHit(**h.__dict__) for h in r.hits],
+    )
+
+
+@app.post("/v1/memory/respond", response_model=ChatTurnResponse)
+def respond(req: RespondRequest) -> ChatTurnResponse:
+    """基于结构化记忆上下文生成当前回复。"""
+    runtime = get_runtime()
+    result = runtime.respond(
+        session_id=req.session_id,
+        user_message=req.user_message,
+        event_id=req.event_id,
+        context=req.context,
+        actors=req.actors,
+        k=req.k,
+        ts=req.ts,
+    )
+    return ChatTurnResponse(
+        reply=result.reply,
+        event_id=result.event_id,
+        memory_context=StructuredMemoryContextV1(
+            known_facts=result.memory_context.known_facts,
+            preferences=result.memory_context.preferences,
+            relationship_state=result.memory_context.relationship_state,
+            active_narratives=result.memory_context.active_narratives,
+            temporal_context=result.memory_context.temporal_context,
+            cautions=result.memory_context.cautions,
+            evidence_refs=[
+                EvidenceRefV1(
+                    id=ref.id,
+                    kind=ref.kind,
+                    score=ref.score,
+                    role=ref.role,
+                )
+                for ref in result.memory_context.evidence_refs
+            ],
+        ),
+        rendered_memory_brief=result.rendered_memory_brief,
+        system_prompt=result.system_prompt,
+        user_prompt=result.user_prompt,
+        retrieval_trace_summary=RetrievalTraceSummaryV1(
+            query=result.retrieval_trace_summary.query,
+            query_type=result.retrieval_trace_summary.query_type,
+            attractor_path_len=result.retrieval_trace_summary.attractor_path_len,
+            hit_count=result.retrieval_trace_summary.hit_count,
+            timeline_count=result.retrieval_trace_summary.timeline_count,
+            standalone_count=result.retrieval_trace_summary.standalone_count,
+            abstain=result.retrieval_trace_summary.abstain,
+            abstention_reason=result.retrieval_trace_summary.abstention_reason,
+            asker_id=result.retrieval_trace_summary.asker_id,
+            activated_identity=result.retrieval_trace_summary.activated_identity,
+        ),
+        ingest_result=IngestResponse(**result.ingest_result.__dict__),
+        timings=ChatTimingsV1(
+            retrieval_ms=result.timings.retrieval_ms,
+            generation_ms=result.timings.generation_ms,
+            ingest_ms=result.timings.ingest_ms,
+            total_ms=result.timings.total_ms,
+        ),
+        llm_error=result.llm_error,
     )
 
 

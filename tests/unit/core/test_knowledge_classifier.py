@@ -11,7 +11,7 @@ AURORA 知识类型分类器的测试
 import pytest
 import numpy as np
 
-from aurora.core.knowledge_classifier import (
+from aurora.core.knowledge import (
     KnowledgeClassifier,
     KnowledgeType,
     ConflictResolution,
