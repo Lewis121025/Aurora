@@ -34,7 +34,9 @@ class AuroraSettings(BaseSettings):
     snapshot_every_events: int = 1  # 每摄入多少次事件执行一次快照
     memory_seed: int = 42  # 随机种子，保证动力学模拟的可复现性
 
-    evolve_every_seconds: int = 3600  # 后台演化周期
+    evolve_every_seconds: float = 3600.0  # 后台演化周期
+    background_evolver_enabled: bool = True
+    architecture_mode: Literal["legacy", "shadow", "graph_first"] = "shadow"
 
     # --- 灵魂引擎核心参数 ---
     dim: int = 1024  # 向量维度（需与 Embedding 模型匹配）
@@ -53,6 +55,15 @@ class AuroraSettings(BaseSettings):
     dreams_per_evolve: int = 2  # 每次演化产生的梦境数量
     profile_text: str = ""  # 初始人设自然语言描述
     persona_axes_json: Optional[str] = None  # 预设的性格轴配置（JSON 格式）
+    graph_temporal_neighbors: int = 2
+    graph_semantic_neighbors: int = 3
+    graph_contradiction_neighbors: int = 10
+    graph_similarity_threshold: float = 0.2
+    graph_contradiction_threshold: float = 0.16
+    community_refresh_every_plots: int = 50
+    dream_walk_steps: int = 6
+    dream_walk_samples: int = 24
+    dream_persist_threshold: float = 0.18
 
     # --- 语义提供者配置 ---
     meaning_provider: Literal["heuristic", "llm"] = "llm"

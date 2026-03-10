@@ -11,7 +11,7 @@ import os
 import threading
 import time
 import uuid
-from typing import Any, Dict, Iterator, List, Optional, Sequence
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from aurora.system.errors import ConfigurationError
 from aurora.integrations.llm.provider import LLMProvider
@@ -74,6 +74,21 @@ class AuroraRuntime:
 
         self.last_seq = 0
         self._loaded_snapshot_seq = 0
+        self._closed = False
+        self._background_stop = threading.Event()
+        self._background_thread: Optional[threading.Thread] = None
+        self._background_interval_s = max(0.0, float(self.settings.evolve_every_seconds))
+        self._background_telemetry: Dict[str, Any] = {
+            "enabled": bool(self.settings.background_evolver_enabled)
+            and self._background_interval_s > 0.0,
+            "interval_s": self._background_interval_s,
+            "running": False,
+            "last_run_ts": None,
+            "last_duration_ms": None,
+            "cycles": 0,
+            "last_error": None,
+            "last_mutation_count": 0,
+        }
         # 从快照加载引擎，若无则初始化
         self.mem = self._load_or_init()
         self.response_contexts = ResponseContextBuilder(memory=self.mem)
@@ -83,6 +98,72 @@ class AuroraRuntime:
         replayed = self._replay()
         if replayed > 0 and self.last_seq > self._loaded_snapshot_seq:
             self._snapshot()
+        self._start_background_evolver()
+
+    def _memory_mutation_token(self) -> Tuple[Any, ...]:
+        return (
+            len(self.mem.plots),
+            len(self.mem.stories),
+            len(self.mem.themes),
+            int(self.mem.step),
+            int(self.mem.identity.dream_count),
+            int(self.mem.identity.repair_count),
+            int(self.mem.identity.mode_change_count),
+            int(getattr(self.mem.graph, "edge_version", 0)),
+        )
+
+    def _snapshot_if_authoritative_mutation(self, before: Tuple[Any, ...], after: Tuple[Any, ...]) -> bool:
+        if before == after:
+            return False
+        self._snapshot()
+        return True
+
+    def _background_evolver_enabled(self) -> bool:
+        return bool(self.settings.background_evolver_enabled) and self._background_interval_s > 0.0
+
+    def _start_background_evolver(self) -> None:
+        if not self._background_evolver_enabled():
+            self._background_telemetry["enabled"] = False
+            self._background_telemetry["running"] = False
+            return
+        self._background_telemetry["enabled"] = True
+        if self._background_thread is not None and self._background_thread.is_alive():
+            return
+        self._background_stop.clear()
+        self._background_thread = threading.Thread(
+            target=self._background_evolver_loop,
+            name="aurora-background-evolver",
+            daemon=True,
+        )
+        self._background_thread.start()
+
+    def _background_evolver_loop(self) -> None:
+        self._background_telemetry["running"] = True
+        try:
+            while not self._background_stop.wait(self._background_interval_s):
+                started = time.perf_counter()
+                try:
+                    with self._lock:
+                        before = self._memory_mutation_token()
+                        evolved = self.mem.evolve(dreams=self.settings.dreams_per_evolve)
+                        after = self._memory_mutation_token()
+                        changed = self._snapshot_if_authoritative_mutation(before, after)
+                    self._background_telemetry["last_error"] = None
+                    self._background_telemetry["last_mutation_count"] = len(evolved) if changed else 0
+                except Exception as exc:
+                    logger.exception("background evolver failed")
+                    self._background_telemetry["last_error"] = str(exc)
+                    self._background_telemetry["last_mutation_count"] = 0
+                finally:
+                    self._background_telemetry["last_run_ts"] = time.time()
+                    self._background_telemetry["last_duration_ms"] = round(
+                        (time.perf_counter() - started) * 1000.0, 3
+                    )
+                    self._background_telemetry["cycles"] = int(
+                        self._background_telemetry.get("cycles", 0)
+                    ) + 1
+        finally:
+            self._background_telemetry["running"] = False
 
     def _load_or_init(self) -> AuroraSoul:
         """从最新快照恢复系统状态，或根据配置新建引擎。"""
@@ -643,7 +724,11 @@ class AuroraRuntime:
     def evolve(self, *, dreams: Optional[int] = None) -> List[Any]:
         """强制触发系统演化（做梦）。"""
         with self._lock:
-            return self.mem.evolve(dreams=dreams or self.settings.dreams_per_evolve)
+            before = self._memory_mutation_token()
+            evolved = self.mem.evolve(dreams=dreams or self.settings.dreams_per_evolve)
+            after = self._memory_mutation_token()
+            self._snapshot_if_authoritative_mutation(before, after)
+            return evolved
 
     def get_identity(self) -> Dict[str, Any]:
         """获取当前 Agent 的身份和叙事摘要。"""
@@ -662,10 +747,25 @@ class AuroraRuntime:
                 "plot_count": len(self.mem.plots),
                 "story_count": len(self.mem.stories),
                 "theme_count": len(self.mem.themes),
+                "architecture_mode": self.mem.cfg.architecture_mode,
                 "current_mode": self.mem.identity.current_mode_label,
                 "pressure": self.mem.identity.narrative_pressure(),
                 "dream_count": self.mem.identity.dream_count,
                 "repair_count": self.mem.identity.repair_count,
                 "active_energy": self.mem.identity.active_energy,
                 "repressed_energy": self.mem.identity.repressed_energy,
+                "graph_metrics": dict(self.mem.shadow_metrics),
+                "background_evolver": dict(self._background_telemetry),
             }
+
+    def close(self) -> None:
+        """关闭 runtime 持有的后台线程和存储句柄。"""
+        if self._closed:
+            return
+        self._closed = True
+        self._background_stop.set()
+        thread = self._background_thread
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=max(1.0, min(5.0, self._background_interval_s + 0.2)))
+        self.event_log.close()
+        self.doc_store.close()

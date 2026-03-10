@@ -31,7 +31,12 @@ def run_observer(
     settings.llm_timeout = min(float(settings.llm_timeout), 10.0)
     settings.llm_max_retries = 1
     runtime = AuroraRuntime(settings=settings)
-    AuroraTerminalTUI(runtime, session_id=session_id, max_hits=max_hits).run()
+    try:
+        AuroraTerminalTUI(runtime, session_id=session_id, max_hits=max_hits).run()
+    finally:
+        close = getattr(runtime, "close", None)
+        if callable(close):
+            close()
 
 
 if __name__ == "__main__":

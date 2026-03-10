@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -185,12 +185,15 @@ class MemoryStatsResponse(BaseModel):
     plot_count: int
     story_count: int
     theme_count: int
+    architecture_mode: str
     current_mode: str
     pressure: float
     dream_count: int
     repair_count: int
     active_energy: float
     repressed_energy: float
+    graph_metrics: Dict[str, Any] = Field(default_factory=dict)
+    background_evolver: Dict[str, Any] = Field(default_factory=dict)
 
 
 class HealthResponse(BaseModel):

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -217,3 +220,81 @@ def test_runtime_replay_writes_bootstrap_snapshot(tmp_path: Path) -> None:
     snapshot_files = sorted((tmp_path / "snapshots").glob("snapshot_*.json"))
     assert runtime.last_seq == 1
     assert snapshot_files
+
+
+def test_runtime_stats_expose_architecture_mode_and_graph_metrics(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(
+        settings=AuroraSettings(
+            data_dir=str(tmp_path),
+            embedding_provider="hash",
+            axis_embedding_provider="hash",
+            meaning_provider="heuristic",
+            narrative_provider="heuristic",
+        )
+    )
+
+    stats = runtime.get_stats()
+
+    assert stats["architecture_mode"] == "shadow"
+    assert isinstance(stats["graph_metrics"], dict)
+    assert isinstance(stats["background_evolver"], dict)
+
+
+def test_runtime_background_evolver_can_be_disabled(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(
+        settings=AuroraSettings(
+            data_dir=str(tmp_path),
+            embedding_provider="hash",
+            axis_embedding_provider="hash",
+            meaning_provider="heuristic",
+            narrative_provider="heuristic",
+            background_evolver_enabled=False,
+            evolve_every_seconds=0.05,
+        )
+    )
+
+    stats = runtime.get_stats()
+
+    assert stats["background_evolver"]["enabled"] is False
+    assert runtime._background_thread is None
+    runtime.close()
+    runtime.close()
+
+
+def test_runtime_background_evolver_snapshots_authoritative_mutations(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(
+        settings=AuroraSettings(
+            data_dir=str(tmp_path),
+            embedding_provider="hash",
+            axis_embedding_provider="hash",
+            meaning_provider="heuristic",
+            narrative_provider="heuristic",
+            evolve_every_seconds=0.05,
+            snapshot_every_events=0,
+        )
+    )
+    evolved = threading.Event()
+
+    def fake_evolve(*, dreams=None):
+        runtime.mem.step += 1
+        evolved.set()
+        return [SimpleNamespace(source="dream")]
+
+    runtime.mem.evolve = fake_evolve  # type: ignore[method-assign]
+
+    assert evolved.wait(timeout=1.0)
+
+    deadline = time.time() + 1.0
+    snapshot_files = []
+    while time.time() < deadline:
+        snapshot_files = sorted((tmp_path / "snapshots").glob("snapshot_*.json"))
+        if snapshot_files:
+            break
+        time.sleep(0.02)
+
+    runtime.close()
+    runtime.close()
+
+    assert snapshot_files
+    assert runtime._background_thread is not None
+    assert not runtime._background_thread.is_alive()

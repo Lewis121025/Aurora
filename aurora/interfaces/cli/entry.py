@@ -17,93 +17,135 @@ def _get_runtime(data_dir: Optional[str] = None) -> AuroraRuntime:
     return AuroraRuntime(settings=settings)
 
 
+def _evolve_summary(items: list[object]) -> dict[str, int]:
+    dreams = 0
+    repairs = 0
+    for item in items:
+        source = getattr(item, "source", None)
+        if source == "dream":
+            dreams += 1
+        elif source == "repair":
+            repairs += 1
+    return {"dreams": dreams, "repairs": repairs, "total": dreams + repairs}
+
+
+def _close_runtime(runtime: object) -> None:
+    close = getattr(runtime, "close", None)
+    if callable(close):
+        close()
+
+
 def _cmd_ingest(args: argparse.Namespace) -> None:
     runtime = _get_runtime(args.data_dir)
-    result = runtime.ingest_interaction(
-        event_id=args.event_id or "evt_cli_ingest",
-        session_id=args.session_id or "cli",
-        user_message=args.user_message,
-        agent_message=args.agent_message,
-        actors=args.actors,
-        context=args.context,
-        ts=args.ts,
-    )
-    print(json.dumps(result.__dict__, ensure_ascii=False, indent=2))
+    try:
+        result = runtime.ingest_interaction(
+            event_id=args.event_id or "evt_cli_ingest",
+            session_id=args.session_id or "cli",
+            user_message=args.user_message,
+            agent_message=args.agent_message,
+            actors=args.actors,
+            context=args.context,
+            ts=args.ts,
+        )
+        print(json.dumps(result.__dict__, ensure_ascii=False, indent=2))
+    finally:
+        _close_runtime(runtime)
 
 
 def _cmd_query(args: argparse.Namespace) -> None:
     runtime = _get_runtime(args.data_dir)
-    result = runtime.query(text=args.query, k=args.k)
-    print(
-        json.dumps(
-            {
-                "query": result.query,
-                "attractor_path_len": result.attractor_path_len,
-                "hits": [hit.__dict__ for hit in result.hits],
-            },
-            ensure_ascii=False,
-            indent=2,
+    try:
+        result = runtime.query(text=args.query, k=args.k)
+        print(
+            json.dumps(
+                {
+                    "query": result.query,
+                    "attractor_path_len": result.attractor_path_len,
+                    "hits": [hit.__dict__ for hit in result.hits],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
         )
-    )
+    finally:
+        _close_runtime(runtime)
 
 
 def _cmd_respond(args: argparse.Namespace) -> None:
     runtime = _get_runtime(args.data_dir)
-    result = runtime.respond(
-        session_id=args.session_id or "cli",
-        user_message=args.user_message,
-        context=args.context,
-        actors=args.actors,
-        k=args.k,
-        ts=args.ts,
-    )
-    print(
-        json.dumps(
-            {
-                "reply": result.reply,
-                "event_id": result.event_id,
-                "mode": result.memory_context.mode,
-                "intuition": result.memory_context.intuition,
-                "salient_axes": result.memory_context.narrative_summary.salient_axes,
-                "retrieval_hits": result.memory_context.retrieval_hits,
-                "timings": result.timings.__dict__,
-            },
-            ensure_ascii=False,
-            indent=2,
+    try:
+        result = runtime.respond(
+            session_id=args.session_id or "cli",
+            user_message=args.user_message,
+            context=args.context,
+            actors=args.actors,
+            k=args.k,
+            ts=args.ts,
         )
-    )
+        print(
+            json.dumps(
+                {
+                    "reply": result.reply,
+                    "event_id": result.event_id,
+                    "mode": result.memory_context.mode,
+                    "intuition": result.memory_context.intuition,
+                    "salient_axes": result.memory_context.narrative_summary.salient_axes,
+                    "retrieval_hits": result.memory_context.retrieval_hits,
+                    "timings": result.timings.__dict__,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    finally:
+        _close_runtime(runtime)
 
 
 def _cmd_evolve(args: argparse.Namespace) -> None:
     runtime = _get_runtime(args.data_dir)
-    dreams = runtime.evolve(dreams=args.dreams)
-    print(json.dumps({"dreams": len(dreams), **runtime.get_stats()}, ensure_ascii=False, indent=2))
+    try:
+        evolved = runtime.evolve(dreams=args.dreams)
+        print(
+            json.dumps(
+                {**_evolve_summary(list(evolved)), **runtime.get_stats()},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+    finally:
+        _close_runtime(runtime)
 
 
 def _cmd_identity(args: argparse.Namespace) -> None:
     runtime = _get_runtime(args.data_dir)
-    report = runtime.get_identity()
-    if args.full:
-        print(json.dumps(report, ensure_ascii=False, indent=2))
-        return
-    print(
-        json.dumps(
-            {
-                "current_mode": report["identity"]["current_mode"],
-                "pressure": report["narrative_summary"]["pressure"],
-                "summary": report["narrative_summary"]["text"],
-                "salient_axes": report["narrative_summary"]["salient_axes"],
-                "narrative_tail": report["identity"]["narrative_tail"],
-            },
-            ensure_ascii=False,
-            indent=2,
+    try:
+        report = runtime.get_identity()
+        if args.full:
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+            return
+        print(
+            json.dumps(
+                {
+                    "current_mode": report["identity"]["current_mode"],
+                    "pressure": report["narrative_summary"]["pressure"],
+                    "summary": report["narrative_summary"]["text"],
+                    "salient_axes": report["narrative_summary"]["salient_axes"],
+                    "narrative_tail": report["identity"]["narrative_tail"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
         )
-    )
+    finally:
+        _close_runtime(runtime)
 
 
 def _cmd_stats(args: argparse.Namespace) -> None:
     runtime = _get_runtime(args.data_dir)
-    print(json.dumps(runtime.get_stats(), ensure_ascii=False, indent=2))
+    try:
+        print(json.dumps(runtime.get_stats(), ensure_ascii=False, indent=2))
+    finally:
+        _close_runtime(runtime)
 
 
 def _cmd_serve(args: argparse.Namespace) -> None:

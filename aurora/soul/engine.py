@@ -10,6 +10,7 @@ import copy
 import json
 import math
 import random
+import time
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, TypeVar, cast
@@ -18,6 +19,8 @@ import numpy as np
 
 from aurora.integrations.embeddings.base import EmbeddingProvider
 from aurora.integrations.embeddings.local_semantic import LocalSemanticEmbedding
+from aurora.soul.graph_ops import GraphDreamOperator, GraphRepairOperator
+from aurora.soul.graph_views import GraphViewBuilder, GraphViewStats
 from aurora.soul.extractors import (
     CombinatorialNarrativeProvider,
     HeuristicMeaningProvider,
@@ -417,6 +420,7 @@ class SoulConfig:
 
     dim: int = 384  # 向量维度
     metric_rank: int = 64  # 低秩度量学习的秩
+    architecture_mode: Literal["legacy", "shadow", "graph_first"] = "shadow"
     max_plots: int = 5000  # 最大情节存储量
     kde_reservoir: int = 4096  # KDE 采样蓄水池大小
     subconscious_reservoir: int = 1024  # 潜意识采样蓄水池大小
@@ -432,12 +436,22 @@ class SoulConfig:
     persona_axes_json: Optional[str] = None  # 预设人设轴 JSON
     axis_merge_every_events: int = 50  # 轴合并检查频率
     persona_axis_budget: int = 24  # 人设轴数量预算
+    graph_temporal_neighbors: int = 2
+    graph_semantic_neighbors: int = 3
+    graph_contradiction_neighbors: int = 10
+    graph_similarity_threshold: float = 0.2
+    graph_contradiction_threshold: float = 0.16
+    community_refresh_every_plots: int = 50
+    dream_walk_steps: int = 6
+    dream_walk_samples: int = 24
+    dream_persist_threshold: float = 0.18
 
     def to_state_dict(self) -> Dict[str, Any]:
         """序列化"""
         return {
             "dim": self.dim,
             "metric_rank": self.metric_rank,
+            "architecture_mode": self.architecture_mode,
             "max_plots": self.max_plots,
             "kde_reservoir": self.kde_reservoir,
             "subconscious_reservoir": self.subconscious_reservoir,
@@ -453,6 +467,15 @@ class SoulConfig:
             "persona_axes_json": self.persona_axes_json,
             "axis_merge_every_events": self.axis_merge_every_events,
             "persona_axis_budget": self.persona_axis_budget,
+            "graph_temporal_neighbors": self.graph_temporal_neighbors,
+            "graph_semantic_neighbors": self.graph_semantic_neighbors,
+            "graph_contradiction_neighbors": self.graph_contradiction_neighbors,
+            "graph_similarity_threshold": self.graph_similarity_threshold,
+            "graph_contradiction_threshold": self.graph_contradiction_threshold,
+            "community_refresh_every_plots": self.community_refresh_every_plots,
+            "dream_walk_steps": self.dream_walk_steps,
+            "dream_walk_samples": self.dream_walk_samples,
+            "dream_persist_threshold": self.dream_persist_threshold,
         }
 
     @classmethod
@@ -461,6 +484,7 @@ class SoulConfig:
         return cls(
             dim=int(data.get("dim", 384)),
             metric_rank=int(data.get("metric_rank", 64)),
+            architecture_mode=str(data.get("architecture_mode", "shadow")),
             max_plots=int(data.get("max_plots", 5000)),
             kde_reservoir=int(data.get("kde_reservoir", 4096)),
             subconscious_reservoir=int(data.get("subconscious_reservoir", 1024)),
@@ -476,7 +500,29 @@ class SoulConfig:
             persona_axes_json=data.get("persona_axes_json"),
             axis_merge_every_events=int(data.get("axis_merge_every_events", 50)),
             persona_axis_budget=int(data.get("persona_axis_budget", 24)),
+            graph_temporal_neighbors=int(data.get("graph_temporal_neighbors", 2)),
+            graph_semantic_neighbors=int(data.get("graph_semantic_neighbors", 3)),
+            graph_contradiction_neighbors=int(data.get("graph_contradiction_neighbors", 10)),
+            graph_similarity_threshold=float(data.get("graph_similarity_threshold", 0.2)),
+            graph_contradiction_threshold=float(data.get("graph_contradiction_threshold", 0.16)),
+            community_refresh_every_plots=int(data.get("community_refresh_every_plots", 50)),
+            dream_walk_steps=int(data.get("dream_walk_steps", 6)),
+            dream_walk_samples=int(data.get("dream_walk_samples", 24)),
+            dream_persist_threshold=float(data.get("dream_persist_threshold", 0.18)),
         )
+
+
+@dataclass
+class GraphProjectionState:
+    graph: MemoryGraph
+    vindex: VectorIndex
+    retriever: FieldRetriever
+    plots: Dict[str, Plot]
+    stories: Dict[str, StoryArc]
+    themes: Dict[str, Theme]
+    anchor_nodes: Dict[str, Dict[str, Any]]
+    core_anchor_ids: List[str]
+    view_stats: GraphViewStats
 
 
 class AuroraSoul:
@@ -563,6 +609,19 @@ class AuroraSoul:
                 intuition_axes={},
                 current_mode_label="origin",
             )
+        self.view_builder = GraphViewBuilder(seed=seed)
+        self.dream_operator = GraphDreamOperator(seed=seed)
+        self.repair_operator = GraphRepairOperator()
+        self.anchor_nodes: Dict[str, Dict[str, Any]] = {}
+        self.core_anchor_ids: List[str] = []
+        self.view_stats = GraphViewStats()
+        self.shadow_projection: Optional[GraphProjectionState] = None
+        self.shadow_metrics: Dict[str, Any] = {}
+        if self.cfg.architecture_mode != "legacy":
+            self._bootstrap_core_anchors()
+        if self.cfg.architecture_mode == "shadow":
+            self._rebuild_shadow_projection()
+        self._refresh_shadow_metrics()
 
     def _load_persona_axes(self) -> List[Dict[str, Any]]:
         """加载或提取人设轴"""
@@ -668,6 +727,404 @@ class AuroraSoul:
         if theme.prototype is None:
             return np.zeros(self.cfg.dim, dtype=np.float32)
         return theme.prototype
+
+    def _active_authoritative_plot_ids(self) -> List[str]:
+        return [
+            str(node_id)
+            for node_id, kind in zip(self.vindex.ids, self.vindex.kinds)
+            if kind == "plot" and node_id in self.plots
+        ]
+
+    def _make_shadow_projection(self) -> GraphProjectionState:
+        graph = MemoryGraph()
+        vindex = VectorIndex(dim=self.cfg.dim)
+        projection = GraphProjectionState(
+            graph=graph,
+            vindex=vindex,
+            retriever=FieldRetriever(metric=self.metric, vindex=vindex, graph=graph),
+            plots={},
+            stories={},
+            themes={},
+            anchor_nodes={},
+            core_anchor_ids=[],
+            view_stats=GraphViewStats(),
+        )
+        for anchor_id, payload in self.anchor_nodes.items():
+            anchor_payload = {
+                "id": str(payload.get("id", anchor_id)),
+                "label": str(payload.get("label", "")),
+                "embedding": cast(np.ndarray, payload["embedding"]).copy(),
+                "pinned": bool(payload.get("pinned", True)),
+            }
+            projection.anchor_nodes[anchor_id] = anchor_payload
+            projection.graph.add_node(anchor_id, "anchor", anchor_payload)
+        projection.core_anchor_ids = list(self.core_anchor_ids)
+        return projection
+
+    def _rebuild_shadow_projection(self) -> None:
+        if self.cfg.architecture_mode != "shadow":
+            self.shadow_projection = None
+            return
+        projection = self._make_shadow_projection()
+        active_ids = sorted(
+            self._active_authoritative_plot_ids(),
+            key=lambda plot_id: (self.plots[plot_id].ts, plot_id),
+        )
+        for plot_id in active_ids:
+            mirrored = copy.deepcopy(self.plots[plot_id])
+            mirrored.story_id = None
+            mirrored.theme_id = None
+            self._store_plot_graph_first(mirrored, projection=projection, refresh_metrics=False)
+        self.shadow_projection = projection
+        self._refresh_shadow_metrics()
+
+    def _sync_shadow_projection(self) -> None:
+        if self.cfg.architecture_mode != "shadow":
+            return
+        active_ids = set(self._active_authoritative_plot_ids())
+        shadow_ids = set() if self.shadow_projection is None else set(self.shadow_projection.plots.keys())
+        if self.shadow_projection is None or active_ids != shadow_ids:
+            self._rebuild_shadow_projection()
+
+    def _bootstrap_core_anchors(self) -> None:
+        """在图中钉住少量核心自我锚点，供 graph-first 模式使用。"""
+        if self.core_anchor_ids:
+            for anchor_id, payload in self.anchor_nodes.items():
+                self.graph.add_node(anchor_id, "anchor", payload)
+            return
+        label = self.cfg.profile_text.strip() or "origin self"
+        embedding = (
+            self.identity.self_vector.copy()
+            if np.linalg.norm(self.identity.self_vector) > 1e-6
+            else self.axis_embedder.embed(label)
+        )
+        anchor_id = "anchor_core_self"
+        payload = {
+            "id": anchor_id,
+            "label": label,
+            "embedding": l2_normalize(embedding.astype(np.float32)),
+            "pinned": True,
+        }
+        self.anchor_nodes[anchor_id] = payload
+        self.core_anchor_ids = [anchor_id]
+        self.graph.add_node(anchor_id, "anchor", payload)
+
+    def _anchor_centroid(self) -> Optional[np.ndarray]:
+        vecs = [
+            cast(np.ndarray, payload.get("embedding"))
+            for anchor_id, payload in self.anchor_nodes.items()
+            if anchor_id in self.core_anchor_ids and isinstance(payload.get("embedding"), np.ndarray)
+        ]
+        if not vecs:
+            return None
+        return l2_normalize(np.mean(np.asarray(vecs, dtype=np.float32), axis=0))
+
+    def _refresh_identity_from_anchors(self) -> None:
+        """兼容层：只有自我向量过弱时，才回退到 anchor centroid。"""
+        centroid = self._anchor_centroid()
+        if centroid is None:
+            return
+        if np.linalg.norm(self.identity.self_vector) < 1e-6:
+            self.identity.self_vector = centroid.astype(np.float32)
+
+    def _refresh_shadow_metrics(self) -> None:
+        previous = self.shadow_metrics if isinstance(self.shadow_metrics, dict) else {}
+        authoritative_fresh = (
+            self.view_stats.graph_edge_version >= 0
+            and self.view_stats.graph_edge_version == self.graph.edge_version
+        )
+        metrics: Dict[str, Any] = {
+            "authoritative": {
+                "plot_count": len(self.plots),
+                "story_count": len(self.stories),
+                "theme_count": len(self.themes),
+                "core_anchor_count": len(self.core_anchor_ids),
+                "graph_edge_version": self.graph.edge_version,
+                "view_refreshed_step": int(self.view_stats.refreshed_step),
+                "view_fresh": bool(authoritative_fresh),
+            },
+            "last_plot": dict(previous.get("last_plot", {})),
+            "query": dict(previous.get("query", {})),
+            "evolve": dict(previous.get("evolve", {})),
+        }
+        if self.shadow_projection is not None:
+            shadow_view_fresh = (
+                self.shadow_projection.view_stats.graph_edge_version >= 0
+                and self.shadow_projection.view_stats.graph_edge_version
+                == self.shadow_projection.graph.edge_version
+            )
+            metrics["shadow"] = {
+                "plot_count": len(self.shadow_projection.plots),
+                "story_count": len(self.shadow_projection.stories),
+                "theme_count": len(self.shadow_projection.themes),
+                "core_anchor_count": len(self.shadow_projection.core_anchor_ids),
+                "graph_edge_version": self.shadow_projection.graph.edge_version,
+                "view_refreshed_step": int(self.shadow_projection.view_stats.refreshed_step),
+                "view_fresh": bool(shadow_view_fresh),
+            }
+        self.shadow_metrics = metrics
+
+    def _refresh_projection_views(self, projection: GraphProjectionState, *, force: bool = False) -> None:
+        if not projection.plots:
+            projection.stories = {}
+            projection.themes = {}
+            projection.view_stats = GraphViewStats(
+                graph_edge_version=projection.graph.edge_version,
+                refreshed_step=int(self.step),
+                plot_count=0,
+                story_count=0,
+                theme_count=0,
+            )
+            return
+        stale = (
+            projection.view_stats.graph_edge_version != projection.graph.edge_version
+            or projection.view_stats.plot_count != len(projection.plots)
+        )
+        if not force and not stale:
+            return
+        stories, themes, stats = self.view_builder.build(
+            graph=projection.graph,
+            vindex=projection.vindex,
+            plots=projection.plots,
+            previous_stories=projection.stories,
+            previous_themes=projection.themes,
+            step=self.step,
+        )
+        projection.stories = stories
+        projection.themes = themes
+        projection.view_stats = stats
+
+    def _refresh_materialized_views(self, *, force: bool = False) -> None:
+        """graph-first 下按需物化 story/theme 视图。"""
+        if self.cfg.architecture_mode != "graph_first":
+            self._refresh_shadow_metrics()
+            return
+        projection = GraphProjectionState(
+            graph=self.graph,
+            vindex=self.vindex,
+            retriever=self.retriever,
+            plots=self.plots,
+            stories=self.stories,
+            themes=self.themes,
+            anchor_nodes=self.anchor_nodes,
+            core_anchor_ids=self.core_anchor_ids,
+            view_stats=self.view_stats,
+        )
+        self._refresh_projection_views(projection, force=force)
+        self.stories = projection.stories
+        self.themes = projection.themes
+        self.view_stats = projection.view_stats
+        self._refresh_shadow_metrics()
+
+    def _shadow_observe_plot(self, plot: Plot) -> None:
+        """shadow 模式只记录观测指标，不改变旧写路径结构。"""
+        self._sync_shadow_projection()
+        self.shadow_metrics.setdefault("last_plot", {})
+        self.shadow_metrics["last_plot"] = {
+            "id": plot.id,
+            "source": plot.source,
+            "tension": round(float(plot.tension), 4),
+            "contradiction": round(float(plot.contradiction), 4),
+            "mirrored": self.shadow_projection is not None and plot.id in self.shadow_projection.plots,
+        }
+        self._refresh_shadow_metrics()
+
+    def _plot_semantic_hits(
+        self,
+        embedding: np.ndarray,
+        *,
+        exclude_id: Optional[str] = None,
+        limit: Optional[int] = None,
+        vindex: Optional[VectorIndex] = None,
+        plots: Optional[Dict[str, Plot]] = None,
+    ) -> List[Tuple[str, float]]:
+        search_k = max((limit or self.cfg.graph_contradiction_neighbors) + 4, 8)
+        index = self.vindex if vindex is None else vindex
+        plot_map = self.plots if plots is None else plots
+        hits = index.search(embedding, k=search_k, kind="plot")
+        ranked: List[Tuple[str, float]] = []
+        for node_id, score in hits:
+            if exclude_id is not None and node_id == exclude_id:
+                continue
+            if node_id not in plot_map:
+                continue
+            ranked.append((node_id, float(score)))
+        if limit is not None:
+            return ranked[:limit]
+        return ranked
+
+    def _graph_contradiction_score(self, left: Plot, right: Plot) -> float:
+        axis_names = set(left.frame.axis_evidence.keys()) | set(right.frame.axis_evidence.keys())
+        axis_conflicts: List[float] = []
+        for axis_name in axis_names:
+            left_value = float(left.frame.axis_evidence.get(axis_name, 0.0))
+            right_value = float(right.frame.axis_evidence.get(axis_name, 0.0))
+            axis_conflicts.append(max(0.0, -(left_value * right_value)))
+        axis_conflict = float(np.mean(axis_conflicts)) if axis_conflicts else 0.0
+        semantic_conflict = max(0.0, -cosine_sim(left.embedding, right.embedding))
+        affect_conflict = max(0.0, -(left.frame.valence * right.frame.valence))
+        return float(0.55 * axis_conflict + 0.30 * semantic_conflict + 0.15 * affect_conflict)
+
+    def _connect_plot_to_anchors(
+        self,
+        plot: Plot,
+        *,
+        graph: Optional[MemoryGraph] = None,
+        anchor_nodes: Optional[Dict[str, Dict[str, Any]]] = None,
+        core_anchor_ids: Optional[Sequence[str]] = None,
+    ) -> None:
+        target_graph = self.graph if graph is None else graph
+        anchors = self.anchor_nodes if anchor_nodes is None else anchor_nodes
+        anchor_ids = self.core_anchor_ids if core_anchor_ids is None else core_anchor_ids
+        for anchor_id in anchor_ids:
+            payload = anchors.get(anchor_id)
+            if payload is None:
+                continue
+            anchor_emb = cast(np.ndarray, payload.get("embedding"))
+            sim = cosine_sim(anchor_emb, plot.embedding)
+            if sim >= self.cfg.graph_similarity_threshold * 0.5:
+                target_graph.ensure_edge(
+                    anchor_id,
+                    plot.id,
+                    "anchors",
+                    sign=1,
+                    weight=max(0.05, sim),
+                    confidence=plot.confidence,
+                    provenance="anchor_similarity",
+                )
+                target_graph.ensure_edge(
+                    plot.id,
+                    anchor_id,
+                    "anchored_by",
+                    sign=1,
+                    weight=max(0.05, sim),
+                    confidence=plot.confidence,
+                    provenance="anchor_similarity",
+                )
+                continue
+            if sim <= -self.cfg.graph_contradiction_threshold:
+                weight = max(0.05, abs(sim))
+                target_graph.ensure_edge(
+                    anchor_id,
+                    plot.id,
+                    "contradicts_self",
+                    sign=-1,
+                    weight=weight,
+                    confidence=plot.confidence,
+                    provenance="anchor_similarity",
+                )
+                target_graph.ensure_edge(
+                    plot.id,
+                    anchor_id,
+                    "contradicts_self",
+                    sign=-1,
+                    weight=weight,
+                    confidence=plot.confidence,
+                    provenance="anchor_similarity",
+                )
+
+    def _store_plot_graph_first(
+        self,
+        plot: Plot,
+        *,
+        projection: Optional[GraphProjectionState] = None,
+        refresh_metrics: bool = True,
+    ) -> None:
+        """graph-first: 只写 plot 节点和局部显式边。"""
+        graph = self.graph if projection is None else projection.graph
+        vindex = self.vindex if projection is None else projection.vindex
+        plots = self.plots if projection is None else projection.plots
+        anchor_nodes = self.anchor_nodes if projection is None else projection.anchor_nodes
+        core_anchor_ids = self.core_anchor_ids if projection is None else projection.core_anchor_ids
+        plots[plot.id] = plot
+        graph.add_node(plot.id, "plot", plot)
+        vindex.add(plot.id, self._plot_vector_for_index(plot), kind="plot")
+
+        previous_plots = sorted(
+            (item for item in plots.values() if item.id != plot.id),
+            key=lambda item: item.ts,
+            reverse=True,
+        )[: self.cfg.graph_temporal_neighbors]
+        for prev in previous_plots:
+            graph.ensure_edge(
+                prev.id,
+                plot.id,
+                "precedes",
+                weight=0.8,
+                confidence=min(prev.confidence, plot.confidence),
+                provenance="temporal",
+            )
+            graph.ensure_edge(
+                plot.id,
+                prev.id,
+                "follows",
+                weight=0.8,
+                confidence=min(prev.confidence, plot.confidence),
+                provenance="temporal",
+            )
+
+        semantic_hits = self._plot_semantic_hits(
+            self._plot_vector_for_index(plot),
+            exclude_id=plot.id,
+            limit=self.cfg.graph_contradiction_neighbors,
+            vindex=vindex,
+            plots=plots,
+        )
+        for neighbor_id, score in semantic_hits[: self.cfg.graph_semantic_neighbors]:
+            if score < self.cfg.graph_similarity_threshold:
+                continue
+            weight = max(0.05, score)
+            graph.ensure_edge(
+                plot.id,
+                neighbor_id,
+                "associates",
+                weight=weight,
+                confidence=plot.confidence,
+                provenance="semantic_neighbor",
+            )
+            graph.ensure_edge(
+                neighbor_id,
+                plot.id,
+                "associates",
+                weight=weight,
+                confidence=plots[neighbor_id].confidence,
+                provenance="semantic_neighbor",
+            )
+
+        for neighbor_id, _score in semantic_hits[: self.cfg.graph_contradiction_neighbors]:
+            neighbor = plots.get(neighbor_id)
+            if neighbor is None:
+                continue
+            contradiction_score = self._graph_contradiction_score(plot, neighbor)
+            if contradiction_score < self.cfg.graph_contradiction_threshold:
+                continue
+            graph.ensure_edge(
+                plot.id,
+                neighbor_id,
+                "contradicts",
+                sign=-1,
+                weight=contradiction_score,
+                confidence=plot.confidence,
+                provenance="bounded_scan",
+            )
+            graph.ensure_edge(
+                neighbor_id,
+                plot.id,
+                "contradicts",
+                sign=-1,
+                weight=contradiction_score,
+                confidence=neighbor.confidence,
+                provenance="bounded_scan",
+            )
+
+        self._connect_plot_to_anchors(
+            plot,
+            graph=graph,
+            anchor_nodes=anchor_nodes,
+            core_anchor_ids=core_anchor_ids,
+        )
+        if refresh_metrics:
+            self._refresh_shadow_metrics()
 
     def _redundancy(self, emb: np.ndarray) -> float:
         """计算输入向量相对于现有情节的冗余度（最高余弦相似度）"""
@@ -1381,6 +1838,231 @@ class AuroraSoul:
             victim.status = "archived"
             self.vindex.remove(victim.id)
 
+    def _graph_first_repairs(self, limit: int = 1) -> List[Plot]:
+        """扫描 anchor-contradiction 组件并生成 resolution plots。"""
+        targets = self.repair_operator.find_targets(
+            graph=self.graph,
+            plots=self.plots,
+            anchor_ids=self.core_anchor_ids,
+            limit=limit,
+        )
+        repairs: List[Plot] = []
+        for target in targets:
+            target_plots = [self.plots[plot_id] for plot_id in target.plot_ids if plot_id in self.plots]
+            if not target_plots:
+                continue
+            salient_axes = sorted(
+                (
+                    (
+                        axis_name,
+                        float(
+                            np.mean(
+                                [
+                                    abs(plot.frame.axis_evidence.get(axis_name, 0.0))
+                                    for plot in target_plots
+                                ]
+                            )
+                        ),
+                    )
+                    for axis_name in self._axis_names()
+                ),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            repair_text = self.narrator.compose_repair(
+                "integrate",
+                self.identity,
+                self.identity,
+                target.score,
+                [axis_name for axis_name, score in salient_axes[:3] if score > 0.0],
+                " / ".join(plot.text[:96] for plot in target_plots[:2]),
+                self.schema,
+            )
+            repair_plot = self.ingest(
+                repair_text,
+                actors=("self",),
+                source="repair",
+                confidence=0.72,
+                evidence_weight=0.35,
+            )
+            self.identity.repair_count += 1
+            self.identity.narrative_log.append(repair_text)
+            for plot_id in target.plot_ids:
+                if plot_id not in self.plots:
+                    continue
+                self.graph.ensure_edge(
+                    repair_plot.id,
+                    plot_id,
+                    "resolves",
+                    weight=max(0.05, target.score),
+                    confidence=repair_plot.confidence,
+                    provenance="repair_operator",
+                )
+                self.graph.ensure_edge(
+                    plot_id,
+                    repair_plot.id,
+                    "resolved_by",
+                    weight=max(0.05, target.score),
+                    confidence=self.plots[plot_id].confidence,
+                    provenance="repair_operator",
+                )
+            repairs.append(repair_plot)
+        return repairs
+
+    def _graph_first_dreams(self, n: int = 2) -> List[Plot]:
+        """基于随机游走的 graph dream operator。"""
+        candidates = self.dream_operator.propose(
+            graph=self.graph,
+            plots=self.plots,
+            samples=self.cfg.dream_walk_samples,
+            steps=self.cfg.dream_walk_steps,
+        )
+        dreams: List[Plot] = []
+        fallback = candidates[: max(1, n)] if candidates else []
+        chosen = [
+            candidate for candidate in candidates if candidate.score >= self.cfg.dream_persist_threshold
+        ]
+        if not chosen:
+            chosen = fallback
+        for candidate in chosen[:n]:
+            operator = "integration" if candidate.resonance >= 0.35 else "counterfactual"
+            dream_text = self.narrator.compose_dream(
+                operator,
+                candidate.tags,
+                self.identity,
+                self.schema,
+            )
+            dream_plot = self.ingest(
+                dream_text,
+                actors=("self",),
+                source="dream",
+                confidence=0.34,
+                evidence_weight=0.20,
+            )
+            self.identity.dream_count += 1
+            for plot_id in candidate.plot_ids:
+                if plot_id not in self.plots:
+                    continue
+                self.graph.ensure_edge(
+                    dream_plot.id,
+                    plot_id,
+                    "dreams_about",
+                    weight=max(0.05, candidate.score),
+                    confidence=dream_plot.confidence,
+                    provenance="dream_operator",
+                )
+            dreams.append(dream_plot)
+        return dreams
+
+    def _shadow_query_compare(
+        self,
+        *,
+        legacy_trace: RetrievalTrace,
+        query_text: str,
+        k: int,
+        legacy_duration_ms: float,
+    ) -> None:
+        self._sync_shadow_projection()
+        projection = self.shadow_projection
+        if projection is None:
+            self._refresh_shadow_metrics()
+            return
+        self._refresh_projection_views(projection, force=True)
+        started = time.perf_counter()
+        shadow_trace = projection.retriever.retrieve(
+            query_text=query_text,
+            embedder=self.event_embedder,
+            state=self.identity,
+            kinds=self.cfg.retrieval_kinds,
+            k=k,
+        )
+        shadow_duration_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+        legacy_plot_ids = [node_id for node_id, _score, kind in legacy_trace.ranked if kind == "plot"]
+        shadow_plot_ids = [node_id for node_id, _score, kind in shadow_trace.ranked if kind == "plot"]
+        overlap = set(legacy_plot_ids[:k]) & set(shadow_plot_ids[:k])
+        denom = max(1, min(len(legacy_plot_ids[:k]), len(shadow_plot_ids[:k])) or max(len(legacy_plot_ids[:k]), len(shadow_plot_ids[:k]), 1))
+        self.shadow_metrics["query"] = {
+            "legacy_latency_ms": round(float(legacy_duration_ms), 3),
+            "shadow_latency_ms": round(float(shadow_duration_ms), 3),
+            "top_k_overlap": len(overlap),
+            "top_k_overlap_ratio": round(len(overlap) / denom, 4),
+            "top1_agreement": bool(legacy_plot_ids[:1] and legacy_plot_ids[:1] == shadow_plot_ids[:1]),
+            "legacy_plot_hits": legacy_plot_ids[:k],
+            "shadow_plot_hits": shadow_plot_ids[:k],
+        }
+        self._refresh_shadow_metrics()
+
+    def _shadow_dry_run_evolve(self) -> None:
+        self._sync_shadow_projection()
+        projection = self.shadow_projection
+        if projection is None:
+            self._refresh_shadow_metrics()
+            return
+        self._refresh_projection_views(projection, force=False)
+        started = time.perf_counter()
+        repair_targets = self.repair_operator.find_targets(
+            graph=projection.graph,
+            plots=projection.plots,
+            anchor_ids=projection.core_anchor_ids,
+            limit=1,
+        )
+        dream_candidates = self.dream_operator.propose(
+            graph=projection.graph,
+            plots=projection.plots,
+            samples=self.cfg.dream_walk_samples,
+            steps=self.cfg.dream_walk_steps,
+        )
+        duration_ms = max(0.0, (time.perf_counter() - started) * 1000.0)
+        self.shadow_metrics["evolve"] = {
+            "duration_ms": round(float(duration_ms), 3),
+            "repair_candidates": len(repair_targets),
+            "repair_top_score": round(float(repair_targets[0].score), 4) if repair_targets else 0.0,
+            "dream_candidates": len(dream_candidates),
+            "dream_top_score": round(float(dream_candidates[0].score), 4) if dream_candidates else 0.0,
+            "view_fresh": bool(
+                projection.view_stats.graph_edge_version >= 0
+                and projection.view_stats.graph_edge_version == projection.graph.edge_version
+            ),
+        }
+        self._refresh_shadow_metrics()
+
+    def _ingest_graph_first(self, plot: Plot, frame: EventFrame, dissonance: DissonanceReport) -> Plot:
+        """graph-first: 统一写入 plot 图节点，去掉同步 story/theme/repair/dream 编排。"""
+        self._store_plot_graph_first(plot)
+
+        energy_scale = {"wake": 1.0, "dream": 0.35, "repair": 0.20, "mode": 0.15}[plot.source]
+        self.identity.active_energy += energy_scale * (
+            0.38 * dissonance.total
+            + 0.26 * frame.arousal
+            + 0.16 * max(0.0, -frame.valence)
+            + 0.10 * frame.threat
+        )
+        self.identity.contradiction_ema = moving_average(
+            self.identity.contradiction_ema, dissonance.total, 0.24
+        )
+
+        if plot.source == "wake":
+            self._update_wake_axis_stats(frame)
+            self._baseline_assimilation(frame)
+            added_axis = self._maybe_expand_schema(plot)
+            self.consolidator.observe(plot)
+            if self.consolidator.should_run(added_axis, len(self.schema.persona_axes)):
+                merges = self.consolidator.maybe_consolidate(
+                    schema=self.schema,
+                    axis_embedder=self.axis_embedder,
+                    narrator=self.narrator,
+                )
+                for canonical, alias in merges:
+                    self.identity.narrative_log.append(f"Axis merged: {alias} -> {canonical}")
+                self._axis_names()
+            self._refresh_identity_from_anchors()
+
+        self.recent_texts.append(plot.text)
+        self.recent_texts = self.recent_texts[-self.cfg.max_recent_texts :]
+        self._pressure_manage()
+        self._refresh_shadow_metrics()
+        return plot
+
     def ingest(
         self,
         interaction_text: str,
@@ -1442,6 +2124,10 @@ class AuroraSoul:
             * evidence_weight
         )
 
+        if self.cfg.architecture_mode == "graph_first":
+            return self._ingest_graph_first(plot, frame, dissonance)
+
+        # Legacy/shadow 仍保留原有同步叙事写路径，作为兼容层。
         # 长期记忆门控决策：利用 Thompson 门控模型决定是否值得存入索引
         encode = (
             source in {"dream", "repair", "mode"}
@@ -1507,10 +2193,14 @@ class AuroraSoul:
         self.recent_texts = self.recent_texts[-self.cfg.max_recent_texts :]
         # 定期清理古老记忆
         self._pressure_manage()
+        if self.cfg.architecture_mode == "shadow":
+            self._shadow_observe_plot(plot)
         return plot
 
     def dream(self, n: int = 2) -> List[Plot]:
         """执行梦境演练循环"""
+        if self.cfg.architecture_mode == "graph_first":
+            return self._graph_first_dreams(n=n)
         dreams: List[Plot] = []
         for _ in range(n):
             fragments = self.subconscious.sample(n=int(self.rng.integers(1, 4)))
@@ -1535,10 +2225,21 @@ class AuroraSoul:
 
     def evolve(self, dreams: int = 2) -> List[Plot]:
         """公开的演化接口"""
-        return self.dream(n=dreams)
+        if self.cfg.architecture_mode == "graph_first":
+            evolved = self._graph_first_repairs(limit=1)
+            evolved.extend(self._graph_first_dreams(n=dreams))
+            self._refresh_shadow_metrics()
+            return evolved
+        evolved = self.dream(n=dreams)
+        if self.cfg.architecture_mode == "shadow":
+            self._shadow_dry_run_evolve()
+        return evolved
 
     def query(self, text: str, k: int = 8) -> RetrievalTrace:
         """记忆检索接口：场论驱动的复杂检索"""
+        if self.cfg.architecture_mode == "graph_first":
+            self._refresh_materialized_views(force=True)
+        query_started = time.perf_counter()
         trace = self.retriever.retrieve(
             query_text=text,
             embedder=self.event_embedder,
@@ -1546,6 +2247,7 @@ class AuroraSoul:
             kinds=self.cfg.retrieval_kinds,
             k=k,
         )
+        query_duration_ms = max(0.0, (time.perf_counter() - query_started) * 1000.0)
         # 记录访问历史用于 Mass 计算
         for node_id, _, kind in trace.ranked:
             if kind == "plot" and node_id in self.plots:
@@ -1553,6 +2255,13 @@ class AuroraSoul:
                 self.plots[node_id].last_access_ts = now_ts()
             elif kind == "story" and node_id in self.stories:
                 self.stories[node_id].reference_count += 1
+        if self.cfg.architecture_mode == "shadow":
+            self._shadow_query_compare(
+                legacy_trace=trace,
+                query_text=text,
+                k=k,
+                legacy_duration_ms=query_duration_ms,
+            )
         return trace
 
     def feedback_retrieval(self, query_text: str, chosen_id: str, success: bool) -> None:
@@ -1585,6 +2294,7 @@ class AuroraSoul:
                 self.graph.edge_belief(neighbor, chosen_id).update(success)
             if self.graph.g.has_edge(chosen_id, neighbor):
                 self.graph.edge_belief(chosen_id, neighbor).update(success)
+        self.graph._pagerank_cache.clear()
 
     def intuition_keywords(self, limit: int = 2) -> List[str]:
         """获取当前最显著的直觉（梦中倾向）"""
@@ -1602,6 +2312,8 @@ class AuroraSoul:
 
     def snapshot_identity(self) -> IdentitySnapshot:
         """生成身份快照用于 UI 展示"""
+        if self.cfg.architecture_mode == "graph_first":
+            self._refresh_materialized_views()
         ordered = self._axis_names()
         return IdentitySnapshot(
             current_mode=self.identity.current_mode_label,
@@ -1645,6 +2357,8 @@ class AuroraSoul:
 
     def narrative_summary(self) -> NarrativeSummary:
         """生成自我意识总结文本"""
+        if self.cfg.architecture_mode == "graph_first":
+            self._refresh_materialized_views()
         return self.narrator.compose_summary(self.identity, self.schema, self.recent_texts)
 
     def to_state_dict(self) -> Dict[str, Any]:
@@ -1672,6 +2386,18 @@ class AuroraSoul:
             "recent_texts": list(self.recent_texts),
             "step": int(self.step),
             "wake_axis_stats": copy.deepcopy(self.wake_axis_stats),
+            "anchors": {
+                anchor_id: {
+                    "id": payload.get("id", anchor_id),
+                    "label": payload.get("label", ""),
+                    "embedding": cast(np.ndarray, payload["embedding"]).astype(np.float32).tolist(),
+                    "pinned": bool(payload.get("pinned", True)),
+                }
+                for anchor_id, payload in self.anchor_nodes.items()
+            },
+            "core_anchor_ids": list(self.core_anchor_ids),
+            "view_stats": self.view_stats.to_state_dict(),
+            "shadow_metrics": copy.deepcopy(self.shadow_metrics),
         }
 
     @classmethod
@@ -1721,6 +2447,19 @@ class AuroraSoul:
             obj.graph.add_node(story_id, "story", story)
         for theme_id, theme in obj.themes.items():
             obj.graph.add_node(theme_id, "theme", theme)
+        obj.anchor_nodes = {}
+        obj.core_anchor_ids = [str(item) for item in data.get("core_anchor_ids", [])]
+        for anchor_id, payload in data.get("anchors", {}).items():
+            anchor_payload = {
+                "id": str(payload.get("id", anchor_id)),
+                "label": str(payload.get("label", "")),
+                "embedding": np.asarray(payload.get("embedding", []), dtype=np.float32),
+                "pinned": bool(payload.get("pinned", True)),
+            }
+            obj.anchor_nodes[str(anchor_id)] = anchor_payload
+            obj.graph.add_node(str(anchor_id), "anchor", anchor_payload)
+        if obj.cfg.architecture_mode != "legacy" and not obj.core_anchor_ids:
+            obj._bootstrap_core_anchors()
         obj.graph.restore_edges(data["graph"])
         obj.retriever = FieldRetriever(metric=obj.metric, vindex=obj.vindex, graph=obj.graph)
         obj.crp_story = CRPAssigner.from_state_dict(data["crp_story"])
@@ -1745,4 +2484,12 @@ class AuroraSoul:
         obj.wake_axis_stats = copy.deepcopy(data.get("wake_axis_stats", {}))
         obj.story_model = StoryModel(metric=obj.metric)
         obj.theme_model = ThemeModel(metric=obj.metric)
+        obj.view_stats = GraphViewStats.from_state_dict(data.get("view_stats", {}))
+        obj.shadow_metrics = copy.deepcopy(data.get("shadow_metrics", {}))
+        if obj.cfg.architecture_mode == "graph_first":
+            obj._refresh_materialized_views(force=True)
+        elif obj.cfg.architecture_mode == "shadow":
+            obj._rebuild_shadow_projection()
+        else:
+            obj._refresh_shadow_metrics()
         return obj

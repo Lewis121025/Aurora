@@ -396,13 +396,32 @@ def build_identity_status_block(report: dict[str, Any]) -> str:
 
 
 def build_stats_status_block(stats: dict[str, Any]) -> str:
+    background = stats.get("background_evolver", {})
+    graph_metrics = stats.get("graph_metrics", {})
     lines = [
+        f"架构模式：{stats.get('architecture_mode', '-')}",
         f"当前模式：{stats['current_mode']}",
         f"压力：{stats['pressure']:.3f}",
         f"语料规模：plot {stats['plot_count']} | story {stats['story_count']} | theme {stats['theme_count']}",
         f"修复：{stats['repair_count']} | 梦整合：{stats['dream_count']}",
         f"能量：活跃 {stats['active_energy']:.3f} / 压抑 {stats['repressed_energy']:.3f}",
     ]
+    if background:
+        lines.append(
+            "后台演化："
+            f"{'运行中' if background.get('running') else '空闲'} | "
+            f"周期 {background.get('interval_s', '-')}s | "
+            f"轮次 {background.get('cycles', 0)}"
+        )
+    if graph_metrics:
+        shadow = graph_metrics.get("shadow", {})
+        if shadow:
+            lines.append(
+                "Shadow 视图："
+                f"plot {shadow.get('plot_count', 0)} | "
+                f"story {shadow.get('story_count', 0)} | "
+                f"theme {shadow.get('theme_count', 0)}"
+            )
     return _section("统计面板", lines)
 
 

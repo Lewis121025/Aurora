@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+from contextlib import asynccontextmanager
 from functools import lru_cache
 
 from aurora.interfaces.api.schemas import (
@@ -33,13 +34,43 @@ try:
 except Exception as exc:  # pragma: no cover
     raise RuntimeError("FastAPI未安装。使用以下命令安装: pip install -e '.[api]'") from exc
 
-app = FastAPI(title="Aurora Soul API", version=__version__)
-
 
 @lru_cache(maxsize=1)
 def get_runtime() -> AuroraRuntime:
     settings = AuroraSettings(data_dir=os.environ.get("AURORA_DATA_DIR", DEFAULT_DATA_DIR))
     return AuroraRuntime(settings=settings)
+
+
+def _evolve_summary(items: list[object]) -> dict[str, int]:
+    dreams = 0
+    repairs = 0
+    for item in items:
+        source = getattr(item, "source", None)
+        if source == "dream":
+            dreams += 1
+        elif source == "repair":
+            repairs += 1
+    return {"dreams": dreams, "repairs": repairs, "total": dreams + repairs}
+
+
+def shutdown_runtime() -> None:
+    cache_info = getattr(get_runtime, "cache_info", None)
+    if callable(cache_info) and cache_info().currsize == 0:
+        return
+    runtime = get_runtime()
+    runtime.close()
+    cache_clear = getattr(get_runtime, "cache_clear", None)
+    if callable(cache_clear):
+        cache_clear()
+
+
+@asynccontextmanager
+async def app_lifespan(_app: FastAPI):
+    yield
+    shutdown_runtime()
+
+
+app = FastAPI(title="Aurora Soul API", version=__version__, lifespan=app_lifespan)
 
 
 @app.get("/healthz", response_model=HealthResponse)
@@ -125,8 +156,8 @@ def feedback(req: FeedbackRequest) -> dict[str, bool]:
 
 @app.post("/v4/evolve")
 def evolve(req: EvolveRequest) -> dict[str, object]:
-    dream_plots = get_runtime().evolve(dreams=req.dreams)
-    return {"ok": True, "dreams": len(dream_plots)}
+    evolved = get_runtime().evolve(dreams=req.dreams)
+    return {"ok": True, **_evolve_summary(list(evolved))}
 
 
 @app.get("/v4/identity", response_model=IdentityResponse)

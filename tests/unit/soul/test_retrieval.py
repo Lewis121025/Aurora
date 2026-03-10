@@ -153,6 +153,64 @@ class TestPageRank:
         assert scores is not None
         assert len(scores) == 0
 
+    def test_pagerank_ignores_negative_edges(self, retriever_setup):
+        """测试负边不会直接进入扩散权重。"""
+        retriever, embedder, vindex, graph = retriever_setup
+
+        graph.ensure_edge(
+            "plot_0",
+            "plot_10",
+            "contradicts",
+            sign=-1,
+            weight=10.0,
+            confidence=1.0,
+            provenance="test",
+        )
+        scores = retriever._pagerank({"plot_0": 1.0}, damping=0.85, max_iter=60)
+
+        assert scores["plot_10"] < 0.2
+
+    def test_negative_edges_apply_bounded_post_retrieval_inhibition(
+        self, retriever_setup, identity_state
+    ):
+        retriever, embedder, vindex, graph = retriever_setup
+
+        query = embedder.embed("图记忆冲突测试")
+        idx0 = vindex.ids.index("plot_0")
+        idx1 = vindex.ids.index("plot_1")
+        vindex.vecs[idx0] = query.astype(np.float32)
+        vindex.vecs[idx1] = ((query + 0.02).astype(np.float32)) / np.linalg.norm(query + 0.02)
+        graph.add_node("anchor_core", "anchor", {"id": "anchor_core"})
+        graph.ensure_edge(
+            "anchor_core",
+            "plot_0",
+            "contradicts_self",
+            sign=-1,
+            weight=1.0,
+            confidence=1.0,
+            provenance="test",
+        )
+        graph.ensure_edge(
+            "plot_0",
+            "anchor_core",
+            "contradicts_self",
+            sign=-1,
+            weight=1.0,
+            confidence=1.0,
+            provenance="test",
+        )
+
+        trace = retriever.retrieve(
+            query_text="图记忆冲突测试",
+            embedder=embedder,
+            state=identity_state,
+            kinds=["plot"],
+            k=3,
+        )
+
+        assert trace.ranked
+        assert trace.ranked[0][0] == "plot_1"
+
 
 class TestKindFiltering:
     """检索中类型过滤的测试。"""

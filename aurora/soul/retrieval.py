@@ -295,6 +295,7 @@ class MemoryGraph:
         self.g = nx.DiGraph()
         # 针对 personalization 向量和参数的 PageRank 缓存
         self._pagerank_cache: Dict[Tuple[str, float, int], Dict[str, float]] = {}
+        self._edge_version = 0
 
     def add_node(self, node_id: str, kind: str, payload: Any) -> None:
         """添加节点"""
@@ -306,15 +307,68 @@ class MemoryGraph:
     def payload(self, node_id: str) -> Any:
         return self.g.nodes[node_id]["payload"]
 
-    def ensure_edge(self, src: str, dst: str, edge_type: str) -> None:
+    @property
+    def edge_version(self) -> int:
+        return self._edge_version
+
+    def ensure_edge(
+        self,
+        src: str,
+        dst: str,
+        edge_type: str,
+        *,
+        sign: int = 1,
+        weight: float = 1.0,
+        confidence: float = 1.0,
+        provenance: str = "",
+    ) -> None:
         """添加边（如果不存在），关联 EdgeBelief 进行置信度管理"""
+        normalized_sign = 1 if sign >= 0 else -1
         if self.g.has_edge(src, dst):
+            belief = cast(EdgeBelief, self.g.edges[src, dst]["belief"])
+            changed = (
+                belief.edge_type != edge_type
+                or belief.sign != normalized_sign
+                or abs(belief.weight - float(weight)) > 1e-9
+                or abs(belief.confidence - float(confidence)) > 1e-9
+                or (provenance and belief.provenance != provenance)
+            )
+            belief.edge_type = edge_type
+            belief.sign = normalized_sign
+            belief.weight = float(weight)
+            belief.confidence = float(confidence)
+            if provenance:
+                belief.provenance = provenance
+            if changed:
+                self._edge_version += 1
+                self._pagerank_cache.clear()
             return
-        self.g.add_edge(src, dst, belief=EdgeBelief(edge_type=edge_type))
+        self.g.add_edge(
+            src,
+            dst,
+            belief=EdgeBelief(
+                edge_type=edge_type,
+                sign=normalized_sign,
+                weight=float(weight),
+                confidence=float(confidence),
+                provenance=provenance,
+            ),
+        )
+        self._edge_version += 1
         self._pagerank_cache.clear()
 
     def edge_belief(self, src: str, dst: str) -> EdgeBelief:
         return cast(EdgeBelief, self.g.edges[src, dst]["belief"])
+
+    def nodes_of_kind(self, kind: str) -> List[str]:
+        return [str(node_id) for node_id, data in self.g.nodes(data=True) if data.get("kind") == kind]
+
+    def remove_node(self, node_id: str) -> None:
+        if node_id not in self.g:
+            return
+        self.g.remove_node(node_id)
+        self._edge_version += 1
+        self._pagerank_cache.clear()
 
     def _hash_personalization(self, personalization: Dict[str, float]) -> str:
         """为个性化向量生成哈希，用于缓存查找"""
@@ -354,7 +408,10 @@ class MemoryGraph:
                     "belief": belief.to_state_dict(),
                 }
             )
-        return {"edges": edges}
+        return {
+            "edges": edges,
+            "edge_version": int(self._edge_version),
+        }
 
     def restore_edges(self, state: Dict[str, Any]) -> None:
         """反序列化并恢复边"""
@@ -364,6 +421,7 @@ class MemoryGraph:
             if src not in self.g or dst not in self.g:
                 continue
             self.g.add_edge(src, dst, belief=EdgeBelief.from_state_dict(item["belief"]))
+        self._edge_version = int(state.get("edge_version", self.g.number_of_edges()))
 
 
 class VectorIndex:
@@ -879,7 +937,9 @@ class FieldRetriever:
         weighted.add_nodes_from(graph.nodes())
         for src, dst, data in graph.edges(data=True):
             belief: EdgeBelief = data["belief"]
-            weighted.add_edge(src, dst, w=max(1e-6, belief.mean()))
+            if belief.sign < 0:
+                continue
+            weighted.add_edge(src, dst, w=belief.pagerank_weight())
 
         try:
             result = nx.pagerank(
@@ -946,7 +1006,37 @@ class FieldRetriever:
             ranked.append((node_id, blended, kind))
 
         ranked.sort(key=lambda item: item[1], reverse=True)
-        return ranked[:k]
+        adjusted_ranked: List[Tuple[str, float, str]] = []
+        stronger_ids: List[str] = []
+        for node_id, blended, kind in ranked:
+            penalty = self._negative_inhibition_penalty(node_id=node_id, stronger_ids=stronger_ids[:4])
+            adjusted_ranked.append((node_id, max(0.0, blended - penalty), kind))
+            stronger_ids.append(node_id)
+
+        adjusted_ranked.sort(key=lambda item: item[1], reverse=True)
+        return adjusted_ranked[:k]
+
+    def _negative_inhibition_penalty(self, *, node_id: str, stronger_ids: Sequence[str]) -> float:
+        anchor_ids = self.graph.nodes_of_kind("anchor")
+        anchor_penalty = sum(
+            self._negative_edge_strength(anchor_id, node_id)
+            + self._negative_edge_strength(node_id, anchor_id)
+            for anchor_id in anchor_ids
+        )
+        candidate_penalty = sum(
+            self._negative_edge_strength(stronger_id, node_id)
+            + self._negative_edge_strength(node_id, stronger_id)
+            for stronger_id in stronger_ids
+        )
+        return min(0.25, 0.14 * anchor_penalty + 0.08 * candidate_penalty)
+
+    def _negative_edge_strength(self, src: str, dst: str) -> float:
+        if not self.graph.g.has_edge(src, dst):
+            return 0.0
+        belief = self.graph.edge_belief(src, dst)
+        if belief.sign >= 0:
+            return 0.0
+        return max(0.0, belief.weight) * max(0.0, belief.confidence) * max(0.5, belief.mean())
 
     def retrieve(
         self,

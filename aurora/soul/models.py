@@ -1054,14 +1054,25 @@ class EdgeBelief:
     """关系边置信度：用于 MemoryGraph 中对联想关系的评估"""
 
     edge_type: str
+    sign: int = 1
+    weight: float = 1.0
+    confidence: float = 1.0
+    provenance: str = ""
     a: float = 1.0  # 成功证据
     b: float = 1.0  # 失败证据
     use_count: int = 0
+    created_ts: float = field(default_factory=now_ts)
     last_used_ts: float = field(default_factory=now_ts)
 
     def mean(self) -> float:
         """期望置信度"""
         return self.a / (self.a + self.b)
+
+    def pagerank_weight(self) -> float:
+        """v1 中仅允许正边参与扩散。"""
+        if self.sign < 0:
+            return 0.0
+        return max(1e-6, self.mean() * max(0.0, self.weight) * max(0.0, self.confidence))
 
     def update(self, success: bool) -> None:
         """根据检索反馈更新边"""
@@ -1076,9 +1087,14 @@ class EdgeBelief:
         """序列化"""
         return {
             "edge_type": self.edge_type,
+            "sign": int(self.sign),
+            "weight": float(self.weight),
+            "confidence": float(self.confidence),
+            "provenance": self.provenance,
             "a": float(self.a),
             "b": float(self.b),
             "use_count": int(self.use_count),
+            "created_ts": float(self.created_ts),
             "last_used_ts": float(self.last_used_ts),
         }
 
@@ -1087,9 +1103,14 @@ class EdgeBelief:
         """反序列化"""
         return cls(
             edge_type=str(data["edge_type"]),
+            sign=1 if int(data.get("sign", 1)) >= 0 else -1,
+            weight=float(data.get("weight", 1.0)),
+            confidence=float(data.get("confidence", 1.0)),
+            provenance=str(data.get("provenance", "")),
             a=float(data.get("a", 1.0)),
             b=float(data.get("b", 1.0)),
             use_count=int(data.get("use_count", 0)),
+            created_ts=float(data.get("created_ts", now_ts())),
             last_used_ts=float(data.get("last_used_ts", now_ts())),
         )
 

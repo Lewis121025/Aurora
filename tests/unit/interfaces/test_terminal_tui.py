@@ -52,6 +52,9 @@ def test_run_observer_uses_tui(monkeypatch, tmp_path) -> None:
             observed["llm_timeout"] = settings.llm_timeout
             observed["llm_max_retries"] = settings.llm_max_retries
 
+        def close(self) -> None:
+            observed["closed"] = True
+
     class FakeTUI:
         def __init__(self, runtime, *, session_id, max_hits):
             observed["runtime"] = runtime
@@ -74,6 +77,7 @@ def test_run_observer_uses_tui(monkeypatch, tmp_path) -> None:
     assert observed["session_id"] == "tty-session"
     assert observed["max_hits"] == 9
     assert observed["ran_tui"] is True
+    assert observed["closed"] is True
 
 
 def test_build_turn_index_block_marks_selected_turn(tmp_path) -> None:

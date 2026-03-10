@@ -121,6 +121,7 @@ def build_memory_config(settings: AuroraSettings) -> SoulConfig:
     return SoulConfig(
         dim=settings.dim,
         metric_rank=settings.metric_rank,
+        architecture_mode=settings.architecture_mode,
         max_plots=settings.max_plots,
         kde_reservoir=settings.kde_reservoir,
         subconscious_reservoir=settings.subconscious_reservoir,
@@ -136,6 +137,15 @@ def build_memory_config(settings: AuroraSettings) -> SoulConfig:
         persona_axes_json=settings.persona_axes_json,
         axis_merge_every_events=settings.axis_merge_every_events,
         persona_axis_budget=settings.persona_axis_budget,
+        graph_temporal_neighbors=settings.graph_temporal_neighbors,
+        graph_semantic_neighbors=settings.graph_semantic_neighbors,
+        graph_contradiction_neighbors=settings.graph_contradiction_neighbors,
+        graph_similarity_threshold=settings.graph_similarity_threshold,
+        graph_contradiction_threshold=settings.graph_contradiction_threshold,
+        community_refresh_every_plots=settings.community_refresh_every_plots,
+        dream_walk_steps=settings.dream_walk_steps,
+        dream_walk_samples=settings.dream_walk_samples,
+        dream_persist_threshold=settings.dream_persist_threshold,
     )
 
 
