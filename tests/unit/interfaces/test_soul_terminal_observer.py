@@ -7,12 +7,14 @@ from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
 
 
-def test_terminal_observer_uses_identity_vocabulary(tmp_path) -> None:
+def test_terminal_observer_uses_mode_axis_vocabulary(tmp_path) -> None:
     runtime = AuroraRuntime(
         settings=AuroraSettings(
             data_dir=str(tmp_path),
             embedding_provider="hash",
-            meaning_extractor="heuristic",
+            axis_embedding_provider="hash",
+            meaning_provider="heuristic",
+            narrative_provider="heuristic",
         )
     )
     output = StringIO()
@@ -23,6 +25,7 @@ def test_terminal_observer_uses_identity_vocabulary(tmp_path) -> None:
 
     rendered = output.getvalue()
     assert "Identity" in rendered
-    assert "phase=" in rendered
+    assert "mode=" in rendered
+    assert "top_axes" in rendered
     assert "profile_id" not in rendered
     assert "self_narrative" not in rendered

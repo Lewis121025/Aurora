@@ -1,56 +1,41 @@
 from __future__ import annotations
 
+import hashlib
 import math
+import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Literal, Optional, Sequence, Tuple
 
 import numpy as np
 
-from aurora.utils.math_utils import cosine_sim, l2_normalize, sigmoid
+from aurora.utils.math_utils import cosine_sim, l2_normalize, sigmoid, softmax
 from aurora.utils.time_utils import now_ts
 
 if TYPE_CHECKING:
     from aurora.soul.query import QueryType, TimeRange
 
-TRAIT_ORDER: Tuple[str, ...] = (
-    "attachment",
-    "autonomy",
-    "trust",
-    "vigilance",
-    "openness",
-    "defensiveness",
-    "assertiveness",
-    "coherence",
-)
 
-BELIEF_ORDER: Tuple[str, ...] = (
-    "closeness_safe",
-    "others_reliable",
-    "boundaries_allowed",
-    "independence_safe",
-    "vulnerability_safe",
+HOMEOSTATIC_AXES: Tuple[Tuple[str, str, str, str], ...] = (
+    ("affiliation", "closeness", "distance", "Need for closeness vs distance"),
+    ("agency", "agency", "yielding", "Action, boundaries, self-authorship"),
+    ("exploration", "curiosity", "closure", "Novelty seeking vs guarded closure"),
+    ("vigilance", "vigilance", "ease", "Threat scanning vs trustful ease"),
+    ("coherence", "integration", "fragmentation", "Narrative integration vs fragmentation"),
+    ("regulation", "regulation", "reactivity", "Affect regulation vs reactivity"),
 )
 
 
-def clamp(x: float, lo: float = 0.0, hi: float = 1.0) -> float:
+def stable_hash(text: str) -> int:
+    h = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return int(h[:16], 16)
+
+
+def clamp(x: float, lo: float = -1.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, float(x)))
 
 
-def signed01(x: float) -> float:
-    return 2.0 * clamp(x) - 1.0
-
-
-def unsign11(x: float) -> float:
-    return clamp((float(x) + 1.0) / 2.0)
-
-
-def softmax(logits: Sequence[float], temperature: float = 1.0) -> List[float]:
-    t = max(float(temperature), 1e-6)
-    scaled = [float(x) / t for x in logits]
-    m = max(scaled)
-    exps = [math.exp(x - m) for x in scaled]
-    total = sum(exps) + 1e-12
-    return [x / total for x in exps]
+def clamp01(x: float) -> float:
+    return max(0.0, min(1.0, float(x)))
 
 
 def mean_abs(xs: Iterable[float]) -> float:
@@ -70,63 +55,334 @@ def vec_from_state(values: Optional[Sequence[float]]) -> Optional[np.ndarray]:
     return np.asarray(values, dtype=np.float32)
 
 
+def tokenize_loose(text: str) -> List[str]:
+    words = re.findall(r"[A-Za-z][A-Za-z_\-]{1,}|[\u4e00-\u9fff]{1,6}|\d+", text.lower())
+    return [word for word in words if word.strip()]
+
+
+ANTONYM_HINTS: Dict[str, str] = {
+    "严谨": "随意",
+    "精密": "粗糙",
+    "scientific": "improvised",
+    "scientist": "intuitive",
+    "curious": "closed",
+    "skeptical": "gullible",
+    "warm": "cold",
+    "playful": "rigid",
+    "protective": "exposed",
+    "creative": "formulaic",
+    "resilient": "fragile",
+    "precise": "careless",
+    "honest": "deceptive",
+    "independent": "dependent",
+}
+
+
+@dataclass
+class AxisSpec:
+    name: str
+    positive_pole: str
+    negative_pole: str
+    description: str
+    level: Literal["homeostatic", "persona"] = "persona"
+    weight: float = 1.0
+    positive_examples: Tuple[str, ...] = ()
+    negative_examples: Tuple[str, ...] = ()
+    support_count: int = 1
+    last_merged_ts: Optional[float] = None
+    aliases: Tuple[str, ...] = ()
+    positive_anchor: Optional[np.ndarray] = None
+    negative_anchor: Optional[np.ndarray] = None
+    direction: Optional[np.ndarray] = None
+
+    def compile(self, embedder: Any) -> None:
+        pos_text = " ".join(
+            [self.name, self.positive_pole, self.description, *self.positive_examples, *self.aliases]
+        ).strip() or self.positive_pole
+        neg_text = " ".join(
+            [self.name, self.negative_pole, self.description, *self.negative_examples]
+        ).strip() or self.negative_pole
+        self.positive_anchor = l2_normalize(embedder.embed(pos_text))
+        self.negative_anchor = l2_normalize(embedder.embed(neg_text))
+        self.direction = l2_normalize(self.positive_anchor - self.negative_anchor)
+
+    def score(self, text_embedding: np.ndarray, text: str = "") -> float:
+        if self.direction is None or self.positive_anchor is None or self.negative_anchor is None:
+            raise ValueError(f"Axis {self.name} not compiled")
+        sim_pos = cosine_sim(text_embedding, self.positive_anchor)
+        sim_neg = cosine_sim(text_embedding, self.negative_anchor)
+        base = clamp(sim_pos - sim_neg)
+
+        # Keep a light lexical bonus for explainability and fallback robustness.
+        text_lower = text.lower()
+        for word in [self.positive_pole, *self.positive_examples, *self.aliases]:
+            if word and word.lower() in text_lower:
+                base += 0.05
+        for word in [self.negative_pole, *self.negative_examples]:
+            if word and word.lower() in text_lower:
+                base -= 0.05
+        return clamp(base)
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "positive_pole": self.positive_pole,
+            "negative_pole": self.negative_pole,
+            "description": self.description,
+            "level": self.level,
+            "weight": float(self.weight),
+            "positive_examples": list(self.positive_examples),
+            "negative_examples": list(self.negative_examples),
+            "support_count": int(self.support_count),
+            "last_merged_ts": self.last_merged_ts,
+            "aliases": list(self.aliases),
+            "positive_anchor": vec_to_state(self.positive_anchor),
+            "negative_anchor": vec_to_state(self.negative_anchor),
+            "direction": vec_to_state(self.direction),
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "AxisSpec":
+        return cls(
+            name=str(data["name"]),
+            positive_pole=str(data["positive_pole"]),
+            negative_pole=str(data["negative_pole"]),
+            description=str(data.get("description", "")),
+            level=str(data.get("level", "persona")),
+            weight=float(data.get("weight", 1.0)),
+            positive_examples=tuple(str(item) for item in data.get("positive_examples", [])),
+            negative_examples=tuple(str(item) for item in data.get("negative_examples", [])),
+            support_count=int(data.get("support_count", 1)),
+            last_merged_ts=data.get("last_merged_ts"),
+            aliases=tuple(str(item) for item in data.get("aliases", [])),
+            positive_anchor=vec_from_state(data.get("positive_anchor")),
+            negative_anchor=vec_from_state(data.get("negative_anchor")),
+            direction=vec_from_state(data.get("direction")),
+        )
+
+
+@dataclass
+class PsychologicalSchema:
+    homeostatic_axes: Dict[str, AxisSpec] = field(default_factory=dict)
+    persona_axes: Dict[str, AxisSpec] = field(default_factory=dict)
+    profile_text: str = ""
+    axis_aliases: Dict[str, str] = field(default_factory=dict)
+    merge_history: List[Dict[str, Any]] = field(default_factory=list)
+
+    def all_axes(self) -> Dict[str, AxisSpec]:
+        axes = dict(self.homeostatic_axes)
+        axes.update(self.persona_axes)
+        return axes
+
+    def ordered_axis_names(self) -> List[str]:
+        return list(self.homeostatic_axes.keys()) + list(self.persona_axes.keys())
+
+    def canonical_axis_name(self, axis_name: str) -> str:
+        seen: set[str] = set()
+        current = axis_name
+        while current in self.axis_aliases and current not in seen:
+            seen.add(current)
+            current = self.axis_aliases[current]
+        return current
+
+    def compile(self, axis_embedder: Any) -> None:
+        for axis in self.all_axes().values():
+            axis.compile(axis_embedder)
+
+    def add_persona_axis(self, axis: AxisSpec, axis_embedder: Any) -> None:
+        axis.compile(axis_embedder)
+        self.persona_axes[axis.name] = axis
+
+    def merge_persona_axes(self, canonical_name: str, alias_name: str, *, note: str) -> None:
+        if canonical_name == alias_name:
+            return
+        canonical = self.persona_axes.get(canonical_name)
+        alias = self.persona_axes.get(alias_name)
+        if canonical is None or alias is None:
+            return
+        merged_aliases = list(dict.fromkeys([*canonical.aliases, alias.name, alias.positive_pole, *alias.aliases]))
+        canonical.aliases = tuple(str(item) for item in merged_aliases if item)
+        canonical.support_count += max(1, alias.support_count)
+        canonical.last_merged_ts = now_ts()
+        self.axis_aliases[alias.name] = canonical.name
+        self.axis_aliases[alias.positive_pole] = canonical.name
+        self.merge_history.append(
+            {
+                "canonical": canonical.name,
+                "alias": alias.name,
+                "note": note,
+                "ts": now_ts(),
+            }
+        )
+        self.persona_axes.pop(alias_name, None)
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "profile_text": self.profile_text,
+            "homeostatic_axes": {k: v.to_state_dict() for k, v in self.homeostatic_axes.items()},
+            "persona_axes": {k: v.to_state_dict() for k, v in self.persona_axes.items()},
+            "axis_aliases": dict(self.axis_aliases),
+            "merge_history": list(self.merge_history),
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "PsychologicalSchema":
+        return cls(
+            homeostatic_axes={
+                str(k): AxisSpec.from_state_dict(v)
+                for k, v in data.get("homeostatic_axes", {}).items()
+            },
+            persona_axes={
+                str(k): AxisSpec.from_state_dict(v)
+                for k, v in data.get("persona_axes", {}).items()
+            },
+            profile_text=str(data.get("profile_text", "")),
+            axis_aliases={str(k): str(v) for k, v in data.get("axis_aliases", {}).items()},
+            merge_history=list(data.get("merge_history", [])),
+        )
+
+
+def schema_from_profile(
+    *,
+    axis_embedder: Any,
+    profile_text: str = "",
+    persona_axes: Optional[List[Dict[str, Any]]] = None,
+) -> PsychologicalSchema:
+    schema = PsychologicalSchema(profile_text=profile_text)
+    for name, pos, neg, desc in HOMEOSTATIC_AXES:
+        schema.homeostatic_axes[name] = AxisSpec(
+            name=name,
+            positive_pole=pos,
+            negative_pole=neg,
+            description=desc,
+            level="homeostatic",
+        )
+
+    for axis_data in persona_axes or []:
+        schema.persona_axes[str(axis_data["name"])] = AxisSpec(
+            name=str(axis_data["name"]),
+            positive_pole=str(axis_data.get("positive_pole", axis_data.get("positive", "more"))),
+            negative_pole=str(axis_data.get("negative_pole", axis_data.get("negative", "less"))),
+            description=str(axis_data.get("description", "")),
+            level="persona",
+            weight=float(axis_data.get("weight", 1.0)),
+            positive_examples=tuple(str(item) for item in axis_data.get("positive_examples", [])),
+            negative_examples=tuple(str(item) for item in axis_data.get("negative_examples", [])),
+        )
+
+    schema.compile(axis_embedder)
+    return schema
+
+
+def heuristic_persona_axes(profile_text: str) -> List[Dict[str, Any]]:
+    text = profile_text.strip()
+    if not text:
+        return []
+
+    fragments = re.split(r"[,\n;；，|、]+", text)
+    seen: set[str] = set()
+    axes: List[Dict[str, Any]] = []
+
+    def simplify(fragment: str) -> str:
+        value = fragment.strip()
+        for hint in sorted(ANTONYM_HINTS.keys(), key=len, reverse=True):
+            if hint in value.lower():
+                return hint
+        value = re.sub(r"^(很|更|太|比较|非常|想要|重视)", "", value)
+        value = re.sub(r"(的人|的人格|的角色|的方式)$", "", value)
+        return value[:18]
+
+    for idx, raw in enumerate(fragments):
+        chunk = raw.strip()
+        if not chunk:
+            continue
+        match = re.search(r"(.+?)(?:/| vs |↔|->|=>| to )(.+)", chunk, flags=re.IGNORECASE)
+        if match:
+            pos = simplify(match.group(1))
+            neg = simplify(match.group(2))
+            name = re.sub(r"\W+", "_", pos.lower())[:24] or f"persona_{idx}"
+        else:
+            pos = simplify(chunk)
+            neg = ANTONYM_HINTS.get(pos.lower(), ANTONYM_HINTS.get(pos, f"not_{pos}"))
+            name = re.sub(r"\W+", "_", pos.lower())[:24] or f"persona_{idx}"
+        if name in seen or not pos:
+            continue
+        seen.add(name)
+        axes.append(
+            {
+                "name": name,
+                "positive_pole": pos,
+                "negative_pole": neg,
+                "description": f"Persona axis derived from profile fragment: {chunk}",
+                "positive_examples": tokenize_loose(chunk)[:4],
+            }
+        )
+    return axes
+
+
 @dataclass
 class EventFrame:
-    trait_evidence: Dict[str, float] = field(default_factory=dict)
-    belief_evidence: Dict[str, float] = field(default_factory=dict)
+    axis_evidence: Dict[str, float] = field(default_factory=dict)
     valence: float = 0.0
     arousal: float = 0.0
-    tags: Tuple[str, ...] = ()
-    threat: float = 0.0
     care: float = 0.0
+    threat: float = 0.0
     control: float = 0.0
     abandonment: float = 0.0
-    agency: float = 0.0
+    agency_signal: float = 0.0
     shame: float = 0.0
+    novelty: float = 0.0
+    self_relevance: float = 0.5
+    tags: Tuple[str, ...] = ()
 
-    def trait_vector(self, order: Sequence[str] = TRAIT_ORDER) -> np.ndarray:
-        return np.asarray([self.trait_evidence.get(name, 0.0) for name in order], dtype=np.float32)
+    def axis_vector(self, axis_names: Sequence[str]) -> np.ndarray:
+        return np.asarray([self.axis_evidence.get(name, 0.0) for name in axis_names], dtype=np.float32)
 
-    def belief_vector(self, order: Sequence[str] = BELIEF_ORDER) -> np.ndarray:
-        return np.asarray([self.belief_evidence.get(name, 0.0) for name in order], dtype=np.float32)
+    def alignment_score(self, axis_state: Dict[str, float]) -> float:
+        keys = [name for name in self.axis_evidence.keys() if name in axis_state]
+        if not keys:
+            return 0.0
+        return float(np.mean([self.axis_evidence[name] * axis_state[name] for name in keys]))
 
     def strength(self) -> float:
         return float(
-            0.35 * mean_abs(self.trait_evidence.values())
-            + 0.25 * mean_abs(self.belief_evidence.values())
+            0.45 * mean_abs(self.axis_evidence.values())
             + 0.20 * abs(self.valence)
             + 0.20 * self.arousal
+            + 0.15 * self.self_relevance
         )
 
     def to_state_dict(self) -> Dict[str, Any]:
         return {
-            "trait_evidence": {k: float(v) for k, v in self.trait_evidence.items()},
-            "belief_evidence": {k: float(v) for k, v in self.belief_evidence.items()},
+            "axis_evidence": {k: float(v) for k, v in self.axis_evidence.items()},
             "valence": float(self.valence),
             "arousal": float(self.arousal),
-            "tags": list(self.tags),
-            "threat": float(self.threat),
             "care": float(self.care),
+            "threat": float(self.threat),
             "control": float(self.control),
             "abandonment": float(self.abandonment),
-            "agency": float(self.agency),
+            "agency_signal": float(self.agency_signal),
             "shame": float(self.shame),
+            "novelty": float(self.novelty),
+            "self_relevance": float(self.self_relevance),
+            "tags": list(self.tags),
         }
 
     @classmethod
     def from_state_dict(cls, data: Dict[str, Any]) -> "EventFrame":
         return cls(
-            trait_evidence={k: float(v) for k, v in data.get("trait_evidence", {}).items()},
-            belief_evidence={k: float(v) for k, v in data.get("belief_evidence", {}).items()},
+            axis_evidence={k: float(v) for k, v in data.get("axis_evidence", {}).items()},
             valence=float(data.get("valence", 0.0)),
             arousal=float(data.get("arousal", 0.0)),
-            tags=tuple(data.get("tags", ())),
-            threat=float(data.get("threat", 0.0)),
             care=float(data.get("care", 0.0)),
+            threat=float(data.get("threat", 0.0)),
             control=float(data.get("control", 0.0)),
             abandonment=float(data.get("abandonment", 0.0)),
-            agency=float(data.get("agency", 0.0)),
+            agency_signal=float(data.get("agency_signal", 0.0)),
             shame=float(data.get("shame", 0.0)),
+            novelty=float(data.get("novelty", 0.0)),
+            self_relevance=float(data.get("self_relevance", 0.5)),
+            tags=tuple(data.get("tags", ())),
         )
 
 
@@ -138,7 +394,7 @@ class Plot:
     actors: Tuple[str, ...]
     embedding: np.ndarray
     frame: EventFrame
-    source: Literal["wake", "dream", "repair", "phase"] = "wake"
+    source: Literal["wake", "dream", "repair", "mode"] = "wake"
     confidence: float = 1.0
     evidence_weight: float = 1.0
     surprise: float = 0.0
@@ -148,6 +404,7 @@ class Plot:
     contradiction: float = 0.0
     tension: float = 0.0
     story_id: Optional[str] = None
+    theme_id: Optional[str] = None
     fact_keys: List[str] = field(default_factory=list)
     access_count: int = 0
     last_access_ts: float = field(default_factory=now_ts)
@@ -159,7 +416,7 @@ class Plot:
         source_factor = {
             "wake": 1.0,
             "repair": 0.9,
-            "phase": 0.85,
+            "mode": 0.85,
             "dream": 0.65,
         }[self.source]
         return (
@@ -188,6 +445,7 @@ class Plot:
             "contradiction": float(self.contradiction),
             "tension": float(self.tension),
             "story_id": self.story_id,
+            "theme_id": self.theme_id,
             "fact_keys": list(self.fact_keys),
             "access_count": int(self.access_count),
             "last_access_ts": float(self.last_access_ts),
@@ -216,6 +474,7 @@ class Plot:
             contradiction=float(data.get("contradiction", 0.0)),
             tension=float(data.get("tension", 0.0)),
             story_id=data.get("story_id"),
+            theme_id=data.get("theme_id"),
             fact_keys=[str(item) for item in data.get("fact_keys", [])],
             access_count=int(data.get("access_count", 0)),
             last_access_ts=float(data.get("last_access_ts", now_ts())),
@@ -230,18 +489,19 @@ class StoryArc:
     updated_ts: float
     plot_ids: List[str] = field(default_factory=list)
     centroid: Optional[np.ndarray] = None
+    actor_counts: Dict[str, int] = field(default_factory=dict)
+    tag_counts: Dict[str, int] = field(default_factory=dict)
+    source_counts: Dict[str, int] = field(default_factory=dict)
+    tension_curve: List[float] = field(default_factory=list)
+    reference_count: int = 0
     dist_mean: float = 0.0
     dist_m2: float = 0.0
     dist_n: int = 0
     gap_mean: float = 0.0
     gap_m2: float = 0.0
     gap_n: int = 0
-    actor_counts: Dict[str, int] = field(default_factory=dict)
-    tension_curve: List[float] = field(default_factory=list)
-    source_counts: Dict[str, int] = field(default_factory=dict)
     unresolved_energy: float = 0.0
-    status: Literal["developing", "resolved", "abandoned"] = "developing"
-    reference_count: int = 0
+    status: Literal["active", "absorbed", "archived"] = "active"
 
     def _update_stats(self, name: str, x: float) -> None:
         if name == "dist":
@@ -264,22 +524,10 @@ class StoryArc:
     def gap_mean_safe(self, default: float = 3600.0) -> float:
         return self.gap_mean if self.gap_n > 0 and self.gap_mean > 0 else default
 
-    def activity_probability(self, ts: Optional[float] = None) -> float:
-        ts = ts or now_ts()
-        idle = max(0.0, ts - self.updated_ts)
-        tau = self.gap_mean_safe()
-        return math.exp(-idle / max(tau, 1e-6))
-
-    def source_purity(self) -> float:
-        total = sum(self.source_counts.values())
-        if total <= 0:
-            return 1.0
-        return max(self.source_counts.values()) / total
-
     def mass(self) -> float:
         age = max(1.0, now_ts() - self.updated_ts)
         freshness = 1.0 / math.log1p(age)
-        size = math.log1p(len(self.plot_ids))
+        size = math.log1p(len(self.plot_ids) + 1)
         tension_bonus = 1.0 + 0.25 * mean_abs(self.tension_curve[-8:])
         return freshness * (size + math.log1p(self.reference_count + 1)) * tension_bonus
 
@@ -290,18 +538,19 @@ class StoryArc:
             "updated_ts": float(self.updated_ts),
             "plot_ids": list(self.plot_ids),
             "centroid": vec_to_state(self.centroid),
+            "actor_counts": {k: int(v) for k, v in self.actor_counts.items()},
+            "tag_counts": {k: int(v) for k, v in self.tag_counts.items()},
+            "source_counts": {k: int(v) for k, v in self.source_counts.items()},
+            "tension_curve": [float(x) for x in self.tension_curve],
+            "reference_count": int(self.reference_count),
             "dist_mean": float(self.dist_mean),
             "dist_m2": float(self.dist_m2),
             "dist_n": int(self.dist_n),
             "gap_mean": float(self.gap_mean),
             "gap_m2": float(self.gap_m2),
             "gap_n": int(self.gap_n),
-            "actor_counts": {k: int(v) for k, v in self.actor_counts.items()},
-            "tension_curve": [float(x) for x in self.tension_curve],
-            "source_counts": {k: int(v) for k, v in self.source_counts.items()},
             "unresolved_energy": float(self.unresolved_energy),
             "status": self.status,
-            "reference_count": int(self.reference_count),
         }
 
     @classmethod
@@ -312,18 +561,19 @@ class StoryArc:
             updated_ts=float(data["updated_ts"]),
             plot_ids=list(data.get("plot_ids", [])),
             centroid=vec_from_state(data.get("centroid")),
+            actor_counts={k: int(v) for k, v in data.get("actor_counts", {}).items()},
+            tag_counts={k: int(v) for k, v in data.get("tag_counts", {}).items()},
+            source_counts={k: int(v) for k, v in data.get("source_counts", {}).items()},
+            tension_curve=[float(item) for item in data.get("tension_curve", [])],
+            reference_count=int(data.get("reference_count", 0)),
             dist_mean=float(data.get("dist_mean", 0.0)),
             dist_m2=float(data.get("dist_m2", 0.0)),
             dist_n=int(data.get("dist_n", 0)),
             gap_mean=float(data.get("gap_mean", 0.0)),
             gap_m2=float(data.get("gap_m2", 0.0)),
             gap_n=int(data.get("gap_n", 0)),
-            actor_counts={k: int(v) for k, v in data.get("actor_counts", {}).items()},
-            tension_curve=[float(x) for x in data.get("tension_curve", [])],
-            source_counts={k: int(v) for k, v in data.get("source_counts", {}).items()},
             unresolved_energy=float(data.get("unresolved_energy", 0.0)),
-            status=str(data.get("status", "developing")),
-            reference_count=int(data.get("reference_count", 0)),
+            status=str(data.get("status", "active")),
         )
 
 
@@ -336,6 +586,7 @@ class Theme:
     prototype: Optional[np.ndarray] = None
     a: float = 1.0
     b: float = 1.0
+    label: str = ""
     name: str = ""
     description: str = ""
     theme_type: Literal["pattern", "lesson", "preference", "causality", "capability", "limitation", "self"] = "pattern"
@@ -353,7 +604,7 @@ class Theme:
     def mass(self) -> float:
         age = max(1.0, now_ts() - self.updated_ts)
         freshness = 1.0 / math.log1p(age)
-        return freshness * math.log1p(len(self.story_ids) + 1) * (0.5 + self.confidence())
+        return freshness * math.log1p(len(self.story_ids) + 1.0) * (0.5 + self.confidence())
 
     def to_state_dict(self) -> Dict[str, Any]:
         return {
@@ -364,6 +615,7 @@ class Theme:
             "prototype": vec_to_state(self.prototype),
             "a": float(self.a),
             "b": float(self.b),
+            "label": self.label,
             "name": self.name,
             "description": self.description,
             "theme_type": self.theme_type,
@@ -379,6 +631,7 @@ class Theme:
             prototype=vec_from_state(data.get("prototype")),
             a=float(data.get("a", 1.0)),
             b=float(data.get("b", 1.0)),
+            label=str(data.get("label", "")),
             name=str(data.get("name", "")),
             description=str(data.get("description", "")),
             theme_type=str(data.get("theme_type", "pattern")),
@@ -387,104 +640,154 @@ class Theme:
 
 @dataclass
 class DissonanceReport:
-    trait_conflicts: Dict[str, float]
-    belief_conflicts: Dict[str, float]
-    trait_alignment: Dict[str, float]
-    belief_alignment: Dict[str, float]
+    axis_conflicts: Dict[str, float]
+    axis_alignments: Dict[str, float]
+    semantic_conflict: float
     affective_load: float
+    narrative_incongruity: float
     total: float
 
 
 @dataclass
-class IdentityState:
-    traits: Dict[str, float]
-    beliefs: Dict[str, float]
-    phase: str
-    active_energy: float = 0.0
-    repressed_energy: float = 0.0
-    contradiction_ema: float = 0.0
-    intuition: Dict[str, float] = field(default_factory=lambda: {t: 0.0 for t in TRAIT_ORDER})
-    repair_count: int = 0
-    dream_count: int = 0
-    narrative_log: List[str] = field(default_factory=list)
-    last_phase_step: int = 0
-    last_phase_change_ts: float = field(default_factory=now_ts)
+class IdentityMode:
+    id: str
+    label: str
+    prototype: np.ndarray
+    axis_prototype: Dict[str, float]
+    support: int = 1
+    barrier: float = 0.55
+    hysteresis: float = 0.08
+    created_ts: float = field(default_factory=now_ts)
+    updated_ts: float = field(default_factory=now_ts)
 
-    def signed_traits(self, order: Sequence[str] = TRAIT_ORDER) -> np.ndarray:
-        return np.asarray([signed01(self.traits[name]) for name in order], dtype=np.float32)
-
-    def signed_beliefs(self, order: Sequence[str] = BELIEF_ORDER) -> np.ndarray:
-        return np.asarray([signed01(self.beliefs[name]) for name in order], dtype=np.float32)
-
-    def plasticity(self) -> float:
-        return clamp(
-            0.45 * self.traits["openness"]
-            + 0.30 * self.traits["coherence"]
-            + 0.25 * (1.0 - self.traits["defensiveness"])
-        )
-
-    def rigidity(self) -> float:
-        return clamp(
-            0.45 * self.traits["defensiveness"]
-            + 0.25 * self.traits["vigilance"]
-            + 0.30 * (1.0 - self.traits["openness"])
-        )
-
-    def narrative_pressure(self) -> float:
-        return float(self.active_energy + 0.8 * self.repressed_energy + 1.25 * self.contradiction_ema)
+    def score(self, self_vector: np.ndarray, axis_state: Dict[str, float]) -> float:
+        semantic = cosine_sim(self_vector, self.prototype)
+        common = [name for name in self.axis_prototype.keys() if name in axis_state]
+        if not common:
+            return semantic
+        axis_score = float(np.mean([1.0 - abs(axis_state[name] - self.axis_prototype[name]) for name in common]))
+        return 0.65 * semantic + 0.35 * axis_score
 
     def to_state_dict(self) -> Dict[str, Any]:
         return {
-            "traits": {k: float(v) for k, v in self.traits.items()},
-            "beliefs": {k: float(v) for k, v in self.beliefs.items()},
-            "phase": self.phase,
+            "id": self.id,
+            "label": self.label,
+            "prototype": vec_to_state(self.prototype),
+            "axis_prototype": {k: float(v) for k, v in self.axis_prototype.items()},
+            "support": int(self.support),
+            "barrier": float(self.barrier),
+            "hysteresis": float(self.hysteresis),
+            "created_ts": float(self.created_ts),
+            "updated_ts": float(self.updated_ts),
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "IdentityMode":
+        prototype = vec_from_state(data.get("prototype"))
+        if prototype is None:
+            prototype = np.zeros(0, dtype=np.float32)
+        return cls(
+            id=str(data["id"]),
+            label=str(data["label"]),
+            prototype=prototype,
+            axis_prototype={k: float(v) for k, v in data.get("axis_prototype", {}).items()},
+            support=int(data.get("support", 1)),
+            barrier=float(data.get("barrier", 0.55)),
+            hysteresis=float(data.get("hysteresis", 0.08)),
+            created_ts=float(data.get("created_ts", now_ts())),
+            updated_ts=float(data.get("updated_ts", now_ts())),
+        )
+
+
+@dataclass
+class IdentityState:
+    self_vector: np.ndarray
+    axis_state: Dict[str, float] = field(default_factory=dict)
+    intuition_axes: Dict[str, float] = field(default_factory=dict)
+    active_energy: float = 0.0
+    repressed_energy: float = 0.0
+    contradiction_ema: float = 0.0
+    current_mode_id: Optional[str] = None
+    current_mode_label: str = "origin"
+    repair_count: int = 0
+    dream_count: int = 0
+    mode_change_count: int = 0
+    narrative_log: List[str] = field(default_factory=list)
+    last_mode_step: int = 0
+    last_mode_change_ts: float = field(default_factory=now_ts)
+
+    def plasticity(self) -> float:
+        openness = (self.axis_state.get("exploration", 0.0) + 1.0) / 2.0
+        coherence = (self.axis_state.get("coherence", 0.0) + 1.0) / 2.0
+        regulation = (self.axis_state.get("regulation", 0.0) + 1.0) / 2.0
+        vigilance = (self.axis_state.get("vigilance", 0.0) + 1.0) / 2.0
+        return clamp01(0.35 * openness + 0.35 * coherence + 0.20 * regulation + 0.10 * (1.0 - vigilance))
+
+    def rigidity(self) -> float:
+        openness = (self.axis_state.get("exploration", 0.0) + 1.0) / 2.0
+        vigilance = (self.axis_state.get("vigilance", 0.0) + 1.0) / 2.0
+        regulation = (self.axis_state.get("regulation", 0.0) + 1.0) / 2.0
+        return clamp01(0.45 * vigilance + 0.35 * (1.0 - openness) + 0.20 * (1.0 - regulation))
+
+    def narrative_pressure(self) -> float:
+        return float(self.active_energy + 0.85 * self.repressed_energy + 1.20 * self.contradiction_ema)
+
+    def axis_vector(self, axis_names: Sequence[str]) -> np.ndarray:
+        return np.asarray([self.axis_state.get(name, 0.0) for name in axis_names], dtype=np.float32)
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "self_vector": vec_to_state(self.self_vector),
+            "axis_state": {k: float(v) for k, v in self.axis_state.items()},
+            "intuition_axes": {k: float(v) for k, v in self.intuition_axes.items()},
             "active_energy": float(self.active_energy),
             "repressed_energy": float(self.repressed_energy),
             "contradiction_ema": float(self.contradiction_ema),
-            "intuition": {k: float(v) for k, v in self.intuition.items()},
+            "current_mode_id": self.current_mode_id,
+            "current_mode_label": self.current_mode_label,
             "repair_count": int(self.repair_count),
             "dream_count": int(self.dream_count),
+            "mode_change_count": int(self.mode_change_count),
             "narrative_log": list(self.narrative_log),
-            "last_phase_step": int(self.last_phase_step),
-            "last_phase_change_ts": float(self.last_phase_change_ts),
+            "last_mode_step": int(self.last_mode_step),
+            "last_mode_change_ts": float(self.last_mode_change_ts),
         }
 
     @classmethod
     def from_state_dict(cls, data: Dict[str, Any]) -> "IdentityState":
+        self_vector = vec_from_state(data.get("self_vector"))
+        if self_vector is None:
+            self_vector = np.zeros(0, dtype=np.float32)
         return cls(
-            traits={k: float(v) for k, v in data.get("traits", {}).items()},
-            beliefs={k: float(v) for k, v in data.get("beliefs", {}).items()},
-            phase=str(data.get("phase", "dependent_child")),
+            self_vector=self_vector,
+            axis_state={k: float(v) for k, v in data.get("axis_state", {}).items()},
+            intuition_axes={k: float(v) for k, v in data.get("intuition_axes", {}).items()},
             active_energy=float(data.get("active_energy", 0.0)),
             repressed_energy=float(data.get("repressed_energy", 0.0)),
             contradiction_ema=float(data.get("contradiction_ema", 0.0)),
-            intuition={k: float(v) for k, v in data.get("intuition", {}).items()},
+            current_mode_id=data.get("current_mode_id"),
+            current_mode_label=str(data.get("current_mode_label", "origin")),
             repair_count=int(data.get("repair_count", 0)),
             dream_count=int(data.get("dream_count", 0)),
+            mode_change_count=int(data.get("mode_change_count", 0)),
             narrative_log=list(data.get("narrative_log", [])),
-            last_phase_step=int(data.get("last_phase_step", 0)),
-            last_phase_change_ts=float(data.get("last_phase_change_ts", now_ts())),
+            last_mode_step=int(data.get("last_mode_step", 0)),
+            last_mode_change_ts=float(data.get("last_mode_change_ts", now_ts())),
         )
 
 
 @dataclass(frozen=True)
-class PhaseProfile:
-    name: str
-    prototype: Dict[str, float]
-    barrier: float
-    hysteresis: float
-    description: str
-
-
-@dataclass(frozen=True)
-class CandidateRepair:
+class RepairCandidate:
     mode: str
-    new_traits: Dict[str, float]
-    new_beliefs: Dict[str, float]
-    active_energy_after: float
-    repressed_energy_after: float
-    identity_drift: float
+    new_vector: np.ndarray
+    new_axes: Dict[str, float]
+    new_active: float
+    new_repressed: float
     coherence_gain: float
+    identity_drift: float
+    pressure_relief: float
+    reality_fit: float
+    dream_support: float
     utility: float
     explanation: str
 
@@ -495,7 +798,8 @@ class LatentFragment:
     ts: float
     activation: float
     unresolved: float
-    trait_vector: np.ndarray
+    embedding: np.ndarray
+    axis_evidence: Dict[str, float]
     source: str
     tags: Tuple[str, ...]
 
@@ -505,22 +809,24 @@ class LatentFragment:
             "ts": float(self.ts),
             "activation": float(self.activation),
             "unresolved": float(self.unresolved),
-            "trait_vector": vec_to_state(self.trait_vector),
+            "embedding": vec_to_state(self.embedding),
+            "axis_evidence": {k: float(v) for k, v in self.axis_evidence.items()},
             "source": self.source,
             "tags": list(self.tags),
         }
 
     @classmethod
     def from_state_dict(cls, data: Dict[str, Any]) -> "LatentFragment":
-        trait_vector = vec_from_state(data.get("trait_vector"))
-        if trait_vector is None:
-            trait_vector = np.zeros(len(TRAIT_ORDER), dtype=np.float32)
+        embedding = vec_from_state(data.get("embedding"))
+        if embedding is None:
+            embedding = np.zeros(0, dtype=np.float32)
         return cls(
             plot_id=str(data["plot_id"]),
             ts=float(data["ts"]),
             activation=float(data.get("activation", 0.0)),
             unresolved=float(data.get("unresolved", 0.0)),
-            trait_vector=trait_vector,
+            embedding=embedding,
+            axis_evidence={k: float(v) for k, v in data.get("axis_evidence", {}).items()},
             source=str(data.get("source", "wake")),
             tags=tuple(data.get("tags", ())),
         )
@@ -577,32 +883,38 @@ class RetrievalTrace:
 
 @dataclass(frozen=True)
 class IdentitySnapshot:
-    phase: str
-    traits: Dict[str, float]
-    beliefs: Dict[str, float]
+    current_mode: str
+    axis_state: Dict[str, float]
+    intuition_axes: Dict[str, float]
+    persona_axes: Dict[str, Dict[str, Any]]
+    axis_aliases: Dict[str, str]
+    modes: Dict[str, Dict[str, Any]]
     active_energy: float
     repressed_energy: float
     contradiction_ema: float
     plasticity: float
     rigidity: float
-    intuition: Dict[str, float]
     repair_count: int
     dream_count: int
+    mode_change_count: int
     narrative_tail: List[str]
 
     def to_state_dict(self) -> Dict[str, Any]:
         return {
-            "phase": self.phase,
-            "traits": {k: float(v) for k, v in self.traits.items()},
-            "beliefs": {k: float(v) for k, v in self.beliefs.items()},
+            "current_mode": self.current_mode,
+            "axis_state": {k: float(v) for k, v in self.axis_state.items()},
+            "intuition_axes": {k: float(v) for k, v in self.intuition_axes.items()},
+            "persona_axes": self.persona_axes,
+            "axis_aliases": dict(self.axis_aliases),
+            "modes": self.modes,
             "active_energy": float(self.active_energy),
             "repressed_energy": float(self.repressed_energy),
             "contradiction_ema": float(self.contradiction_ema),
             "plasticity": float(self.plasticity),
             "rigidity": float(self.rigidity),
-            "intuition": {k: float(v) for k, v in self.intuition.items()},
             "repair_count": int(self.repair_count),
             "dream_count": int(self.dream_count),
+            "mode_change_count": int(self.mode_change_count),
             "narrative_tail": list(self.narrative_tail),
         }
 
@@ -610,44 +922,37 @@ class IdentitySnapshot:
 @dataclass(frozen=True)
 class NarrativeSummary:
     text: str
-    phase: str
-    phase_description: str
-    core_statement: str
+    current_mode: str
     pressure: float
+    salient_axes: List[str]
 
     def to_state_dict(self) -> Dict[str, Any]:
         return {
             "text": self.text,
-            "phase": self.phase,
-            "phase_description": self.phase_description,
-            "core_statement": self.core_statement,
+            "current_mode": self.current_mode,
             "pressure": float(self.pressure),
+            "salient_axes": list(self.salient_axes),
         }
 
 
-def summarize_identity(identity: IdentityState, profile: PhaseProfile) -> NarrativeSummary:
-    if identity.phase == "dependent_child":
-        core = "她仍然更相信靠近与被接住。"
-    elif identity.phase == "guarded_teen":
-        core = "她已经学会先保护自己，亲近不再自动等于安全。"
-    elif identity.phase == "exploratory_youth":
-        core = "她在独立与连接之间试探新的平衡。"
-    else:
-        core = "她开始把柔软、边界和自主整合进同一个自己。"
+def top_axes_description(axis_state: Dict[str, float], schema: PsychologicalSchema, topn: int = 4) -> str:
+    items = sorted(axis_state.items(), key=lambda item: abs(item[1]), reverse=True)
+    phrases = []
+    for name, value in items[:topn]:
+        axis = schema.all_axes().get(name)
+        if axis is None:
+            continue
+        pole = axis.positive_pole if value >= 0 else axis.negative_pole
+        phrases.append(f"{pole}({value:+.2f})")
+    return " / ".join(phrases) if phrases else "unformed"
 
-    line2 = (
-        f"信任={identity.traits['trust']:.2f}，自主={identity.traits['autonomy']:.2f}，"
-        f"防御={identity.traits['defensiveness']:.2f}，连贯={identity.traits['coherence']:.2f}。"
-    )
-    line3 = (
-        f"当前叙事压力={identity.narrative_pressure():.3f}，"
-        f"显性能量={identity.active_energy:.3f}，压抑能量={identity.repressed_energy:.3f}。"
-    )
-    text = f"{profile.description} {core} {line2} {line3}"
-    return NarrativeSummary(
-        text=text,
-        phase=identity.phase,
-        phase_description=profile.description,
-        core_statement=core,
-        pressure=identity.narrative_pressure(),
-    )
+
+def axes_to_phrase(axis_names: Sequence[str], schema: PsychologicalSchema) -> str:
+    phrases = []
+    for name in axis_names:
+        axis = schema.all_axes().get(name)
+        if axis is None:
+            phrases.append(name)
+            continue
+        phrases.append(f"{axis.positive_pole}/{axis.negative_pole}")
+    return " / ".join(phrases) if phrases else "unnamed tension"

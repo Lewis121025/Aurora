@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
-from aurora.soul.models import BELIEF_ORDER, TRAIT_ORDER, IdentityState
+from aurora.soul.models import HOMEOSTATIC_AXES, IdentityState
 from aurora.soul.retrieval import LowRankMetric
 
 
@@ -13,9 +14,12 @@ def metric() -> LowRankMetric:
 
 @pytest.fixture
 def identity_state() -> IdentityState:
+    axis_state = {name: 0.2 for name, _, _, _ in HOMEOSTATIC_AXES}
+    self_vector = np.ones(64, dtype=np.float32)
+    self_vector /= np.linalg.norm(self_vector)
     return IdentityState(
-        traits={name: 0.5 for name in TRAIT_ORDER},
-        beliefs={name: 0.5 for name in BELIEF_ORDER},
-        phase="dependent_child",
+        self_vector=self_vector,
+        axis_state=axis_state,
+        intuition_axes={name: 0.0 for name in axis_state},
+        current_mode_label="origin",
     )
-

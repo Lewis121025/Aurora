@@ -28,9 +28,9 @@ class ResponseContextBuilder:
             evidence_refs.append(EvidenceRef(id=node_id, kind=kind, score=float(score), role="retrieved"))
             retrieval_hits.append(self._hit_summary(node_id=node_id, kind=kind, score=score))
         return StructuredMemoryContext(
-            phase=identity.phase,
+            mode=identity.current_mode,
             narrative_pressure=summary.pressure,
-            intuition=self._memory.intuition_keywords(limit=2),
+            intuition=self._memory.intuition_keywords(limit=3),
             identity=identity,
             narrative_summary=summary,
             retrieval_hits=retrieval_hits,
@@ -55,26 +55,37 @@ class ResponseContextBuilder:
     def render_memory_brief(context: StructuredMemoryContext) -> str:
         identity = context.identity
         summary = context.narrative_summary
+        salient_axes = "none"
         lines = [
             "[Identity Snapshot]",
-            f"- phase: {context.phase}",
+            f"- mode: {context.mode}",
             f"- pressure: {context.narrative_pressure:.3f}",
         ]
         if identity is not None:
+            axis_items = sorted(identity.axis_state.items(), key=lambda item: abs(item[1]), reverse=True)
+            top_axes = ", ".join(f"{name}={value:+.2f}" for name, value in axis_items[:4]) or "none"
+            intuition = ", ".join(
+                f"{name}={value:+.2f}" for name, value in sorted(identity.intuition_axes.items(), key=lambda item: abs(item[1]), reverse=True)[:3]
+                if abs(value) >= 0.05
+            ) or "none"
             lines.extend(
                 [
                     f"- active_energy: {identity.active_energy:.3f}",
                     f"- repressed_energy: {identity.repressed_energy:.3f}",
-                    f"- trust/autonomy/defensiveness/coherence: "
-                    f"{identity.traits.get('trust', 0.0):.2f} / "
-                    f"{identity.traits.get('autonomy', 0.0):.2f} / "
-                    f"{identity.traits.get('defensiveness', 0.0):.2f} / "
-                    f"{identity.traits.get('coherence', 0.0):.2f}",
+                    f"- top_axes: {top_axes}",
+                    f"- intuition_axes: {intuition}",
+                    f"- repairs/dreams/mode_shifts: {identity.repair_count} / {identity.dream_count} / {identity.mode_change_count}",
                 ]
             )
+        if summary is not None:
+            salient_axes = ", ".join(summary.salient_axes[:4]) or "none"
         lines.append("")
         lines.append("[Narrative Summary]")
-        lines.append(f"- {(summary.text if summary is not None else 'none')}")
+        if summary is not None:
+            lines.append(f"- {summary.text}")
+            lines.append(f"- salient_axes: {salient_axes}")
+        else:
+            lines.append("- none")
         lines.append("")
         lines.append("[System Intuition]")
         if context.intuition:

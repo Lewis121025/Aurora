@@ -196,6 +196,35 @@ class TestKindFiltering:
         kinds_in_results = {kind for _, _, kind in trace.ranked}
         assert "plot" in kinds_in_results or "story" in kinds_in_results
 
+    def test_non_plot_payload_without_embedded_vector_still_retrieves(self, retriever_setup, identity_state):
+        """测试 story/theme 等节点即使 payload 未携带向量，也不会在重排阶段崩溃。"""
+        retriever, embedder, vindex, graph = retriever_setup
+
+        vec = np.random.randn(64).astype(np.float32)
+        vec = vec / np.linalg.norm(vec)
+        vindex.add("story_raw", vec, kind="story")
+        graph.add_node(
+            "story_raw",
+            "story",
+            {
+                "id": "story_raw",
+                "name": "raw story payload",
+                "updated_ts": 1.0,
+            },
+        )
+
+        trace = retriever.retrieve(
+            query_text="story raw",
+            embedder=embedder,
+            state=identity_state,
+            kinds=["story"],
+            k=5,
+        )
+
+        assert trace is not None
+        assert trace.ranked
+        assert trace.ranked[0][2] == "story"
+
 
 class TestRetrievalTrace:
     """RetrievalTrace 结构的测试。"""

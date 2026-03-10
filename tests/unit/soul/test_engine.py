@@ -2,14 +2,23 @@ from __future__ import annotations
 
 from aurora.integrations.embeddings.hash import HashEmbedding
 from aurora.soul.engine import AuroraSoul, SoulConfig
+from aurora.soul.extractors import CombinatorialNarrativeProvider, HeuristicMeaningProvider
+
+
+def build_memory(seed: int) -> AuroraSoul:
+    embedder = HashEmbedding(dim=64, seed=seed)
+    return AuroraSoul(
+        cfg=SoulConfig(dim=64, metric_rank=16, max_plots=128),
+        seed=seed,
+        event_embedder=embedder,
+        axis_embedder=embedder,
+        meaning_provider=HeuristicMeaningProvider(),
+        narrator=CombinatorialNarrativeProvider(),
+    )
 
 
 def test_soul_memory_round_trip_preserves_identity_and_plots() -> None:
-    mem = AuroraSoul(
-        cfg=SoulConfig(dim=64, metric_rank=16, max_plots=128),
-        seed=7,
-        embedder=HashEmbedding(dim=64),
-    )
+    mem = build_memory(seed=7)
 
     first = None
     for text in ["对方冷淡地拒绝我。", "你又一次忽视我。", "我有点害怕被丢下。"]:
@@ -18,27 +27,28 @@ def test_soul_memory_round_trip_preserves_identity_and_plots() -> None:
             break
     assert first is not None
     assert first.story_id is not None
-    assert mem.identity.phase == "dependent_child"
+    assert mem.identity.current_mode_label
 
     state = mem.to_state_dict()
     restored = AuroraSoul.from_state_dict(
         state,
-        embedder=HashEmbedding(dim=64),
+        event_embedder=HashEmbedding(dim=64, seed=7),
+        axis_embedder=HashEmbedding(dim=64, seed=7),
+        meaning_provider=HeuristicMeaningProvider(),
+        narrator=CombinatorialNarrativeProvider(),
     )
 
-    assert restored.identity.phase == mem.identity.phase
-    assert restored.snapshot_identity().to_state_dict()["phase"] == "dependent_child"
+    assert restored.identity.current_mode_label == mem.identity.current_mode_label
+    snapshot = restored.snapshot_identity().to_state_dict()
+    assert snapshot["current_mode"] == restored.identity.current_mode_label
+    assert "axis_state" in snapshot
     assert len(restored.plots) >= 1
     assert len(restored.stories) >= 1
-    assert restored.narrative_summary().phase == "dependent_child"
+    assert restored.narrative_summary().current_mode == restored.identity.current_mode_label
 
 
 def test_soul_memory_feedback_and_evolve_keep_new_observables_available() -> None:
-    mem = AuroraSoul(
-        cfg=SoulConfig(dim=64, metric_rank=16, max_plots=128),
-        seed=11,
-        embedder=HashEmbedding(dim=64),
-    )
+    mem = build_memory(seed=11)
 
     mem.ingest("你总是不理我，让我很难过。", actors=("user", "agent"))
     trace = mem.query("她现在是什么状态？", k=4)
@@ -49,5 +59,7 @@ def test_soul_memory_feedback_and_evolve_keep_new_observables_available() -> Non
     dreams = mem.evolve(dreams=1)
 
     snapshot = mem.snapshot_identity()
-    assert snapshot.phase in {"dependent_child", "guarded_teen", "exploratory_youth", "integrated_self"}
+    assert snapshot.current_mode
+    assert isinstance(snapshot.axis_aliases, dict)
+    assert isinstance(snapshot.modes, dict)
     assert snapshot.dream_count >= len(dreams)

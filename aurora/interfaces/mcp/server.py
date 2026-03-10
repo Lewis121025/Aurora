@@ -147,7 +147,7 @@ AURORA_RESOURCES = [
     ResourceDefinition(
         uri="aurora://memory/stats",
         name="Memory Statistics",
-        description="当前内存统计（plot/story/theme 计数、phase、pressure、dream/repair 计数）",
+        description="当前内存统计（plot/story/theme 计数、mode、pressure、dream/repair 计数）",
     ),
     ResourceDefinition(
         uri="aurora://memory/identity",
@@ -285,7 +285,7 @@ class AuroraMCPServer:
             "event_id": event_id,
             "plot_id": result.plot_id,
             "story_id": result.story_id,
-            "phase": result.phase,
+            "mode": result.mode,
             "tension": result.tension,
         }
 

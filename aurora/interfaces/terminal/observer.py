@@ -201,9 +201,12 @@ class TerminalObserver:
     def _render_welcome(self) -> None:
         identity = self.runtime.get_identity()
         summary = identity["narrative_summary"]
+        top_axes = self._format_axis_pairs(identity["identity"]["axis_state"], limit=3)
         lines = [
             self._accent("Aurora Soul"),
-            self._muted(f"phase={identity['identity']['phase']}  pressure={summary['pressure']:.3f}"),
+            self._muted(
+                f"mode={identity['identity']['current_mode']}  pressure={summary['pressure']:.3f}  top_axes={top_axes}"
+            ),
             "",
             "直接输入文本即可对话。",
             "常用命令: /identity  /stats  /brief  /full  /context  /quit",
@@ -246,9 +249,11 @@ class TerminalObserver:
     def _render_summary(self, result: ChatTurnResult) -> None:
         ctx = result.memory_context
         identity = ctx.identity
+        top_axes = self._format_axis_pairs(identity.axis_state, limit=3) if identity else "-"
         lines = [
-            f"phase={ctx.phase} | pressure={ctx.narrative_pressure:.3f}",
+            f"mode={ctx.mode} | pressure={ctx.narrative_pressure:.3f}",
             f"active={identity.active_energy:.3f} | repressed={identity.repressed_energy:.3f}" if identity else "",
+            f"top_axes={top_axes}",
             f"intuition={', '.join(ctx.intuition) if ctx.intuition else '-'}",
             f"hits={len(ctx.evidence_refs)} | retrieval_ms={result.timings.retrieval_ms:.1f} | "
             f"gen_ms={result.timings.generation_ms:.1f} | ingest_ms={result.timings.ingest_ms:.1f}",
@@ -260,7 +265,7 @@ class TerminalObserver:
         identity = context.identity
         summary = context.narrative_summary
         lines = [
-            f"phase={context.phase}",
+            f"mode={context.mode}",
             f"pressure={context.narrative_pressure:.3f}",
             f"intuition={', '.join(context.intuition) if context.intuition else '-'}",
             "",
@@ -270,16 +275,16 @@ class TerminalObserver:
             lines.extend(
                 [
                     "",
-                    f"traits: trust={identity.traits.get('trust', 0.0):.2f} autonomy={identity.traits.get('autonomy', 0.0):.2f} "
-                    f"defensiveness={identity.traits.get('defensiveness', 0.0):.2f} coherence={identity.traits.get('coherence', 0.0):.2f}",
-                    f"beliefs: closeness_safe={identity.beliefs.get('closeness_safe', 0.0):.2f} "
-                    f"others_reliable={identity.beliefs.get('others_reliable', 0.0):.2f} "
-                    f"boundaries_allowed={identity.beliefs.get('boundaries_allowed', 0.0):.2f}",
-                    f"repair_count={identity.repair_count} dream_count={identity.dream_count}",
+                    f"top_axes: {self._format_axis_pairs(identity.axis_state, limit=6)}",
+                    f"intuition_axes: {self._format_axis_pairs(identity.intuition_axes, limit=4)}",
+                    f"persona_axes={len(identity.persona_axes)} aliases={len(identity.axis_aliases)} modes={len(identity.modes)}",
+                    f"repair_count={identity.repair_count} dream_count={identity.dream_count} mode_change_count={identity.mode_change_count}",
                     "narrative_tail:",
                 ]
             )
             lines.extend(f"- {item}" for item in identity.narrative_tail[-6:])
+        if summary is not None and summary.salient_axes:
+            lines.extend(["", f"salient_axes: {', '.join(summary.salient_axes[:6])}"])
         if context.retrieval_hits:
             lines.append("")
             lines.append("retrieval_hits:")
@@ -291,23 +296,25 @@ class TerminalObserver:
         identity = report["identity"]
         summary = report["narrative_summary"]
         lines = [
-            f"phase={identity['phase']}",
+            f"mode={identity['current_mode']}",
             f"pressure={summary['pressure']:.3f}",
-            f"core={summary['core_statement']}",
+            f"summary={summary['text']}",
             "",
-            "traits:",
-            f"- trust={identity['traits']['trust']:.2f}",
-            f"- autonomy={identity['traits']['autonomy']:.2f}",
-            f"- defensiveness={identity['traits']['defensiveness']:.2f}",
-            f"- coherence={identity['traits']['coherence']:.2f}",
+            f"top_axes={self._format_axis_pairs(identity['axis_state'], limit=8)}",
+            f"intuition_axes={self._format_axis_pairs(identity['intuition_axes'], limit=6)}",
+            f"persona_axes={len(identity['persona_axes'])} aliases={len(identity['axis_aliases'])} modes={len(identity['modes'])}",
+            f"active_energy={identity['active_energy']:.3f} repressed_energy={identity['repressed_energy']:.3f}",
+            f"repair_count={identity['repair_count']} dream_count={identity['dream_count']} mode_change_count={identity['mode_change_count']}",
             "",
-            "beliefs:",
-            f"- closeness_safe={identity['beliefs']['closeness_safe']:.2f}",
-            f"- others_reliable={identity['beliefs']['others_reliable']:.2f}",
-            f"- boundaries_allowed={identity['beliefs']['boundaries_allowed']:.2f}",
-            "",
-            "narrative_tail:",
+            "salient_axes:",
         ]
+        lines.extend(f"- {item}" for item in summary["salient_axes"][:6])
+        lines.extend(
+            [
+                "",
+            "narrative_tail:",
+            ]
+        )
         lines.extend(f"- {item}" for item in identity["narrative_tail"][-6:])
         self._render_panel("Identity", lines, tone="accent")
 
@@ -315,7 +322,7 @@ class TerminalObserver:
         stats = self.runtime.get_stats()
         lines = [
             f"plots={stats['plot_count']} stories={stats['story_count']} themes={stats['theme_count']}",
-            f"phase={stats['phase']} pressure={stats['pressure']:.3f}",
+            f"mode={stats['current_mode']} pressure={stats['pressure']:.3f}",
             f"dream_count={stats['dream_count']} repair_count={stats['repair_count']}",
             f"active_energy={stats['active_energy']:.3f} repressed_energy={stats['repressed_energy']:.3f}",
         ]
@@ -365,6 +372,12 @@ class TerminalObserver:
 
     def _toolbar_text(self) -> str:
         return f" mode={self.observe_mode}  /identity  /stats  /brief  /full  /help "
+
+    @staticmethod
+    def _format_axis_pairs(values: Dict[str, float], *, limit: int) -> str:
+        items = sorted(values.items(), key=lambda item: abs(item[1]), reverse=True)
+        formatted = [f"{name}={value:+.2f}" for name, value in items[:limit] if abs(value) >= 0.05]
+        return ", ".join(formatted) if formatted else "-"
 
     def _render_panel(self, title: str, lines: Sequence[str], *, tone: str) -> None:
         border = "─" * 12

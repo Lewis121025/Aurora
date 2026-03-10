@@ -62,6 +62,15 @@ class SQLiteDocStore:
         for _id, k, ts, body in cur.fetchall():
             yield Document(id=str(_id), kind=str(k), ts=float(ts), body=loads(body))
 
+    def has_body_field_mismatch(self, *, kind: str, field: str, expected: Any) -> bool:
+        cur = self._conn.cursor()
+        cur.execute("SELECT body FROM docs WHERE kind = ?", (kind,))
+        for (body,) in cur.fetchall():
+            payload = loads(body)
+            if payload.get(field) != expected:
+                return True
+        return False
+
     def close(self) -> None:
         """显式关闭数据库连接。"""
         if self._conn:

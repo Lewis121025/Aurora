@@ -6,7 +6,7 @@ from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
-SCHEMA_VERSION = "v3"
+SCHEMA_VERSION = "v4"
 
 
 class MemoryKind(str, Enum):
@@ -66,8 +66,8 @@ class IngestResponse(BaseModel):
     event_id: str
     plot_id: str
     story_id: Optional[str] = None
-    phase: str
-    source: Literal["wake", "dream", "repair", "phase"]
+    mode: str
+    source: Literal["wake", "dream", "repair", "mode"]
     tension: float
     contradiction: float
     active_energy: float
@@ -98,32 +98,34 @@ class EvidenceRef(BaseModel):
 
 
 class IdentitySnapshotResponse(BaseModel):
-    phase: str
-    traits: Dict[str, float]
-    beliefs: Dict[str, float]
+    current_mode: str
+    axis_state: Dict[str, float]
+    intuition_axes: Dict[str, float]
+    persona_axes: Dict[str, Dict[str, object]]
+    axis_aliases: Dict[str, str]
+    modes: Dict[str, Dict[str, object]]
     active_energy: float
     repressed_energy: float
     contradiction_ema: float
     plasticity: float
     rigidity: float
-    intuition: Dict[str, float]
     repair_count: int
     dream_count: int
+    mode_change_count: int
     narrative_tail: List[str]
 
 
 class NarrativeSummaryResponse(BaseModel):
     text: str
-    phase: str
-    phase_description: str
-    core_statement: str
+    current_mode: str
     pressure: float
+    salient_axes: List[str]
 
 
 class StructuredMemoryContext(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
-    phase: str
+    mode: str
     narrative_pressure: float
     intuition: List[str] = Field(default_factory=list)
     identity: IdentitySnapshotResponse
@@ -183,7 +185,7 @@ class MemoryStatsResponse(BaseModel):
     plot_count: int
     story_count: int
     theme_count: int
-    phase: str
+    current_mode: str
     pressure: float
     dream_count: int
     repair_count: int

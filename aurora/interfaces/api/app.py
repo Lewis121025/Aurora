@@ -47,7 +47,15 @@ def healthz() -> HealthResponse:
     return HealthResponse(status="healthy", version=__version__, timestamp=time.time())
 
 
-@app.post("/v3/ingest", response_model=IngestResponse)
+def _identity_response(payload: dict[str, object]) -> IdentitySnapshotResponse:
+    return IdentitySnapshotResponse(**payload)
+
+
+def _summary_response(payload: dict[str, object]) -> NarrativeSummaryResponse:
+    return NarrativeSummaryResponse(**payload)
+
+
+@app.post("/v4/ingest", response_model=IngestResponse)
 def ingest(req: IngestRequest) -> IngestResponse:
     event_id = req.event_id or f"evt_{int(time.time() * 1000)}"
     result = get_runtime().ingest_interaction(
@@ -62,7 +70,7 @@ def ingest(req: IngestRequest) -> IngestResponse:
     return IngestResponse(**result.__dict__)
 
 
-@app.post("/v3/query", response_model=QueryResponse)
+@app.post("/v4/query", response_model=QueryResponse)
 def query(req: QueryRequest) -> QueryResponse:
     result = get_runtime().query(text=req.text, k=req.k)
     return QueryResponse(
@@ -72,7 +80,7 @@ def query(req: QueryRequest) -> QueryResponse:
     )
 
 
-@app.post("/v3/respond", response_model=ChatTurnResponse)
+@app.post("/v4/respond", response_model=ChatTurnResponse)
 def respond(req: RespondRequest) -> ChatTurnResponse:
     result = get_runtime().respond(
         session_id=req.session_id,
@@ -89,11 +97,11 @@ def respond(req: RespondRequest) -> ChatTurnResponse:
         reply=result.reply,
         event_id=result.event_id,
         memory_context=StructuredMemoryContext(
-            phase=result.memory_context.phase,
+            mode=result.memory_context.mode,
             narrative_pressure=result.memory_context.narrative_pressure,
             intuition=result.memory_context.intuition,
-            identity=IdentitySnapshotResponse(**identity.to_state_dict()),
-            narrative_summary=NarrativeSummaryResponse(**summary.to_state_dict()),
+            identity=_identity_response(identity.to_state_dict()),
+            narrative_summary=_summary_response(summary.to_state_dict()),
             retrieval_hits=result.memory_context.retrieval_hits,
             evidence_refs=[EvidenceRef(**ref.__dict__) for ref in result.memory_context.evidence_refs],
         ),
@@ -107,27 +115,27 @@ def respond(req: RespondRequest) -> ChatTurnResponse:
     )
 
 
-@app.post("/v3/feedback")
+@app.post("/v4/feedback")
 def feedback(req: FeedbackRequest) -> dict[str, bool]:
     get_runtime().feedback(query_text=req.query_text, chosen_id=req.chosen_id, success=req.success)
     return {"ok": True}
 
 
-@app.post("/v3/evolve")
+@app.post("/v4/evolve")
 def evolve(req: EvolveRequest) -> dict[str, object]:
     dream_plots = get_runtime().evolve(dreams=req.dreams)
     return {"ok": True, "dreams": len(dream_plots)}
 
 
-@app.get("/v3/identity", response_model=IdentityResponse)
+@app.get("/v4/identity", response_model=IdentityResponse)
 def identity() -> IdentityResponse:
     report = get_runtime().get_identity()
     return IdentityResponse(
-        identity=IdentitySnapshotResponse(**report["identity"]),
-        narrative_summary=NarrativeSummaryResponse(**report["narrative_summary"]),
+        identity=_identity_response(report["identity"]),
+        narrative_summary=_summary_response(report["narrative_summary"]),
     )
 
 
-@app.get("/v3/stats", response_model=MemoryStatsResponse)
+@app.get("/v4/stats", response_model=MemoryStatsResponse)
 def stats() -> MemoryStatsResponse:
     return MemoryStatsResponse(**get_runtime().get_stats())

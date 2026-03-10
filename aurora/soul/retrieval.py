@@ -319,6 +319,12 @@ class VectorIndex:
         self.vecs.pop(idx)
         self.kinds.pop(idx)
 
+    def get_vector(self, item_id: str) -> Optional[np.ndarray]:
+        if item_id not in self.ids:
+            return None
+        idx = self.ids.index(item_id)
+        return self.vecs[idx]
+
     def search(self, q: np.ndarray, k: int = 10, kind: Optional[str] = None) -> List[Tuple[str, float]]:
         if not self.vecs:
             return []
@@ -459,6 +465,15 @@ class FieldRetriever:
         if hasattr(payload, "prototype"):
             return payload.prototype
         return None
+
+    def _node_vec(self, node_id: str, payload: Any) -> Optional[np.ndarray]:
+        vec = self._payload_vec(payload)
+        if vec is not None:
+            return np.asarray(vec, dtype=np.float32)
+        index_vec = self.vindex.get_vector(node_id)
+        if index_vec is None:
+            return None
+        return np.asarray(index_vec, dtype=np.float32)
 
     def _payload_text(self, payload: Any) -> str:
         if isinstance(payload, dict):
@@ -787,7 +802,7 @@ class FieldRetriever:
         k: int = 5,
     ) -> RetrievalTrace:
         query_emb = embedder.embed(query_text)
-        phase_vec = state.signed_traits()
+        self_vec = state.self_vector if getattr(state, "self_vector", None) is not None else query_emb
         plan = self._build_query_plan(
             query_text=query_text,
             kinds=kinds,
@@ -828,14 +843,14 @@ class FieldRetriever:
                 if not self._matches_time_range(item_id, plan.time_range):
                     continue
                 payload = self.graph.payload(item_id)
-                vec = self._payload_vec(payload)
-                if vec is None:
+                node_vec = self._node_vec(item_id, payload)
+                if node_vec is None:
                     continue
-                phase_bonus = 0.0
+                identity_bonus = 0.0
                 if isinstance(payload, Plot):
-                    phase_bonus = 0.15 * float(np.dot(payload.frame.trait_vector(), phase_vec))
+                    identity_bonus = 0.15 * payload.frame.alignment_score(state.axis_state)
                 mass = self._payload_mass(payload)
-                candidates.append((item_id, vec, mass + phase_bonus + sim))
+                candidates.append((item_id, node_vec, mass + identity_bonus + sim))
 
         path = self._mean_shift(query_emb, candidates, steps=8)
         attractor = path[-1]
@@ -854,15 +869,18 @@ class FieldRetriever:
             if kind not in kinds:
                 continue
             payload = self.graph.payload(item_id)
+            node_vec = self._node_vec(item_id, payload)
             bonus = self._payload_mass(payload)
             if isinstance(payload, Plot):
-                bonus += 0.10 * float(np.dot(payload.frame.trait_vector(), phase_vec))
+                bonus += 0.10 * payload.frame.alignment_score(state.axis_state)
                 bonus += 0.03 * payload.confidence
                 bonus += self._compute_fact_key_boost(item_id, query_text)
                 if plan.query_type in {QueryType.USER_FACT, QueryType.FACTUAL} and plan.query_keywords:
                     bonus += self._compute_keyword_boost(item_id, plan.query_keywords)
                 if plan.query_type == QueryType.USER_FACT:
                     bonus += self._compute_user_role_boost(item_id)
+            elif node_vec is not None:
+                bonus += 0.05 * float(np.dot(l2_normalize(node_vec), l2_normalize(self_vec)))
             attractor_ranked.append((item_id, float(score) + 1e-3 * bonus, kind))
         attractor_ranked.sort(key=lambda item: item[1], reverse=True)
 

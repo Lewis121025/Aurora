@@ -16,7 +16,7 @@ Aurora 不是把整段聊天历史直接塞进 prompt。
 
 - 结构化长期记忆
 - 可查询的向量与关系图
-- 身份状态、张力、修复、梦整合与相位演化
+- 身份状态、张力、修复、梦整合与模式涌现
 - 事件日志、派生文档和快照
 
 ## 当前架构
@@ -36,13 +36,13 @@ aurora/
 
 几个最重要的文件：
 
-- [aurora/runtime/runtime.py](/Users/lewis/My_Aurora/aurora/runtime/runtime.py)
-- [aurora/runtime/bootstrap.py](/Users/lewis/My_Aurora/aurora/runtime/bootstrap.py)
-- [aurora/soul/engine.py](/Users/lewis/My_Aurora/aurora/soul/engine.py)
-- [aurora/soul/retrieval.py](/Users/lewis/My_Aurora/aurora/soul/retrieval.py)
-- [aurora/soul/models.py](/Users/lewis/My_Aurora/aurora/soul/models.py)
-- [aurora/soul/query.py](/Users/lewis/My_Aurora/aurora/soul/query.py)
-- [aurora/soul/facts.py](/Users/lewis/My_Aurora/aurora/soul/facts.py)
+- [aurora/runtime/runtime.py](aurora/runtime/runtime.py)
+- [aurora/runtime/bootstrap.py](aurora/runtime/bootstrap.py)
+- [aurora/soul/engine.py](aurora/soul/engine.py)
+- [aurora/soul/retrieval.py](aurora/soul/retrieval.py)
+- [aurora/soul/models.py](aurora/soul/models.py)
+- [aurora/soul/query.py](aurora/soul/query.py)
+- [aurora/soul/facts.py](aurora/soul/facts.py)
 
 ## 核心算法
 
@@ -58,7 +58,7 @@ Aurora Soul 当前的主算法簇有 4 组：
    `mean shift attractor tracing + personalized PageRank + query/time/fact boost`
 
 4. 身份演化  
-   `dissonance + repair + dream + phase transition`
+   `dissonance + repair + dream + mode emergence + schema consolidation`
 
 ## 安装
 
@@ -92,6 +92,9 @@ runtime = AuroraRuntime(
         data_dir="./data",
         llm_provider="mock",
         embedding_provider="hash",
+        axis_embedding_provider="hash",
+        meaning_provider="heuristic",
+        narrative_provider="heuristic",
     )
 )
 
@@ -121,6 +124,7 @@ AURORA_DATA_DIR=./data
 
 AURORA_LLM_PROVIDER=bailian
 AURORA_EMBEDDING_PROVIDER=bailian
+AURORA_AXIS_EMBEDDING_PROVIDER=bailian
 
 AURORA_BAILIAN_LLM_API_KEY=your_llm_key
 AURORA_BAILIAN_EMBEDDING_API_KEY=your_embedding_key
@@ -183,15 +187,15 @@ python scripts/runtime/observe.py --observe full
 uvicorn aurora.interfaces.api.app:app --host 127.0.0.1 --port 8000
 ```
 
-当前主接口在 `/v3/*`：
+当前主接口在 `/v4/*`：
 
-- `POST /v3/ingest`
-- `POST /v3/query`
-- `POST /v3/respond`
-- `POST /v3/feedback`
-- `POST /v3/evolve`
-- `GET /v3/identity`
-- `GET /v3/stats`
+- `POST /v4/ingest`
+- `POST /v4/query`
+- `POST /v4/respond`
+- `POST /v4/feedback`
+- `POST /v4/evolve`
+- `GET /v4/identity`
+- `GET /v4/stats`
 - `GET /healthz`
 
 ## MCP
@@ -221,26 +225,26 @@ server = create_mcp_server(runtime)
 
 如果你第一次进仓库，推荐这样读：
 
-1. [aurora/runtime/settings.py](/Users/lewis/My_Aurora/aurora/runtime/settings.py)
-2. [aurora/runtime/bootstrap.py](/Users/lewis/My_Aurora/aurora/runtime/bootstrap.py)
-3. [aurora/runtime/runtime.py](/Users/lewis/My_Aurora/aurora/runtime/runtime.py)
-4. [aurora/soul/engine.py](/Users/lewis/My_Aurora/aurora/soul/engine.py)
-5. [aurora/soul/retrieval.py](/Users/lewis/My_Aurora/aurora/soul/retrieval.py)
-6. [aurora/soul/models.py](/Users/lewis/My_Aurora/aurora/soul/models.py)
+1. [aurora/runtime/settings.py](aurora/runtime/settings.py)
+2. [aurora/runtime/bootstrap.py](aurora/runtime/bootstrap.py)
+3. [aurora/runtime/runtime.py](aurora/runtime/runtime.py)
+4. [aurora/soul/engine.py](aurora/soul/engine.py)
+5. [aurora/soul/retrieval.py](aurora/soul/retrieval.py)
+6. [aurora/soul/models.py](aurora/soul/models.py)
 
 如果你是改算法，优先看：
 
-- [aurora/soul/engine.py](/Users/lewis/My_Aurora/aurora/soul/engine.py)
-- [aurora/soul/retrieval.py](/Users/lewis/My_Aurora/aurora/soul/retrieval.py)
-- [aurora/soul/query.py](/Users/lewis/My_Aurora/aurora/soul/query.py)
-- [aurora/soul/facts.py](/Users/lewis/My_Aurora/aurora/soul/facts.py)
+- [aurora/soul/engine.py](aurora/soul/engine.py)
+- [aurora/soul/retrieval.py](aurora/soul/retrieval.py)
+- [aurora/soul/query.py](aurora/soul/query.py)
+- [aurora/soul/facts.py](aurora/soul/facts.py)
 
 如果你是改 provider 或部署层，优先看：
 
-- [aurora/runtime/bootstrap.py](/Users/lewis/My_Aurora/aurora/runtime/bootstrap.py)
-- [aurora/integrations/embeddings](/Users/lewis/My_Aurora/aurora/integrations/embeddings)
-- [aurora/integrations/llm](/Users/lewis/My_Aurora/aurora/integrations/llm)
-- [aurora/integrations/storage](/Users/lewis/My_Aurora/aurora/integrations/storage)
+- [aurora/runtime/bootstrap.py](aurora/runtime/bootstrap.py)
+- [aurora/integrations/embeddings](aurora/integrations/embeddings)
+- [aurora/integrations/llm](aurora/integrations/llm)
+- [aurora/integrations/storage](aurora/integrations/storage)
 
 ## 开发约定
 
@@ -257,9 +261,9 @@ pytest tests -q
 
 ## 文档
 
-- 研究文档在 [docs/research](/Users/lewis/My_Aurora/docs/research)
-- 架构决策在 [docs/adr](/Users/lewis/My_Aurora/docs/adr)
-- 迁移与质量记录在 [docs/migrations](/Users/lewis/My_Aurora/docs/migrations) 和 [docs/quality](/Users/lewis/My_Aurora/docs/quality)
+- 研究文档在 [docs/research](docs/research)
+- 架构决策在 [docs/adr](docs/adr)
+- 迁移与质量记录在 [docs/migrations](docs/migrations) 和 [docs/quality](docs/quality)
 
 ## 许可证
 

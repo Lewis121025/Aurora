@@ -5,10 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from aurora.system.errors import ConfigurationError
+from aurora.integrations.storage.doc_store import Document, SQLiteDocStore
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
+from aurora.system.errors import ConfigurationError
 
 
 class CountingLLM(LLMProvider):
@@ -43,7 +44,7 @@ class CountingLLM(LLMProvider):
         max_retries=None,
     ):
         self.complete_json_calls += 1
-        raise AssertionError("respond() should not need an auxiliary JSON LLM call in the default soul-memory path")
+        raise AssertionError("heuristic v4 runtime path should not need auxiliary JSON LLM calls")
 
 
 def test_runtime_respond_uses_single_generation_call(tmp_path: Path) -> None:
@@ -52,7 +53,9 @@ def test_runtime_respond_uses_single_generation_call(tmp_path: Path) -> None:
         settings=AuroraSettings(
             data_dir=str(tmp_path),
             embedding_provider="hash",
-            meaning_extractor="heuristic",
+            axis_embedding_provider="hash",
+            meaning_provider="heuristic",
+            narrative_provider="heuristic",
         ),
         llm=llm,
     )
@@ -61,16 +64,16 @@ def test_runtime_respond_uses_single_generation_call(tmp_path: Path) -> None:
 
     assert llm.complete_calls == 1
     assert llm.complete_json_calls == 0
-    assert result.memory_context.phase == "dependent_child"
+    assert result.memory_context.mode == result.memory_context.identity.current_mode
     assert result.memory_context.identity is not None
-    assert result.ingest_result.phase == "dependent_child"
+    assert result.ingest_result.mode == result.memory_context.identity.current_mode
 
 
 def test_runtime_rejects_legacy_snapshot(tmp_path: Path) -> None:
     snapshots_dir = tmp_path / "snapshots"
     snapshots_dir.mkdir(parents=True)
     (snapshots_dir / "snapshot_1.json").write_text(
-        json.dumps({"last_seq": 1, "state": {"schema_version": "v2"}}),
+        json.dumps({"last_seq": 1, "state": {"schema_version": "v3"}}),
         encoding="utf-8",
     )
 
@@ -79,6 +82,41 @@ def test_runtime_rejects_legacy_snapshot(tmp_path: Path) -> None:
             settings=AuroraSettings(
                 data_dir=str(tmp_path),
                 embedding_provider="hash",
-                meaning_extractor="heuristic",
+                axis_embedding_provider="hash",
+                meaning_provider="heuristic",
+                narrative_provider="heuristic",
+            )
+        )
+
+
+def test_runtime_rejects_buried_legacy_docs(tmp_path: Path) -> None:
+    store = SQLiteDocStore(str(tmp_path / "docs.sqlite3"))
+    store.upsert(
+        Document(
+            id="plot_legacy",
+            kind="plot",
+            ts=1.0,
+            body={"runtime_schema_version": "aurora-runtime-v3"},
+        )
+    )
+    for index in range(6):
+        store.upsert(
+            Document(
+                id=f"plot_new_{index}",
+                kind="plot",
+                ts=100.0 + index,
+                body={"runtime_schema_version": "aurora-runtime-v4"},
+            )
+        )
+    store.close()
+
+    with pytest.raises(ConfigurationError):
+        AuroraRuntime(
+            settings=AuroraSettings(
+                data_dir=str(tmp_path),
+                embedding_provider="hash",
+                axis_embedding_provider="hash",
+                meaning_provider="heuristic",
+                narrative_provider="heuristic",
             )
         )

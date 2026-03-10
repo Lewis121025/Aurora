@@ -120,6 +120,74 @@ class MockLLM(LLMProvider):
             }
             return schema.model_validate(data)
 
+        if name == "PersonaAxisPayload":
+            data = {
+                "axes": [
+                    {
+                        "name": "curious",
+                        "positive_pole": "curious",
+                        "negative_pole": "closed",
+                        "description": "Interested in exploring new ideas",
+                        "positive_examples": ["curious", "explore"],
+                        "negative_examples": ["closed"],
+                        "weight": 1.0,
+                    }
+                ]
+            }
+            return schema.model_validate(data)
+
+        if name == "MeaningFramePayloadV4":
+            data = {
+                "axis_evidence": {},
+                "valence": 0.0,
+                "arousal": 0.2,
+                "care": 0.0,
+                "threat": 0.0,
+                "control": 0.0,
+                "abandonment": 0.0,
+                "agency_signal": 0.0,
+                "shame": 0.0,
+                "novelty": 0.2,
+                "self_relevance": 0.5,
+                "tags": ["neutral"],
+            }
+            return schema.model_validate(data)
+
+        if name == "NarrativeSummaryPayloadV4":
+            data = {
+                "text": "Aurora is holding a provisional mode while integrating recent signals.",
+                "current_mode": "origin",
+                "salient_axes": ["coherence", "regulation"],
+            }
+            return schema.model_validate(data)
+
+        if name == "RepairNarrationPayloadV4":
+            data = {
+                "text": "She reorders the shock into a shape she can keep living with.",
+                "mode": "integrate",
+            }
+            return schema.model_validate(data)
+
+        if name == "DreamNarrationPayloadV4":
+            data = {
+                "text": "In the dream, unfinished fragments keep circling until they start to explain one another.",
+                "operator": "blend",
+            }
+            return schema.model_validate(data)
+
+        if name == "ModeLabelPayloadV4":
+            data = {"label": "origin"}
+            return schema.model_validate(data)
+
+        if name == "AxisMergeJudgementPayload":
+            data = {
+                "should_merge": False,
+                "canonical_name": "",
+                "alias_name": "",
+                "rationale": "",
+            }
+            return schema.model_validate(data)
+
         if name == "StoryUpdate":
             data = {
                 "title": "Untitled Story",

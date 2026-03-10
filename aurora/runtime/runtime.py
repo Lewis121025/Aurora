@@ -17,7 +17,8 @@ from aurora.runtime.bootstrap import (
     check_embedding_api_keys,
     create_embedding_provider,
     create_llm_provider,
-    create_meaning_extractor,
+    create_meaning_provider,
+    create_narrative_provider,
     create_memory,
 )
 from aurora.runtime.response_context import ResponseContextBuilder
@@ -34,7 +35,7 @@ from aurora.soul.engine import AuroraSoul
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_SCHEMA_VERSION = "aurora-runtime-v3"
+RUNTIME_SCHEMA_VERSION = "aurora-runtime-v4"
 
 
 class AuroraRuntime:
@@ -54,44 +55,58 @@ class AuroraRuntime:
         self.mem = self._load_or_init()
         self.response_contexts = ResponseContextBuilder(memory=self.mem)
 
-        self._ensure_v3_doc_store()
+        self._ensure_v4_doc_store()
         self._replay()
 
     def _load_or_init(self) -> AuroraSoul:
         try:
             latest = self.snapshots.latest()
         except ValueError as exc:
-            raise ConfigurationError(str(exc).replace("V2", "Aurora Soul V3")) from exc
+            raise ConfigurationError(str(exc).replace("V2", "Aurora Soul V4")) from exc
         if latest is not None:
             _seq, snap = latest
             self.last_seq = snap.last_seq
-            embedder = create_embedding_provider(self.settings)
-            extractor = create_meaning_extractor(settings=self.settings, llm=self.llm)
+            event_embedder = create_embedding_provider(self.settings)
+            axis_embedder = create_embedding_provider(
+                self.settings,
+                provider_override=self.settings.axis_embedding_provider or self.settings.embedding_provider,
+            )
+            meaning_provider = create_meaning_provider(settings=self.settings, llm=self.llm)
+            narrator = create_narrative_provider(settings=self.settings, llm=self.llm)
             try:
-                return AuroraSoul.from_state_dict(snap.state, embedder=embedder, extractor=extractor)
+                return AuroraSoul.from_state_dict(
+                    snap.state,
+                    event_embedder=event_embedder,
+                    axis_embedder=axis_embedder,
+                    meaning_provider=meaning_provider,
+                    narrator=narrator,
+                )
             except ValueError as exc:
                 raise ConfigurationError(str(exc)) from exc
         return create_memory(settings=self.settings, llm=self.llm)
 
-    def _ensure_v3_doc_store(self) -> None:
+    def _ensure_v4_doc_store(self) -> None:
         for kind in ("plot", "ingest_result"):
-            for doc in self.doc_store.iter_kind(kind=kind, limit=5):
-                if doc.body.get("runtime_schema_version") != RUNTIME_SCHEMA_VERSION:
-                    raise ConfigurationError(
-                        "Detected legacy documents in docs.sqlite3. Aurora Soul requires a fresh data directory."
-                    )
+            if self.doc_store.has_body_field_mismatch(
+                kind=kind,
+                field="runtime_schema_version",
+                expected=RUNTIME_SCHEMA_VERSION,
+            ):
+                raise ConfigurationError(
+                    "Detected legacy v3 documents in docs.sqlite3. Aurora Soul v4 requires a fresh data directory."
+                )
 
-    def _ensure_v3_event_payload(self, payload: Dict[str, Any]) -> None:
+    def _ensure_v4_event_payload(self, payload: Dict[str, Any]) -> None:
         if payload.get("runtime_schema_version") != RUNTIME_SCHEMA_VERSION:
             raise ConfigurationError(
-                "Detected legacy event payloads. Aurora Soul requires a fresh data directory."
+                "Detected legacy v3 event payloads. Aurora Soul v4 requires a fresh data directory."
             )
 
     def _replay(self) -> None:
         for seq, event in self.event_log.iter_events(after_seq=self.last_seq):
             if event.type != "interaction":
                 continue
-            self._ensure_v3_event_payload(event.payload)
+            self._ensure_v4_event_payload(event.payload)
             self._apply_interaction(
                 event_id=event.id,
                 user_message=str(event.payload.get("user_message", "")),
@@ -194,7 +209,7 @@ class AuroraRuntime:
             event_id=event_id,
             plot_id=plot.id,
             story_id=plot.story_id,
-            phase=self.mem.identity.phase,
+            mode=self.mem.identity.current_mode_label,
             source=plot.source,
             tension=float(plot.tension),
             contradiction=float(plot.contradiction),
@@ -217,7 +232,7 @@ class AuroraRuntime:
                     "story_id": plot.story_id,
                     "text": plot.text,
                     "source": plot.source,
-                    "phase": self.mem.identity.phase,
+                    "mode": self.mem.identity.current_mode_label,
                     "tags": list(plot.frame.tags),
                     "tension": float(plot.tension),
                     "contradiction": float(plot.contradiction),
@@ -234,7 +249,7 @@ class AuroraRuntime:
                     "event_id": result.event_id,
                     "plot_id": result.plot_id,
                     "story_id": result.story_id,
-                    "phase": result.phase,
+                    "mode": result.mode,
                     "source": result.source,
                     "tension": result.tension,
                     "contradiction": result.contradiction,
@@ -255,7 +270,7 @@ class AuroraRuntime:
                 event_id=event_id,
                 plot_id="",
                 story_id=None,
-                phase=self.mem.identity.phase,
+                mode=self.mem.identity.current_mode_label,
                 source="wake",
                 tension=0.0,
                 contradiction=0.0,
@@ -267,7 +282,7 @@ class AuroraRuntime:
             event_id=event_id,
             plot_id=str(body.get("plot_id", "")),
             story_id=body.get("story_id"),
-            phase=str(body.get("phase", self.mem.identity.phase)),
+            mode=str(body.get("mode", self.mem.identity.current_mode_label)),
             source=str(body.get("source", "wake")),
             tension=float(body.get("tension", 0.0)),
             contradiction=float(body.get("contradiction", 0.0)),
@@ -362,7 +377,7 @@ class AuroraRuntime:
         if memory_context.narrative_summary is not None:
             return (
                 "这轮语言模型调用失败了。"
-                f"我现在只稳稳抓住了一个内部状态：{memory_context.narrative_summary.core_statement}"
+                f"我现在还能稳住的内部状态是：{memory_context.narrative_summary.current_mode}。"
             )
         return (
             "这轮语言模型调用失败了，而且当前没有足够稳定的 soul-memory 线索来回答。"
@@ -420,7 +435,7 @@ class AuroraRuntime:
                 "plot_count": len(self.mem.plots),
                 "story_count": len(self.mem.stories),
                 "theme_count": len(self.mem.themes),
-                "phase": self.mem.identity.phase,
+                "current_mode": self.mem.identity.current_mode_label,
                 "pressure": self.mem.identity.narrative_pressure(),
                 "dream_count": self.mem.identity.dream_count,
                 "repair_count": self.mem.identity.repair_count,

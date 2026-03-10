@@ -60,8 +60,9 @@ def _cmd_respond(args: argparse.Namespace) -> None:
             {
                 "reply": result.reply,
                 "event_id": result.event_id,
-                "phase": result.memory_context.phase,
+                "mode": result.memory_context.mode,
                 "intuition": result.memory_context.intuition,
+                "salient_axes": result.memory_context.narrative_summary.salient_axes,
                 "retrieval_hits": result.memory_context.retrieval_hits,
                 "timings": result.timings.__dict__,
             },
@@ -86,9 +87,10 @@ def _cmd_identity(args: argparse.Namespace) -> None:
     print(
         json.dumps(
             {
-                "phase": report["identity"]["phase"],
+                "current_mode": report["identity"]["current_mode"],
                 "pressure": report["narrative_summary"]["pressure"],
-                "core_statement": report["narrative_summary"]["core_statement"],
+                "summary": report["narrative_summary"]["text"],
+                "salient_axes": report["narrative_summary"]["salient_axes"],
                 "narrative_tail": report["identity"]["narrative_tail"],
             },
             ensure_ascii=False,
@@ -150,7 +152,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     respond_p.add_argument("-k", type=int, default=6)
     respond_p.add_argument("--ts", type=float)
 
-    evolve_p = sub.add_parser("evolve", help="触发梦整合/相位演化")
+    evolve_p = sub.add_parser("evolve", help="触发梦整合/模式演化")
     evolve_p.add_argument("--dreams", type=int, default=2)
 
     identity_p = sub.add_parser("identity", help="查看当前身份快照")

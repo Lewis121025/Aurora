@@ -210,3 +210,71 @@ class CoherenceCheck(BaseModel):
     # 在不同条件下两者都能成立吗？
     contextually_compatible: bool = True
     compatibility_conditions: str = ""
+
+
+# -----------------------------------------------------------------------------
+# Generative Soul v4 Schema
+# -----------------------------------------------------------------------------
+
+
+class PersonaAxisSpec(BaseModel):
+    name: str
+    positive_pole: str
+    negative_pole: str
+    description: str = ""
+    positive_examples: List[str] = Field(default_factory=list)
+    negative_examples: List[str] = Field(default_factory=list)
+    weight: float = Field(default=1.0, ge=0.1, le=3.0)
+
+
+class PersonaAxisPayload(BaseModel):
+    schema_version: str = SCHEMA_VERSION
+    axes: List[PersonaAxisSpec] = Field(default_factory=list)
+
+
+class MeaningFramePayloadV4(BaseModel):
+    schema_version: str = SCHEMA_VERSION
+    axis_evidence: Dict[str, float] = Field(default_factory=dict)
+    valence: float = Field(default=0.0, ge=-1.0, le=1.0)
+    arousal: float = Field(default=0.0, ge=0.0, le=1.0)
+    care: float = Field(default=0.0, ge=0.0, le=1.0)
+    threat: float = Field(default=0.0, ge=0.0, le=1.0)
+    control: float = Field(default=0.0, ge=0.0, le=1.0)
+    abandonment: float = Field(default=0.0, ge=0.0, le=1.0)
+    agency_signal: float = Field(default=0.0, ge=0.0, le=1.0)
+    shame: float = Field(default=0.0, ge=0.0, le=1.0)
+    novelty: float = Field(default=0.0, ge=0.0, le=1.0)
+    self_relevance: float = Field(default=0.5, ge=0.0, le=1.0)
+    tags: List[str] = Field(default_factory=list)
+
+
+class NarrativeSummaryPayloadV4(BaseModel):
+    schema_version: str = SCHEMA_VERSION
+    text: str = ""
+    current_mode: str = "origin"
+    salient_axes: List[str] = Field(default_factory=list)
+
+
+class RepairNarrationPayloadV4(BaseModel):
+    schema_version: str = SCHEMA_VERSION
+    text: str = ""
+    mode: Literal["preserve", "reframe", "revise", "differentiate", "integrate"] = "integrate"
+
+
+class DreamNarrationPayloadV4(BaseModel):
+    schema_version: str = SCHEMA_VERSION
+    text: str = ""
+    operator: Literal["counterfactual", "integration", "fear_rehearsal", "wish_rehearsal", "blend"] = "blend"
+
+
+class ModeLabelPayloadV4(BaseModel):
+    schema_version: str = SCHEMA_VERSION
+    label: str = "origin"
+
+
+class AxisMergeJudgementPayload(BaseModel):
+    schema_version: str = SCHEMA_VERSION
+    should_merge: bool = False
+    canonical_name: str = ""
+    alias_name: str = ""
+    rationale: str = ""

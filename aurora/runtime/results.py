@@ -11,8 +11,8 @@ class IngestResult:
     event_id: str
     plot_id: str
     story_id: Optional[str]
-    phase: str
-    source: Literal["wake", "dream", "repair", "phase"]
+    mode: str
+    source: Literal["wake", "dream", "repair", "mode"]
     tension: float
     contradiction: float
     active_energy: float
@@ -58,7 +58,7 @@ class RetrievalTraceSummary:
 
 @dataclass(frozen=True)
 class StructuredMemoryContext:
-    phase: str
+    mode: str
     narrative_pressure: float
     intuition: List[str] = field(default_factory=list)
     identity: Optional[IdentitySnapshot] = None
