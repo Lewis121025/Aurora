@@ -1,5 +1,8 @@
 # 配置常量模块化重组 - 完成报告
 
+> [!WARNING]
+> 归档说明：本文档为历史迁移记录，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
+
 **日期：** 2026-03-08
 **状态：** ✅ 已完成
 

@@ -1,7 +1,7 @@
 # AURORA LongMemEval Baseline Report
 
 > [!WARNING]
-> 本文档在 Aurora Soul canonical migration 之后已过时。当前生产主线请以 `aurora.soul.AuroraSoul` 和 `aurora.runtime` 为准。
+> 归档说明：本文档为历史评测记录，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
 
 **Date:** 2026-02-01  
 **Dataset:** LongMemEval Oracle (500 questions)  

@@ -1,5 +1,8 @@
 # 代码质量提升进度报告
 
+> [!WARNING]
+> 归档说明：本文档为阶段性进度记录，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
+
 **日期：** 2026-03-08
 **阶段：** 1（类型安全）+ 3（复杂度重构）
 

@@ -1,7 +1,7 @@
 # VOI 门控导致信息丢失问题
 
 > [!WARNING]
-> 本文档在 Aurora Soul canonical migration 之后已过时。文中的旧类名和结构仅保留为历史分析材料。
+> 归档说明：本文档为历史复盘材料，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
 
 ## 问题背景
 

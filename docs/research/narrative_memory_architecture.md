@@ -1,5 +1,8 @@
 # 叙事涌现记忆系统（Narrative Emergent Memory System）
 
+> [!WARNING]
+> 归档说明：本文档为历史设计材料，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
+
 **——让AI学会给自己讲故事**
 
 ---

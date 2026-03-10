@@ -1,7 +1,7 @@
 # AURORA 叙事记忆：生产级拼图补全包（可插拔 / 可观测 / 可回放）
 
 > [!WARNING]
-> 本文档在 Aurora Soul canonical migration 之后已过时。当前生产主线请以 `aurora.soul.AuroraSoul` 和 `aurora.runtime` 为准，文中的旧类名仅供历史参考。
+> 归档说明：本文档为历史研究材料，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
 
 > 你之前要的“从第一性原理出发、不要被原文档束缚”的算法核心，我已经用 `AURORA_memory_algorithm.md` 给出了可运行实现（Thompson gate + CRP + attractor retrieval + Beta edge + learnable metric）。  
 > 这份文档与代码仓库则专注于你说的“**补齐生产级拼图**”：把算法从“能跑”推进到“能上线、能回放、能演进、能排障”。  

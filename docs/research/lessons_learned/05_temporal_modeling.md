@@ -1,5 +1,8 @@
 # 时间建模问题
 
+> [!WARNING]
+> 归档说明：本文档为历史复盘材料，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
+
 ## 问题背景
 
 temporal-reasoning 准确率只有 40%，是主要瓶颈之一。

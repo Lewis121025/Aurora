@@ -1,5 +1,8 @@
 # 进度追踪
 
+> [!WARNING]
+> 归档说明：本文档为历史复盘材料，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
+
 ## 项目目标
 
 **目标**: LongMemEval (ICLR 2025) 90%+ 准确率，超越 SOTA (86%)

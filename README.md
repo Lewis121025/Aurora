@@ -252,9 +252,11 @@ pytest tests -q
 
 ## 文档
 
+- 文档总览见 [docs/README.md](docs/README.md)
 - 研究文档在 [docs/research](docs/research)
 - 架构决策在 [docs/adr](docs/adr)
 - 迁移与质量记录在 [docs/migrations](docs/migrations) 和 [docs/quality](docs/quality)
+- 旧研究/迁移文档已统一标注为“归档说明”，仅保留作历史参考
 
 ## 许可证
 

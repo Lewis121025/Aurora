@@ -1,5 +1,8 @@
 # LongMemEval SOTA 差距分析与夺冠策略
 
+> [!WARNING]
+> 归档说明：本文档为历史研究材料，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
+
 > 基于第一性原理的深度分析 | 2026-02-01
 
 ## 1. 数据集核心特征

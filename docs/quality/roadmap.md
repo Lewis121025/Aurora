@@ -1,5 +1,8 @@
 # AURORA 代码质量提升路线图
 
+> [!WARNING]
+> 归档说明：本文档为历史规划材料，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
+
 **目标：** 从当前 8/10 提升至 10/10
 
 **时间估算：** 4-6 周（取决于投入程度）

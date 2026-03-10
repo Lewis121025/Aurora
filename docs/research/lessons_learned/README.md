@@ -1,5 +1,8 @@
 # AURORA LongMemEval 夺冠项目 - 经验教训记录
 
+> [!WARNING]
+> 归档说明：本文档及本目录下分篇均为历史复盘材料，仅保留作参考，不再代表当前生产实现。当前 canonical 入口请以 `README.md`、`docs/README.md`、`docs/adr/002-graph-first-emergence.md`、`docs/research/benchmark_guide.md` 和 `aurora.soul` / `aurora.runtime` 代码为准。
+
 > 记录项目过程中遇到的关键问题、根本原因分析和解决方案
 
 ## 目录结构
