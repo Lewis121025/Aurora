@@ -1,3 +1,10 @@
+"""
+aurora/integrations/llm/Prompt/metrics_prompt.py
+指标评估提示词模块。
+用于对内存系统的响应质量进行量化打分（0-10分），考虑事实正确性、信息完整性和相关性。
+"""
+
+# 指标评估打分提示词模板
 METRICS_LLM_JUDGE_PROMPT = """你正在评估内存系统响应的质量。
 
 查询: {query}

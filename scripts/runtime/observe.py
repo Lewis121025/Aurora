@@ -16,5 +16,4 @@ if __name__ == "__main__":
         data_dir=args.data_dir,
         session_id=args.session_id,
         max_hits=args.max_hits,
-        observe_mode=args.observe,
     )

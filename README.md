@@ -29,7 +29,6 @@ aurora/
 ├── integrations/   # embeddings / llm / storage
 ├── lab/            # 研究能力，不走默认主链
 ├── benchmarks/     # 基准测试与适配器
-├── privacy/        # PII 处理
 ├── system/         # errors / version
 └── utils/          # 通用小工具
 ```
@@ -89,8 +88,7 @@ from aurora.runtime.settings import AuroraSettings
 
 runtime = AuroraRuntime(
     settings=AuroraSettings(
-        data_dir="./data",
-        llm_provider="mock",
+        data_dir=".aurora",
         embedding_provider="hash",
         axis_embedding_provider="hash",
         meaning_provider="heuristic",
@@ -107,12 +105,6 @@ runtime.ingest_interaction(
 
 query = runtime.query(text="用户偏好什么样的记忆系统", k=5)
 print(query.hits[0].snippet if query.hits else "no hits")
-
-turn = runtime.respond(
-    session_id="chat_main",
-    user_message="你记得我偏好什么样的记忆系统吗？",
-)
-print(turn.reply)
 ```
 
 ### 2. 使用真实模型
@@ -120,7 +112,7 @@ print(turn.reply)
 默认配置文件来自 `.env`，前缀是 `AURORA_`。常见生产配置可以这样写：
 
 ```dotenv
-AURORA_DATA_DIR=./data
+AURORA_DATA_DIR=.aurora
 
 AURORA_LLM_PROVIDER=bailian
 AURORA_EMBEDDING_PROVIDER=bailian
@@ -139,7 +131,7 @@ AURORA_BAILIAN_EMBEDDING_MODEL=text-embedding-v4
 
 安装后入口命令是 `aurora`。
 
-直接进入终端对话/观测模式：
+直接进入全屏终端对话模式。默认布局是左侧对话、右侧状态与 prompt 遥测：
 
 ```bash
 aurora
@@ -155,10 +147,10 @@ aurora evolve --dreams 2
 aurora identity
 aurora stats
 aurora serve --port 8000
-aurora observe --observe full
+aurora observe --max-hits 8
 ```
 
-终端观测器内常用命令：
+终端内常用命令：
 
 - `/identity`
 - `/stats`
@@ -169,14 +161,13 @@ aurora observe --observe full
 - `/plots [n]`
 - `/stories [n]`
 - `/themes [n]`
-- `/brief`
-- `/full`
+- `/clear`
 - `/quit`
 
 也可以直接运行脚本入口：
 
 ```bash
-python scripts/runtime/observe.py --observe full
+python scripts/runtime/observe.py --max-hits 8
 ```
 
 ## HTTP API

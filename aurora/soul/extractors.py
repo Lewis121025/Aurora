@@ -1,3 +1,9 @@
+"""
+aurora/soul/extractors.py
+本模块定义了从文本中提取心理含义（Meaning）以及生成叙事文本（Narrative）的各种提供。
+它实现了动态灵魂模型，将文本转换为多维度的心理证据。
+"""
+
 from __future__ import annotations
 
 import random
@@ -5,6 +11,7 @@ from typing import Any, Dict, List, Optional, Protocol, Sequence
 
 import numpy as np
 
+# 导入 LLM 提示词和模式
 from aurora.integrations.llm.Prompt.generative_soul_prompt import (
     GEN_SOUL_AXIS_MERGE_SYSTEM_PROMPT,
     GEN_SOUL_DREAM_SYSTEM_PROMPT,
@@ -49,6 +56,7 @@ from aurora.soul.models import (
 
 
 class MeaningProvider(Protocol):
+    """意义提取器接口协议，定义了从文本中提取 EventFrame 的标准方法"""
     def extract(
         self,
         text: str,
@@ -56,19 +64,27 @@ class MeaningProvider(Protocol):
         schema: PsychologicalSchema,
         recent_tags: Optional[Sequence[str]] = None,
     ) -> EventFrame:
+        """从给定文本中提取心理语义框架"""
         ...
 
     def extract_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
+        """从一段描述性文本中自动发现并提取人设维度（Axis）"""
+        ...
+
+    def bootstrap_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
+        """启动阶段使用的快速 persona-axis 提取，不应依赖远程请求"""
         ...
 
 
 class NarrativeProvider(Protocol):
+    """叙事生成器接口协议，定义了生成自我总结、修复描述和梦境描述的标准方法"""
     def compose_summary(
         self,
         state: IdentityState,
         schema: PsychologicalSchema,
         recent_texts: Sequence[str],
     ) -> NarrativeSummary:
+        """生成当前身份状态的总结性叙事"""
         ...
 
     def compose_repair(
@@ -81,6 +97,7 @@ class NarrativeProvider(Protocol):
         plot_text: str,
         schema: PsychologicalSchema,
     ) -> str:
+        """为身份修复（Identity Repair）过程生成叙事解释"""
         ...
 
     def compose_dream(
@@ -90,6 +107,7 @@ class NarrativeProvider(Protocol):
         state: IdentityState,
         schema: PsychologicalSchema,
     ) -> str:
+        """生成梦境（Dream）的描述文本"""
         ...
 
     def label_mode(
@@ -98,6 +116,16 @@ class NarrativeProvider(Protocol):
         schema: PsychologicalSchema,
         support: int,
     ) -> str:
+        """为涌现出的身份模式（Identity Mode）生成可理解的标签"""
+        ...
+
+    def bootstrap_mode_label(
+        self,
+        prototype_axes: Dict[str, float],
+        schema: PsychologicalSchema,
+        support: int,
+    ) -> str:
+        """启动阶段使用的快速 mode 命名，不应依赖远程请求"""
         ...
 
     def judge_axis_merge(
@@ -106,10 +134,13 @@ class NarrativeProvider(Protocol):
         alias: AxisSpec,
         evidence_overlap: Sequence[str],
     ) -> tuple[bool, str]:
+        """判断两个心理轴是否应当合并（用于 Schema 演化）"""
         ...
 
 
 class HeuristicMeaningProvider:
+    """基于规则和词库的启发式意义提取器，通常作为 LLM 方案的快速回退（Fallback）"""
+    # 预定义的认知词库，用于快速判断基础倾向
     CARE_WORDS = {
         "care", "support", "listen", "comfort", "hug", "gentle", "warm",
         "陪", "安慰", "理解", "照顾", "拥抱", "温柔", "支持", "倾听",
@@ -138,7 +169,11 @@ class HeuristicMeaningProvider:
     }
 
     def extract_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
+        """基于简单规则的人设维度提取"""
         return heuristic_persona_axes(profile_text)
+
+    def bootstrap_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
+        return self.extract_persona_axes(profile_text)
 
     def extract(
         self,
@@ -147,14 +182,22 @@ class HeuristicMeaningProvider:
         schema: PsychologicalSchema,
         recent_tags: Optional[Sequence[str]] = None,
     ) -> EventFrame:
+        """
+        启发式提取过程：
+        1. 利用向量投影计算各轴得分。
+        2. 基于词库匹配计算基础心理倾向（如 care, threat）。
+        3. 综合计算效价（Valence）和唤醒度（Arousal）。
+        """
         text_lower = text.lower()
         tokens = set(tokenize_loose(text))
 
+        # 核心：计算新输入在现有每一个心理轴上的投影得分
         axis_evidence = {
             name: axis.score(embedding, text)
             for name, axis in schema.all_axes().items()
         }
 
+        # 计算各个基础维度的命中得分
         care = self._lex_score(text_lower, tokens, self.CARE_WORDS)
         threat = self._lex_score(text_lower, tokens, self.THREAT_WORDS)
         shame = self._lex_score(text_lower, tokens, self.SHAME_WORDS)
@@ -164,6 +207,7 @@ class HeuristicMeaningProvider:
         pos = self._lex_score(text_lower, tokens, self.POSITIVE_WORDS)
         neg = self._lex_score(text_lower, tokens, self.NEGATIVE_WORDS)
 
+        # 归一化计算
         valence = clamp(pos - neg)
         arousal = clamp01(0.25 + 0.45 * threat + 0.20 * shame + 0.15 * agency_signal + 0.15 * neg)
         self_relevance = 0.40
@@ -173,6 +217,7 @@ class HeuristicMeaningProvider:
             self_relevance += 0.12
         self_relevance = clamp01(self_relevance)
 
+        # 自动生成语义标签
         tags = self._make_tags(
             text=text,
             axis_evidence=axis_evidence,
@@ -184,6 +229,7 @@ class HeuristicMeaningProvider:
             abandonment=abandonment,
             recent_tags=recent_tags,
         )
+        # 计算新颖度（基于轴激活数量）
         novelty = clamp01(
             0.12
             + 0.55 * len([name for name, value in axis_evidence.items() if abs(value) > 0.25]) / max(len(axis_evidence), 1)
@@ -207,6 +253,7 @@ class HeuristicMeaningProvider:
 
     @staticmethod
     def _lex_score(text: str, tokens: set[str], lexicon: set[str]) -> float:
+        """计算词库命中得分"""
         hits = 0
         for word in lexicon:
             if word in text or word.lower() in tokens:
@@ -228,7 +275,9 @@ class HeuristicMeaningProvider:
         abandonment: float,
         recent_tags: Optional[Sequence[str]],
     ) -> List[str]:
+        """基于激活度和匹配词生成语义标签"""
         tags: List[str] = []
+        # 将得分最高的前三个轴加入标签
         for name, value in sorted(axis_evidence.items(), key=lambda item: abs(item[1]), reverse=True)[:3]:
             if abs(value) > 0.18:
                 tags.append(name)
@@ -246,9 +295,11 @@ class HeuristicMeaningProvider:
         if abandonment > 0.2:
             tags.append("abandonment")
 
+        # 加入简单的分词结果作为内容标签
         for token in tokenize_loose(text)[:4]:
             if token not in tags:
                 tags.append(token)
+        # 回声标签（用于模拟注意力延续）
         for recent_tag in recent_tags or []:
             if recent_tag in tags:
                 tags.append(f"echo:{recent_tag}")
@@ -256,6 +307,7 @@ class HeuristicMeaningProvider:
 
 
 class LLMMeaningProvider:
+    """基于大模型的意义提取器，能进行复杂的语义理解和定向轴评分"""
     def __init__(
         self,
         llm: LLMProvider,
@@ -270,6 +322,7 @@ class LLMMeaningProvider:
         self._max_retries = max_retries
 
     def extract_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
+        """利用 LLM 智能发现人设维度"""
         if not profile_text.strip():
             return []
         try:
@@ -286,6 +339,9 @@ class LLMMeaningProvider:
             return self._fallback.extract_persona_axes(profile_text)
         return [axis.model_dump() for axis in payload.axes]
 
+    def bootstrap_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
+        return self._fallback.extract_persona_axes(profile_text)
+
     def extract(
         self,
         text: str,
@@ -293,6 +349,7 @@ class LLMMeaningProvider:
         schema: PsychologicalSchema,
         recent_tags: Optional[Sequence[str]] = None,
     ) -> EventFrame:
+        """深度语义提取：将文本映射到指定的动态 Schema 轴上"""
         try:
             payload = self._llm.complete_json(
                 system=GEN_SOUL_MEANING_SYSTEM_PROMPT,
@@ -310,6 +367,7 @@ class LLMMeaningProvider:
         except Exception:
             return self._fallback.extract(text, embedding, schema, recent_tags=recent_tags)
 
+        # 整理轴得分，确保符合当前的 Schema
         axis_evidence = {
             schema.canonical_axis_name(key): clamp(float(value))
             for key, value in payload.axis_evidence.items()
@@ -335,6 +393,8 @@ class LLMMeaningProvider:
 
 
 class CombinatorialNarrativeProvider:
+    """基于规则组合的叙事生成器，作为 LLM 的快速回退方案"""
+    # 预定义的文学开场白和叙事短语
     OPENINGS = [
         "She tries to make the event legible to herself.",
         "She does not deny the feeling, but reorders its meaning.",
@@ -353,6 +413,7 @@ class CombinatorialNarrativeProvider:
         schema: PsychologicalSchema,
         recent_texts: Sequence[str],
     ) -> NarrativeSummary:
+        """生成身份摘要"""
         salient_axes = [name for name, _ in sorted(state.axis_state.items(), key=lambda item: abs(item[1]), reverse=True)[:4]]
         axes_text = top_axes_description(state.axis_state, schema, topn=4)
         recent_hint = ""
@@ -383,6 +444,7 @@ class CombinatorialNarrativeProvider:
         plot_text: str,
         schema: PsychologicalSchema,
     ) -> str:
+        """生成修复性叙事描述"""
         opening = random.choice(self.OPENINGS)
         axis_text = axes_to_phrase(salient_axes, schema)
         if mode == "preserve":
@@ -405,6 +467,7 @@ class CombinatorialNarrativeProvider:
         state: IdentityState,
         schema: PsychologicalSchema,
     ) -> str:
+        """生成梦境叙事描述"""
         opener = random.choice(self.DREAM_OPENERS)
         tags = ", ".join(fragment_tags[:4]) or "unfinished feelings"
         if operator == "counterfactual":
@@ -425,6 +488,7 @@ class CombinatorialNarrativeProvider:
         schema: PsychologicalSchema,
         support: int,
     ) -> str:
+        """为发现的模式生成人类可理解的标签"""
         items = sorted(prototype_axes.items(), key=lambda item: abs(item[1]), reverse=True)
         words: List[str] = []
         for name, value in items[:2]:
@@ -438,12 +502,21 @@ class CombinatorialNarrativeProvider:
             return f"{words[0]} mode"
         return f"{words[0]} / {words[1]} mode"
 
+    def bootstrap_mode_label(
+        self,
+        prototype_axes: Dict[str, float],
+        schema: PsychologicalSchema,
+        support: int,
+    ) -> str:
+        return self.label_mode(prototype_axes, schema, support)
+
     def judge_axis_merge(
         self,
         canonical: AxisSpec,
         alias: AxisSpec,
         evidence_overlap: Sequence[str],
     ) -> tuple[bool, str]:
+        """基于语义重合度判断轴是否应当合并"""
         shared = set(tokenize_loose(" ".join(evidence_overlap)))
         score = 0.0
         if canonical.positive_pole.lower() == alias.positive_pole.lower():
@@ -458,6 +531,7 @@ class CombinatorialNarrativeProvider:
 
 
 class LLMNarrativeProvider:
+    """基于大模型的叙事生成器，提供富有文学性和连贯性的描述"""
     def __init__(
         self,
         llm: LLMProvider,
@@ -477,6 +551,7 @@ class LLMNarrativeProvider:
         schema: PsychologicalSchema,
         recent_texts: Sequence[str],
     ) -> NarrativeSummary:
+        """生成带有深度解读的自我摘要"""
         fallback = self._fallback.compose_summary(state, schema, recent_texts)
         try:
             payload = self._llm.complete_json(
@@ -512,6 +587,7 @@ class LLMNarrativeProvider:
         plot_text: str,
         schema: PsychologicalSchema,
     ) -> str:
+        """生成深度的身份修复解释文案"""
         fallback = self._fallback.compose_repair(
             mode,
             state_before,
@@ -547,6 +623,7 @@ class LLMNarrativeProvider:
         state: IdentityState,
         schema: PsychologicalSchema,
     ) -> str:
+        """生成充满意象的梦境文本"""
         fallback = self._fallback.compose_dream(operator, fragment_tags, state, schema)
         try:
             payload = self._llm.complete_json(
@@ -568,6 +645,7 @@ class LLMNarrativeProvider:
         schema: PsychologicalSchema,
         support: int,
     ) -> str:
+        """利用 LLM 为身份模式生成地道的文学化标签"""
         fallback = self._fallback.label_mode(prototype_axes, schema, support)
         try:
             payload = self._llm.complete_json(
@@ -583,12 +661,21 @@ class LLMNarrativeProvider:
             return fallback
         return payload.label or fallback
 
+    def bootstrap_mode_label(
+        self,
+        prototype_axes: Dict[str, float],
+        schema: PsychologicalSchema,
+        support: int,
+    ) -> str:
+        return self._fallback.label_mode(prototype_axes, schema, support)
+
     def judge_axis_merge(
         self,
         canonical: AxisSpec,
         alias: AxisSpec,
         evidence_overlap: Sequence[str],
     ) -> tuple[bool, str]:
+        """利用 LLM 智能判断两个心理轴是否应当合并"""
         fallback_merge, fallback_reason = self._fallback.judge_axis_merge(canonical, alias, evidence_overlap)
         try:
             payload = self._llm.complete_json(

@@ -25,7 +25,7 @@ from aurora.interfaces.api.schemas import (
     StructuredMemoryContext,
 )
 from aurora.runtime.runtime import AuroraRuntime
-from aurora.runtime.settings import AuroraSettings
+from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
 from aurora.system.version import __version__
 
 try:
@@ -38,7 +38,7 @@ app = FastAPI(title="Aurora Soul API", version=__version__)
 
 @lru_cache(maxsize=1)
 def get_runtime() -> AuroraRuntime:
-    settings = AuroraSettings(data_dir=os.environ.get("AURORA_DATA_DIR", "./data"))
+    settings = AuroraSettings(data_dir=os.environ.get("AURORA_DATA_DIR", DEFAULT_DATA_DIR))
     return AuroraRuntime(settings=settings)
 
 

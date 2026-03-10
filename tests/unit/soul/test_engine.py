@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import numpy as np
+
 from aurora.integrations.embeddings.hash import HashEmbedding
 from aurora.soul.engine import AuroraSoul, SoulConfig
 from aurora.soul.extractors import CombinatorialNarrativeProvider, HeuristicMeaningProvider
@@ -63,3 +65,41 @@ def test_soul_memory_feedback_and_evolve_keep_new_observables_available() -> Non
     assert isinstance(snapshot.axis_aliases, dict)
     assert isinstance(snapshot.modes, dict)
     assert snapshot.dream_count >= len(dreams)
+
+
+def test_restore_does_not_call_remote_bootstrap_hooks() -> None:
+    class BootstrapOnlyMeaning(HeuristicMeaningProvider):
+        def extract_persona_axes(self, profile_text: str):
+            raise AssertionError("restore should not invoke persona-axis extraction")
+
+        def bootstrap_persona_axes(self, profile_text: str):
+            return []
+
+    class BootstrapOnlyNarrator(CombinatorialNarrativeProvider):
+        def label_mode(self, prototype_axes, schema, support):
+            raise AssertionError("restore should not invoke mode labeling")
+
+        def bootstrap_mode_label(self, prototype_axes, schema, support):
+            return "origin"
+
+    embedder = HashEmbedding(dim=64, seed=19)
+    mem = AuroraSoul(
+        cfg=SoulConfig(dim=64, metric_rank=16, max_plots=128),
+        seed=19,
+        event_embedder=embedder,
+        axis_embedder=embedder,
+        meaning_provider=HeuristicMeaningProvider(),
+        narrator=CombinatorialNarrativeProvider(),
+    )
+    mem.ingest("你突然安静下来，让我有点不确定。", actors=("user", "agent"))
+
+    restored = AuroraSoul.from_state_dict(
+        mem.to_state_dict(),
+        event_embedder=embedder,
+        axis_embedder=embedder,
+        meaning_provider=BootstrapOnlyMeaning(),
+        narrator=BootstrapOnlyNarrator(),
+    )
+
+    assert restored.identity.current_mode_label == mem.identity.current_mode_label
+    assert np.linalg.norm(restored.identity.self_vector) >= 0.0

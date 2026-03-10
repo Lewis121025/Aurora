@@ -66,13 +66,13 @@ def _is_mock_embedder(embedder) -> bool:
 
 
 def _is_mock_llm(llm_provider) -> bool:
-    """检查 LLM 提供者是否为模拟（不用于生产基准测试）。
+    """检查 LLM 提供者是否为模拟/测试替身（不用于生产基准测试）。
 
     Args:
         llm_provider: LLM 提供者实例
 
     Returns:
-        如果提供者是 MockLLM 或类似的，返回 True
+        如果提供者是测试替身或类似实现，返回 True
     """
     if llm_provider is None:
         return True
@@ -100,7 +100,7 @@ def verify_benchmark_ready(
 
     检查:
     1. 嵌入模型不是模拟 (HashEmbedding)
-    2. LLM 提供者不是模拟 (MockLLM)
+    2. LLM 提供者不是测试替身或伪实现
 
     使用模拟模型将导致显著较低的基准分数
     这不反映实际系统性能。
@@ -136,7 +136,7 @@ def verify_benchmark_ready(
         is_ready = False
         embedder_name = type(embedder).__name__ if embedder else "None"
         warnings.append(
-            f"Embedding model is '{embedder_name}' (mock). "
+            f"Embedding model is '{embedder_name}' (non-production). "
             "Use a real embedding model (e.g., Bailian, Ark) for accurate benchmark results."
         )
     
@@ -145,7 +145,7 @@ def verify_benchmark_ready(
         is_ready = False
         llm_name = type(llm).__name__
         warnings.append(
-            f"LLM provider is '{llm_name}' (mock). "
+            f"LLM provider is '{llm_name}' (non-production). "
             "Use a real LLM provider for accurate benchmark results."
         )
     
@@ -157,47 +157,11 @@ def verify_benchmark_ready(
         for w in warnings:
             print(f"  • {w}")
         print("-" * 70)
-        print("  Mock models will result in significantly lower benchmark scores")
+        print("  Non-production models will result in significantly lower benchmark scores")
         print("  that do NOT reflect actual system performance!")
         print("=" * 70 + "\n")
     
     return is_ready, warnings
-
-
-def _print_mock_warning(
-    component: str,
-    component_name: str,
-    context: str = "benchmark evaluation",
-) -> None:
-    """打印关于模拟模型使用的突出警告。
-
-    Args:
-        component: 组件类型（"embedding" 或 "llm"）
-        component_name: 模拟类的名称
-        context: 显示警告的上下文
-    """
-    logger.warning(
-        f"⚠️ 检测到模拟 {component.upper()}: 在 {context} 中使用 '{component_name}'。"
-        f"这将导致显著较低的分数，不反映实际性能！"
-    )
-
-    # 也打印到控制台以提高可见性
-    print(f"\n{'='*70}")
-    print(f"⚠️  警告: 检测到模拟 {component.title()} 模型")
-    print(f"{'='*70}")
-    print(f"  组件: {component_name}")
-    print(f"  上下文: {context}")
-    print(f"")
-    print(f"  模拟模型产生伪随机或基于模式的输出")
-    print(f"  这将导致严重降低的基准分数。")
-    print(f"")
-    print(f"  为获得准确的结果，请配置:")
-    if component == "embedding":
-        print(f"    - Bailian: 设置 BAILIAN_API_KEY 和 EMBEDDING_PROVIDER=bailian")
-        print(f"    - Ark: 设置 ARK_API_KEY 和 EMBEDDING_PROVIDER=ark")
-    else:
-        print(f"    - Ark: 设置 ARK_API_KEY 和 LLM_PROVIDER=ark")
-    print(f"{'='*70}\n")
 
 
 # -----------------------------------------------------------------------------

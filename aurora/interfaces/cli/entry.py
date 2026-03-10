@@ -7,11 +7,11 @@ from typing import Optional, Sequence
 
 from aurora.interfaces.terminal.observer import run_observer
 from aurora.runtime.runtime import AuroraRuntime
-from aurora.runtime.settings import AuroraSettings
+from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
 
 
 def _get_runtime(data_dir: Optional[str] = None) -> AuroraRuntime:
-    settings = AuroraSettings(data_dir=data_dir or os.environ.get("AURORA_DATA_DIR", "./data"))
+    settings = AuroraSettings(data_dir=data_dir or os.environ.get("AURORA_DATA_DIR", DEFAULT_DATA_DIR))
     return AuroraRuntime(settings=settings)
 
 
@@ -110,7 +110,7 @@ def _cmd_serve(args: argparse.Namespace) -> None:
     except ImportError:
         print("错误: uvicorn未安装。使用以下命令安装: pip install -e '.[api]'")
         return
-    os.environ["AURORA_DATA_DIR"] = args.data_dir or "./data"
+    os.environ["AURORA_DATA_DIR"] = args.data_dir or DEFAULT_DATA_DIR
     uvicorn.run("aurora.interfaces.api.app:app", host=args.host, port=args.port, reload=args.reload)
 
 
@@ -119,14 +119,13 @@ def _cmd_observe(args: argparse.Namespace) -> None:
         data_dir=args.data_dir,
         session_id=args.session_id,
         max_hits=args.max_hits,
-        observe_mode=args.observe,
     )
 
 
 def main(argv: Optional[Sequence[str]] = None) -> None:
     parser = argparse.ArgumentParser(
         prog="aurora",
-        description="Aurora Soul CLI。无子命令时直接进入对话模式。",
+        description="Aurora Soul CLI。无子命令时直接进入全屏终端对话模式。",
     )
     parser.add_argument("--data-dir", type=str, help="Data directory")
     sub = parser.add_subparsers(dest="cmd")
@@ -165,15 +164,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     serve_p.add_argument("--port", type=int, default=8000)
     serve_p.add_argument("--reload", action="store_true")
 
-    observe_p = sub.add_parser("observe", help="启动终端对话/观测模式")
+    observe_p = sub.add_parser("observe", help="启动全屏终端对话模式")
     observe_p.add_argument("--session-id", default="terminal_observer")
     observe_p.add_argument("--max-hits", type=int, default=6)
-    observe_p.add_argument("--observe", choices=["chat", "brief", "full"], default="chat")
 
     args = parser.parse_args(argv)
 
     if args.cmd is None:
-        run_observer(data_dir=args.data_dir, session_id="terminal_observer", max_hits=6, observe_mode="chat")
+        run_observer(data_dir=args.data_dir, session_id="terminal_observer", max_hits=6)
         return
     if args.cmd == "ingest":
         _cmd_ingest(args)

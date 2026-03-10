@@ -1,3 +1,9 @@
+"""
+aurora/runtime/bootstrap.py
+启动引导模块：负责系统组件的初始化、配置加载以及依赖注入。
+它将 settings 中的配置项转换为具体的 Provider 实例（LLM, Embedding, Memory）。
+"""
+
 from __future__ import annotations
 
 import logging
@@ -5,7 +11,6 @@ import os
 from typing import Optional
 
 from aurora.integrations.embeddings.base import EmbeddingProvider
-from aurora.integrations.llm.mock import MockLLM
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.runtime.settings import AuroraSettings
 from aurora.soul.engine import AuroraSoul, SoulConfig
@@ -21,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 
 def check_embedding_api_keys() -> None:
+    """检查环境变量中是否存在远程 Embedding 服务的 API Key，若无则提示将使用本地模型。"""
     bailian_key = os.environ.get("AURORA_BAILIAN_EMBEDDING_API_KEY")
     ark_key = os.environ.get("AURORA_ARK_API_KEY")
     if bailian_key or ark_key:
@@ -30,7 +36,8 @@ def check_embedding_api_keys() -> None:
     )
 
 
-def create_llm_provider(settings: AuroraSettings) -> LLMProvider:
+def create_llm_provider(settings: AuroraSettings) -> Optional[LLMProvider]:
+    """根据 settings 创建并返回 LLM 提供者实例。"""
     if settings.llm_provider == "bailian":
         if not settings.bailian_llm_api_key:
             raise ConfigurationError("Bailian LLM provider selected but AURORA_BAILIAN_LLM_API_KEY is not set")
@@ -57,10 +64,11 @@ def create_llm_provider(settings: AuroraSettings) -> LLMProvider:
             timeout=settings.llm_timeout,
         )
 
-    return MockLLM()
+    return None
 
 
 def create_embedding_provider(settings: AuroraSettings, *, provider_override: Optional[str] = None) -> EmbeddingProvider:
+    """根据 settings 创建并返回 Embedding 提供者实例。支持缓存配置。"""
     provider = provider_override or settings.embedding_provider
     if provider == "bailian":
         if not settings.bailian_embedding_api_key:
@@ -89,16 +97,17 @@ def create_embedding_provider(settings: AuroraSettings, *, provider_override: Op
         )
 
     if provider == "hash":
+        # 基于分词和哈希的简易 Embedding，无需外部 API。
         from aurora.integrations.embeddings.hash import HashEmbedding
-
         return HashEmbedding(dim=settings.dim)
 
     from aurora.integrations.embeddings.local_semantic import LocalSemanticEmbedding
-
+    # 默认使用本地语义 Embedding。
     return LocalSemanticEmbedding(dim=settings.dim)
 
 
 def build_memory_config(settings: AuroraSettings) -> SoulConfig:
+    """将 AuroraSettings 转换为 soul 引擎专用的 SoulConfig 对象。"""
     return SoulConfig(
         dim=settings.dim,
         metric_rank=settings.metric_rank,
@@ -121,40 +130,51 @@ def build_memory_config(settings: AuroraSettings) -> SoulConfig:
 
 
 def create_meaning_provider(*, settings: AuroraSettings, llm: Optional[LLMProvider]):
+    """创建意义提取器。若配置为 'llm' 则使用大模型，否则使用启发式规则。"""
     if settings.meaning_provider == "llm":
         if llm is None:
             raise ConfigurationError("LLM meaning provider requires a live LLM provider")
         return LLMMeaningProvider(
             llm,
             fallback=HeuristicMeaningProvider(),
-            timeout_s=min(settings.llm_timeout, 12.0),
-            max_retries=max(1, min(2, int(settings.llm_max_retries))),
+            timeout_s=min(settings.llm_timeout, 10.0),
+            max_retries=1,
         )
     return HeuristicMeaningProvider()
 
 
 def create_narrative_provider(*, settings: AuroraSettings, llm: Optional[LLMProvider]):
+    """创建叙事生成器。负责生成自我总结、梦境和修复文本。"""
     if settings.narrative_provider == "llm":
         if llm is None:
             raise ConfigurationError("LLM narrative provider requires a live LLM provider")
         return LLMNarrativeProvider(
             llm,
             fallback=CombinatorialNarrativeProvider(),
-            timeout_s=min(settings.llm_timeout, 12.0),
-            max_retries=max(1, min(2, int(settings.llm_max_retries))),
+            timeout_s=min(settings.llm_timeout, 10.0),
+            max_retries=1,
         )
     return CombinatorialNarrativeProvider()
 
 
 def create_memory(*, settings: AuroraSettings, llm: Optional[LLMProvider] = None) -> AuroraSoul:
+    """
+    全量引导函数：根据配置初始化 AuroraSoul 引擎的所有依赖。
+    包含：
+    1. 内存配置构建。
+    2. 事件与轴 Embedding 提供者创建。
+    3. 语义提取器与叙事提供者注入。
+    """
     cfg = build_memory_config(settings)
     event_embedder = create_embedding_provider(settings)
+    # 轴 Embedding 可以与普通事件 Embedding 使用不同的模型/服务。
     axis_embedder = create_embedding_provider(
         settings,
         provider_override=settings.axis_embedding_provider or settings.embedding_provider,
     )
     meaning_provider = create_meaning_provider(settings=settings, llm=llm)
     narrator = create_narrative_provider(settings=settings, llm=llm)
+    
     return AuroraSoul(
         cfg=cfg,
         seed=int(settings.memory_seed),

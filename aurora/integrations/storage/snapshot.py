@@ -34,7 +34,25 @@ class SnapshotStore:
                 ensure_ascii=False,
                 indent=2,
             )
+        self._prune_old_snapshots(keep=3)
         return path
+
+    def _prune_old_snapshots(self, *, keep: int) -> None:
+        snapshots: list[tuple[int, str]] = []
+        for fn in os.listdir(self.dirpath):
+            if not fn.startswith("snapshot_") or not fn.endswith(".json"):
+                continue
+            try:
+                seq = int(fn[len("snapshot_") : -len(".json")])
+            except ValueError:
+                continue
+            snapshots.append((seq, os.path.join(self.dirpath, fn)))
+        snapshots.sort(key=lambda item: item[0], reverse=True)
+        for _seq, path in snapshots[keep:]:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
 
     def latest(self) -> Optional[Tuple[int, Snapshot]]:
         self._ensure_no_legacy_snapshots()

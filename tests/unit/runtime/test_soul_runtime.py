@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from aurora.integrations.storage.doc_store import Document, SQLiteDocStore
+from aurora.integrations.storage.event_log import Event, SQLiteEventLog
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
@@ -47,6 +48,25 @@ class CountingLLM(LLMProvider):
         raise AssertionError("heuristic v4 runtime path should not need auxiliary JSON LLM calls")
 
 
+class StreamingLLM(CountingLLM):
+    def stream_complete(
+        self,
+        prompt: str,
+        *,
+        system=None,
+        temperature: float = 0.2,
+        max_tokens: int = 512,
+        timeout_s: float = 30.0,
+        stop=None,
+        metadata=None,
+        max_retries=None,
+    ):
+        self.complete_calls += 1
+        yield "我会"
+        yield "陪你一起"
+        yield "把这个问题展开。"
+
+
 def test_runtime_respond_uses_single_generation_call(tmp_path: Path) -> None:
     llm = CountingLLM()
     runtime = AuroraRuntime(
@@ -67,6 +87,48 @@ def test_runtime_respond_uses_single_generation_call(tmp_path: Path) -> None:
     assert result.memory_context.mode == result.memory_context.identity.current_mode
     assert result.memory_context.identity is not None
     assert result.ingest_result.mode == result.memory_context.identity.current_mode
+
+
+def test_runtime_respond_stream_emits_reply_chunks_and_done(tmp_path: Path) -> None:
+    llm = StreamingLLM()
+    runtime = AuroraRuntime(
+        settings=AuroraSettings(
+            data_dir=str(tmp_path),
+            embedding_provider="hash",
+            axis_embedding_provider="hash",
+            meaning_provider="heuristic",
+            narrative_provider="heuristic",
+        ),
+        llm=llm,
+    )
+
+    events = list(runtime.respond_stream(session_id="s1", user_message="你会什么"))
+
+    assert llm.complete_calls == 1
+    assert [event.kind for event in events[:2]] == ["status", "status"]
+    assert any(event.kind == "reply_delta" for event in events)
+    assert events[-1].kind == "done"
+    assert events[-1].result is not None
+    assert events[-1].result.reply == "我会陪你一起把这个问题展开。"
+
+
+def test_runtime_respond_without_llm_uses_runtime_fallback(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(
+        settings=AuroraSettings(
+            data_dir=str(tmp_path),
+            embedding_provider="hash",
+            axis_embedding_provider="hash",
+            meaning_provider="heuristic",
+            narrative_provider="heuristic",
+            llm_provider=None,
+        )
+    )
+
+    result = runtime.respond(session_id="s1", user_message="你在吗")
+
+    assert result.llm_error == "llm_not_configured"
+    assert result.reply
+    assert "语言模型" in result.reply
 
 
 def test_runtime_rejects_legacy_snapshot(tmp_path: Path) -> None:
@@ -120,3 +182,38 @@ def test_runtime_rejects_buried_legacy_docs(tmp_path: Path) -> None:
                 narrative_provider="heuristic",
             )
         )
+
+
+def test_runtime_replay_writes_bootstrap_snapshot(tmp_path: Path) -> None:
+    log = SQLiteEventLog(str(tmp_path / "events.sqlite3"))
+    log.append(
+        Event(
+            id="evt_bootstrap",
+            ts=1.0,
+            session_id="s1",
+            type="interaction",
+            payload={
+                "runtime_schema_version": "aurora-runtime-v4",
+                "user_message": "你今天看起来有点远。",
+                "agent_message": "我在这里，会继续听你说。",
+                "actors": ["user", "agent"],
+                "context": "你今天看起来有点远。",
+            },
+        )
+    )
+    log.close()
+
+    runtime = AuroraRuntime(
+        settings=AuroraSettings(
+            data_dir=str(tmp_path),
+            embedding_provider="hash",
+            axis_embedding_provider="hash",
+            meaning_provider="heuristic",
+            narrative_provider="heuristic",
+            snapshot_every_events=0,
+        )
+    )
+
+    snapshot_files = sorted((tmp_path / "snapshots").glob("snapshot_*.json"))
+    assert runtime.last_seq == 1
+    assert snapshot_files

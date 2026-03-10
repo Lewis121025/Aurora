@@ -1,35 +1,44 @@
-LOCOMO_QA_EVALUATION_SYSTEM_PROMPT = "You are evaluating question-answering accuracy."
+"""
+aurora/integrations/llm/Prompt/locomo_prompt.py
+Locomo 评测提示词模块。
+用于评估问答准确性和事件摘要质量，主要用于系统的基准测试（Benchmarking）。
+"""
 
-LOCOMO_QA_EVALUATION_USER_PROMPT = """You are evaluating a question-answering task for a conversation memory system.
+# Locomo 问答评估系统提示词
+LOCOMO_QA_EVALUATION_SYSTEM_PROMPT = "你正在评估问答的准确性。"
 
-Conversation context has been ingested into memory. Based on the retrieved information, 
-the system generated an answer to a question.
+# Locomo 问答评估用户提示词模板
+LOCOMO_QA_EVALUATION_USER_PROMPT = """你正在为一个对话记忆系统评估问答任务。
 
-Question: {question}
-Ground Truth Answer: {ground_truth}
-System Answer: {prediction}
+对话上下文已被摄入记忆。基于检索到的信息，系统生成了一个问题的答案。
 
-Evaluate whether the system's answer is correct. Consider:
-1. Does the answer contain the key information from the ground truth?
-2. Is the answer factually consistent with the ground truth?
-3. Minor phrasing differences are acceptable if the meaning is preserved.
+问题：{question}
+标准答案：{ground_truth}
+系统答案：{prediction}
 
-Respond with your evaluation."""
+评估系统的回答是否正确。请考虑：
+1. 答案是否包含标准答案中的关键信息？
+2. 答案在事实是否与标准答案一致？
+3. 如果意思保持不变，细微的措辞差异是可以接受的。
 
-LOCOMO_SUMMARIZATION_EVALUATION_SYSTEM_PROMPT = "You are evaluating event summarization quality."
+请回复你的评估结果。"""
 
-LOCOMO_SUMMARIZATION_EVALUATION_USER_PROMPT = """You are evaluating an event summarization task for a conversation memory system.
+# Locomo 摘要评估系统提示词
+LOCOMO_SUMMARIZATION_EVALUATION_SYSTEM_PROMPT = "你正在评估事件摘要的质量。"
 
-The system generated a summary of events from a conversation.
+# Locomo 摘要评估用户提示词模板
+LOCOMO_SUMMARIZATION_EVALUATION_USER_PROMPT = """你正在为一个对话记忆系统评估事件摘要任务。
 
-Ground Truth Summary: {ground_truth}
-System Summary: {prediction}
+系统根据对话生成了事件摘要。
 
-Evaluate the summary on:
-1. Coherence: Is the summary well-organized and readable?
-2. Coverage: Does it cover the key events from the ground truth?
-3. Accuracy: Are the facts correct?
+标准摘要：{ground_truth}
+系统摘要：{prediction}
 
-List any key events from the ground truth that are missing in the system summary.
+从以下维度评估摘要：
+1. 连贯性：摘要是否组织良好且易读？
+2. 覆盖范围：它是否涵盖了标准摘要中的关键事件？
+3. 准确性：事实是否正确？
 
-Respond with your evaluation."""
+列出标准摘要中任何在系统摘要中缺失的关键事件。
+
+请回复你的评估结果。"""

@@ -1,3 +1,9 @@
+"""
+aurora/soul/query.py
+查询分析模块：负责解析用户的自然语言查询，识别查询意图（Intent）和时间范围。
+它定义了查询类型 (QueryType) 及其关联的启发式关键词库。
+"""
+
 from __future__ import annotations
 
 import re
@@ -5,6 +11,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from typing import List, Optional, Tuple
 
+# 意图识别关键词库
 TEMPORAL_KEYWORDS = {
     "什么时候", "之前", "之后", "上次", "最近", "以前", "后来", "第一次", "最后",
     "多久", "当时", "那时", "几点", "几月", "几号", "哪天", "哪年", "历史",
@@ -36,6 +43,7 @@ AGGREGATION_KEYWORDS = {
     "number of", "amount of", "quantity of",
 }
 
+# 检索超参数
 MULTI_HOP_EXTRA_PAGERANK_ITER = 20
 
 RECENT_ANCHOR_KEYWORDS = {
@@ -60,6 +68,7 @@ SPAN_ANCHOR_KEYWORDS = {
     "before and after", "development", "changes over",
 }
 
+# 评分加成系数
 FACTUAL_PLOT_PRIORITY_BOOST = 0.15
 FACTUAL_SEMANTIC_WEIGHT = 0.90
 FACTUAL_ATTRACTOR_WEIGHT = 0.25
@@ -70,6 +79,7 @@ KEYWORD_MATCH_MIN_RATIO = 0.25
 USER_ROLE_PRIORITY_BOOST = 0.15
 FACT_KEY_BOOST_MAX = 0.15
 
+# 停用词库
 QUESTION_STOP_WORDS = {
     "what", "where", "when", "how", "why", "who", "which", "whose", "whom",
     "is", "are", "was", "were", "did", "do", "does", "done", "been", "being",
@@ -81,6 +91,7 @@ QUESTION_STOP_WORDS = {
 }
 
 
+# 聚合实体提取模式
 AGGREGATION_ENTITY_PATTERNS = {
     "camping": ["camping", "camp", "tent", "campsite", "campground"],
     "trip": ["trip", "travel", "visit", "vacation", "journey", "tour"],
@@ -110,160 +121,56 @@ AGGREGATION_ENTITY_PATTERNS = {
 }
 
 AGGREGATION_STOP_WORDS = {
-    "what",
-    "where",
-    "when",
-    "how",
-    "why",
-    "who",
-    "which",
-    "whom",
-    "is",
-    "are",
-    "was",
-    "were",
-    "be",
-    "been",
-    "being",
-    "have",
-    "has",
-    "had",
-    "having",
-    "do",
-    "does",
-    "did",
-    "doing",
-    "the",
-    "a",
-    "an",
-    "this",
-    "that",
-    "these",
-    "those",
-    "i",
-    "me",
-    "my",
-    "mine",
-    "we",
-    "us",
-    "our",
-    "ours",
-    "you",
-    "your",
-    "yours",
-    "he",
-    "him",
-    "his",
-    "she",
-    "her",
-    "hers",
-    "it",
-    "its",
-    "they",
-    "them",
-    "their",
-    "theirs",
-    "to",
-    "of",
-    "in",
-    "for",
-    "on",
-    "with",
-    "at",
-    "by",
-    "from",
-    "up",
-    "about",
-    "into",
-    "over",
-    "after",
-    "and",
-    "but",
-    "or",
-    "nor",
-    "so",
-    "yet",
-    "many",
-    "much",
-    "some",
-    "any",
-    "few",
-    "more",
-    "most",
-    "can",
-    "could",
-    "will",
-    "would",
-    "shall",
-    "should",
-    "may",
-    "might",
-    "must",
-    "need",
-    "dare",
-    "used",
-    "total",
-    "number",
-    "amount",
-    "count",
-    "sum",
+    "what", "where", "when", "how", "why", "who", "which", "whom",
+    "is", "are", "was", "were", "be", "been", "being",
+    "have", "has", "had", "doing", "the", "a", "an", "this", "that",
+    "i", "me", "my", "we", "us", "our", "you", "your",
+    "to", "of", "in", "for", "on", "with", "at", "by", "from",
+    "and", "but", "or", "so", "many", "much", "some", "any",
+    "can", "could", "will", "would", "total", "number", "count",
 }
 
+# 身份与用户事实识别库
 IDENTITY_KEYWORDS = {
-    "你是谁",
-    "你是怎样",
-    "你的性格",
-    "你的价值观",
-    "你的原生人格",
-    "你的前史",
-    "who are you",
-    "what are you",
-    "your personality",
-    "your values",
-    "your identity",
-    "your backstory",
-    "self narrative",
-    "self-model",
+    "你是谁", "你是怎样", "你的性格", "你的价值观", "你的原生人格", "你的前史",
+    "who are you", "what are you", "your personality", "your values",
+    "your identity", "your backstory", "self narrative", "self-model",
 }
 
 USER_FACT_KEYWORDS = {
-    "我",
-    "我的",
-    "我喜欢",
-    "我偏好",
-    "我之前",
-    "remember my",
-    "about me",
-    "my preference",
-    "my habit",
-    "my profile",
+    "我", "我的", "我喜欢", "我偏好", "我之前",
+    "remember my", "about me", "my preference", "my habit", "my profile",
 }
 
 
 class QueryType(Enum):
-    FACTUAL = auto()
-    TEMPORAL = auto()
-    MULTI_HOP = auto()
-    CAUSAL = auto()
-    USER_FACT = auto()
-    IDENTITY = auto()
+    """查询类型枚举"""
+    FACTUAL = auto()    # 事实检索
+    TEMPORAL = auto()   # 时间检索
+    MULTI_HOP = auto()  # 多跳联想
+    CAUSAL = auto()     # 因果分析
+    USER_FACT = auto()  # 用户事实
+    IDENTITY = auto()   # 身份认知
 
 
 class TimeAnchor(Enum):
-    RECENT = auto()
-    EARLIEST = auto()
-    SPAN = auto()
+    """时间锚点类型"""
+    RECENT = auto()     # 最近
+    EARLIEST = auto()   # 最早
+    SPAN = auto()       # 时间跨度
     NONE = auto()
 
 
 @dataclass(frozen=True)
 class TimeRange:
+    """时间范围描述对象"""
     start: Optional[float] = None
     end: Optional[float] = None
     anchor_event: Optional[str] = None
     relation: str = "any"
 
     def to_state_dict(self) -> dict[str, object]:
+        """序列化"""
         return {
             "start": self.start,
             "end": self.end,
@@ -273,11 +180,16 @@ class TimeRange:
 
 
 def _contains_any(query_lower: str, keywords: set[str]) -> bool:
+    """辅助函数：检查文本是否包含关键词集合中的任意项"""
     return any(keyword in query_lower for keyword in keywords)
 
 
 class QueryAnalyzer:
+    """
+    查询分析器：分析查询文本并提取结构化意图。
+    """
     def classify(self, query_text: str) -> QueryType:
+        """分类查询意图"""
         query_lower = query_text.lower()
         temporal_keywords = TEMPORAL_KEYWORDS | EARLIEST_ANCHOR_KEYWORDS | RECENT_ANCHOR_KEYWORDS | SPAN_ANCHOR_KEYWORDS
 
@@ -294,22 +206,27 @@ class QueryAnalyzer:
         return QueryType.FACTUAL
 
     def is_aggregation_query(self, query_text: str) -> bool:
+        """是否为聚合/统计类查询"""
         return _contains_any(query_text.lower(), AGGREGATION_KEYWORDS)
 
     def extract_aggregation_entities(self, query_text: str) -> List[str]:
+        """为聚合查询提取潜在的实体对象"""
         query_lower = query_text.lower()
         entities: List[str] = []
 
+        # 匹配预定义模式
         for keywords in AGGREGATION_ENTITY_PATTERNS.values():
             if any(keyword in query_lower for keyword in keywords):
                 entities.extend(keywords)
 
+        # 简单的正则分词补全
         for word in re.findall(r"\b[a-z]+(?:-[a-z]+)?\b", query_lower):
             if len(word) <= 2 or word in AGGREGATION_STOP_WORDS or word in entities:
                 continue
             if len(word) >= 4:
                 entities.append(word)
 
+        # 去重
         seen: set[str] = set()
         unique_entities: List[str] = []
         for entity in entities:
@@ -320,6 +237,7 @@ class QueryAnalyzer:
         return unique_entities
 
     def extract_query_keywords(self, query_text: str) -> List[str]:
+        """提取查询的核心关键词（去除停用词）"""
         keywords: List[str] = []
         for word in query_text.lower().split():
             clean_word = word.strip("?.,!'\"()[]{}:;")
@@ -328,6 +246,7 @@ class QueryAnalyzer:
         return keywords
 
     def detect_time_anchor(self, query_text: str) -> TimeAnchor:
+        """检测时间锚点类型"""
         query_lower = query_text.lower()
         if _contains_any(query_lower, RECENT_ANCHOR_KEYWORDS):
             return TimeAnchor.RECENT
@@ -339,6 +258,9 @@ class QueryAnalyzer:
 
 
 class TimeRangeExtractor:
+    """
+    时间范围提取器：将自然语言的时间描述（如“上周”）映射为绝对时间戳范围。
+    """
     ANCHOR_PATTERNS = {
         "first": list(EARLIEST_ANCHOR_KEYWORDS),
         "last": list(RECENT_ANCHOR_KEYWORDS),
@@ -352,14 +274,17 @@ class TimeRangeExtractor:
     }
 
     def extract(self, query: str, events_timeline: Optional[List[Tuple[str, float]]] = None) -> TimeRange:
+        """解析查询并返回时间范围"""
         query_lower = query.lower()
         events_timeline = events_timeline or []
 
+        # 检查显式锚点（最早/最近）
         for relation, keywords in self.ANCHOR_PATTERNS.items():
             for keyword in keywords:
                 if keyword in query_lower:
                     return self._resolve_anchor(relation, events_timeline)
 
+        # 检查相对时间（上周等）
         for pattern_name, pattern in self.RELATIVE_PATTERNS.items():
             if re.search(pattern, query_lower, re.IGNORECASE):
                 return self._resolve_relative_time(pattern_name, events_timeline)
@@ -367,25 +292,28 @@ class TimeRangeExtractor:
         return TimeRange(relation="any")
 
     def _resolve_anchor(self, relation: str, events_timeline: List[Tuple[str, float]]) -> TimeRange:
+        """将抽象锚点转换为基于现有时间线的范围"""
         if not events_timeline:
             return TimeRange(relation=relation)
 
         timestamps = [ts for _, ts in events_timeline]
         if relation == "first":
             earliest = min(timestamps)
-            return TimeRange(end=earliest + 86400, relation="first")
+            return TimeRange(end=earliest + 86400, relation="first") # 第一天
         if relation == "last":
             latest = max(timestamps)
-            return TimeRange(start=latest - 86400, relation="last")
+            return TimeRange(start=latest - 86400, relation="last")  # 最后一天
         if relation == "span":
             return TimeRange(relation="span")
         return TimeRange(relation=relation)
 
     def _resolve_relative_time(self, pattern_name: str, events_timeline: List[Tuple[str, float]]) -> TimeRange:
+        """解析相对时间词"""
         if not events_timeline:
             return TimeRange(relation="any")
 
         latest_ts = max(ts for _, ts in events_timeline)
+        # 以记忆中最晚的时间点作为基准“现在”
         if pattern_name == "yesterday":
             return TimeRange(start=latest_ts - 2 * 86400, end=latest_ts - 86400, relation="during")
         if pattern_name == "today":
@@ -401,6 +329,7 @@ class TimeRangeExtractor:
         candidates: List[Tuple[str, float, float]],
         time_range: TimeRange,
     ) -> List[Tuple[str, float, float]]:
+        """应用时间范围过滤器过滤候选项"""
         if time_range.relation in {"any", "span"}:
             return candidates
 

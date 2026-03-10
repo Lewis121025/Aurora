@@ -1,18 +1,25 @@
+"""
+aurora/integrations/llm/Prompt/counterfactual_prompt.py
+反事实推理提示词模块。
+用于进行反事实推理：如果某事当初有所不同，会发生什么。基于因果结构而非表面相似性进行推理。
+"""
+
+# 系统提示词：指导 LLM 如何执行反事实推理
 COUNTERFACTUAL_SYSTEM_PROMPT = (
-    "You reason about counterfactuals: what would have happened if something were different. "
-    "Base your reasoning on the causal structure, not just surface similarity."
+    "你进行反事实推理：如果某事当初有所不同，会发生什么。请基于因果结构而非表面相似性进行推理。"
 )
 
+# 用户提示词模板
 COUNTERFACTUAL_USER_PROMPT = """{instruction}
 
-FACTUAL SITUATION:
+事实情况：
 {factual}
 
-COUNTERFACTUAL QUESTION:
-If {antecedent}, what would have happened to {query}?
+反事实问题：
+如果 {antecedent}，那么 {query} 会发生什么？
 
-RELEVANT CONTEXT:
+相关上下文：
 {context}
 
-Return CounterfactualQuery JSON with your reasoning.
+返回包含你的推理过程的 CounterfactualQuery JSON。
 """

@@ -1,3 +1,9 @@
+"""
+aurora/soul/facts.py
+事实提取模块：负责从原始交互文本中识别并提取结构化的事实信息。
+目前主要基于正则表达式（Heuristic），未来可扩展为基于 LLM 的提取。
+"""
+
 from __future__ import annotations
 
 import re
@@ -7,12 +13,14 @@ from typing import List, Optional
 
 @dataclass(frozen=True)
 class ExtractedFact:
-    fact_text: str
-    fact_type: str
-    entities: List[str]
-    plot_id: Optional[str] = None
+    """提取出的事实对象"""
+    fact_text: str                 # 事实描述文本
+    fact_type: str                 # 事实类型 (quantity, action, location, etc.)
+    entities: List[str]            # 涉及的实体
+    plot_id: Optional[str] = None  # 关联的情节 ID
 
     def to_state_dict(self) -> dict[str, object]:
+        """序列化"""
         return {
             "fact_text": self.fact_text,
             "fact_type": self.fact_type,
@@ -22,24 +30,28 @@ class ExtractedFact:
 
 
 class FactExtractor:
+    """
+    事实提取器：利用预设的正则表达式模式扫描文本。
+    """
+    # 预定义的正则模式库
     FACT_PATTERNS = {
-        "quantity": [
+        "quantity": [ # 数量/单位相关
             r"(\d+)\s*(items?|books?|clothes?|things?|件|本|个|条)",
             r"(几个|多少|几本|几件)\s*(\w+)",
         ],
-        "action": [
+        "action": [ # 关键动作相关
             r"\b(bought|returned|picked up|ordered|received|purchased)\b",
             r"\b(买|退|订|收|购买|退货)\b",
         ],
-        "location": [
+        "location": [ # 地点相关
             r"\b(at|from|to)\s+(store|shop|restaurant|place|library|bookstore)\s+(\w+)",
             r"\b(在|从|到)\s*(商店|书店|餐厅|图书馆|地方)\s*(\w+)",
         ],
-        "time": [
+        "time": [ # 时间表达相关
             r"\b(yesterday|last week|tomorrow|next week|today|recently)\b",
             r"\b(昨天|上周|明天|下周|今天|最近|之前|以后)\b",
         ],
-        "preference": [
+        "preference": [ # 偏好/情感态度相关
             r"\b(like|love|prefer|hate|enjoy|dislike)\s+(\w+)",
             r"\b(喜欢|爱|偏好|讨厌|享受|不喜欢)\s+(\w+)",
         ],
@@ -47,18 +59,21 @@ class FactExtractor:
 
     def __init__(self, min_fact_length: int = 3) -> None:
         self.min_fact_length = min_fact_length
+        # 编译正则表达式
         self._compiled_patterns = {
             fact_type: [re.compile(pattern, re.IGNORECASE) for pattern in patterns]
             for fact_type, patterns in self.FACT_PATTERNS.items()
         }
 
     def extract(self, text: str) -> List[ExtractedFact]:
+        """执行提取流程"""
         if not text or not text.strip():
             return []
 
         facts: List[ExtractedFact] = []
         text_lower = text.lower()
 
+        # 逐个类型扫描
         for pattern in self._compiled_patterns.get("quantity", []):
             for match in pattern.finditer(text_lower):
                 quantity = match.group(1) if match.lastindex and match.lastindex >= 1 else ""
@@ -70,6 +85,7 @@ class FactExtractor:
         for pattern in self._compiled_patterns.get("action", []):
             for match in pattern.finditer(text_lower):
                 action = match.group(0)
+                # 捕获动作周围的上下文，增加事实的完整性
                 start = max(0, match.start() - 20)
                 end = min(len(text_lower), match.end() + 30)
                 context = text_lower[start:end].strip()
@@ -99,6 +115,7 @@ class FactExtractor:
                 if len(fact_text) >= self.min_fact_length:
                     facts.append(ExtractedFact(fact_text=fact_text, fact_type="preference", entities=[target] if target else []))
 
+        # 去重处理
         seen: set[str] = set()
         unique_facts: List[ExtractedFact] = []
         for fact in facts:
