@@ -76,17 +76,3 @@ def softmax(logits: Sequence[float]) -> List[float]:
     exps = [math.exp(x - m) for x in logits]
     Z = sum(exps) + 1e-12
     return [e / Z for e in exps]
-
-
-def log_sum_exp(logits: Sequence[float]) -> float:
-    """
-    Numerically stable log-sum-exp.
-
-    Args:
-        logits: Sequence of log values
-
-    Returns:
-        log(sum(exp(logits)))
-    """
-    m = max(logits)
-    return m + math.log(sum(math.exp(x - m) for x in logits) + 1e-12)

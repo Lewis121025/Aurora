@@ -48,29 +48,3 @@ def set_mock_time(mock_fn: Optional[Callable[[], float]]) -> None:
     """
     global _mock_time
     _mock_time = mock_fn
-
-
-def age_hours(ts: float) -> float:
-    """
-    计算从时间戳开始的年龄（小时）。
-
-    参数：
-        ts: 与当前时间比较的时间戳
-
-    返回：
-        年龄（小时）（如果 ts 在未来则可能为负）
-    """
-    return (now_ts() - ts) / 3600.0
-
-
-def age_days(ts: float) -> float:
-    """
-    计算从时间戳开始的年龄（天）。
-
-    参数：
-        ts: 与当前时间比较的时间戳
-
-    返回：
-        年龄（天）（如果 ts 在未来则可能为负）
-    """
-    return (now_ts() - ts) / 86400.0

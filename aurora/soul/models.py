@@ -986,69 +986,6 @@ class IdentityState:
             last_mode_change_ts=float(data.get("last_mode_change_ts", now_ts())),
         )
 
-
-@dataclass(frozen=True)
-class RepairCandidate:
-    """身份修复候选策略：针对一次失调，系统生成的备选自我调整方案"""
-
-    mode: str  # 策略类型 (preserve, reframe, revise, etc.)
-    new_vector: np.ndarray  # 调整后的 Self-vector
-    new_axes: Dict[str, float]  # 调整后的轴状态
-    new_active: float  # 调整后的显性能量
-    new_repressed: float  # 调整后的压抑能量
-    coherence_gain: float  # 连贯性收益
-    identity_drift: float  # 身份漂移程度（过大则意味着剧变）
-    pressure_relief: float  # 压力释放度
-    reality_fit: float  # 现实契合度
-    dream_support: float  # 潜意识支持度
-    utility: float  # 综合效用分
-    explanation: str  # 叙事解释（为什么要做此改变）
-
-
-@dataclass
-class LatentFragment:
-    """潜意识碎片：存储在 SubconsciousField 中的未消化记忆，作为梦境素材"""
-
-    plot_id: str
-    ts: float
-    activation: float  # 激活度（受唤醒度和自我相关性驱动）
-    unresolved: float  # 未解决度（受矛盾和张力驱动）
-    embedding: np.ndarray  # 碎片向量
-    axis_evidence: Dict[str, float]
-    source: str
-    tags: Tuple[str, ...]
-
-    def to_state_dict(self) -> Dict[str, Any]:
-        """序列化"""
-        return {
-            "plot_id": self.plot_id,
-            "ts": float(self.ts),
-            "activation": float(self.activation),
-            "unresolved": float(self.unresolved),
-            "embedding": vec_to_state(self.embedding),
-            "axis_evidence": {k: float(v) for k, v in self.axis_evidence.items()},
-            "source": self.source,
-            "tags": list(self.tags),
-        }
-
-    @classmethod
-    def from_state_dict(cls, data: Dict[str, Any]) -> "LatentFragment":
-        """反序列化"""
-        embedding = vec_from_state(data.get("embedding"))
-        if embedding is None:
-            embedding = np.zeros(0, dtype=np.float32)
-        return cls(
-            plot_id=str(data["plot_id"]),
-            ts=float(data["ts"]),
-            activation=float(data.get("activation", 0.0)),
-            unresolved=float(data.get("unresolved", 0.0)),
-            embedding=embedding,
-            axis_evidence={k: float(v) for k, v in data.get("axis_evidence", {}).items()},
-            source=str(data.get("source", "wake")),
-            tags=tuple(data.get("tags", ())),
-        )
-
-
 @dataclass
 class EdgeBelief:
     """关系边置信度：用于 MemoryGraph 中对联想关系的评估"""

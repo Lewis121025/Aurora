@@ -1,7 +1,7 @@
 """
 aurora/soul/engine.py
-核心引擎模块：负责记忆的摄入 (Ingest)、身份的演化 (Evolution)、潜意识的处理 (Subconscious)
-以及模式的涌现 (Mode Emergence)。它是 Aurora V4 系统的枢纽，将所有子系统（检索、聚类、提取）结合在一起。
+核心引擎模块：负责 graph-first 记忆摄入、图视图物化、身份演化以及
+dream/repair 图算子的协调。它是 Aurora V4 系统的枢纽，将检索、图谱、提取与响应上下文连接起来。
 """
 
 from __future__ import annotations
@@ -41,7 +41,6 @@ from aurora.soul.models import (
     StoryArc,
     Theme,
     clamp,
-    clamp01,
     heuristic_persona_axes,
     l2_normalize,
     mean_abs,

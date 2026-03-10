@@ -36,8 +36,6 @@ from aurora.soul.models import (
     IdentityState,
     Plot,
     RetrievalTrace,
-    StoryArc,
-    Theme,
     l2_normalize,
     softmax,
 )
@@ -198,89 +196,6 @@ class LowRankMetric:
         )
         obj.L = np.asarray(data["L"], dtype=np.float32)
         obj.G = np.asarray(data["G"], dtype=np.float32)
-        obj.t = int(data.get("t", 0))
-        return obj
-
-
-class ThompsonBernoulliGate:
-    """
-    汤普森采样门控 (Thompson Bernoulli Gate)：
-    基于贝叶斯多臂老虎机算法，决定是否要将某条交互编码（Encode）进长期记忆。
-    它会根据记忆的“特征”和“后续被检索的成功率（奖励）”来学习编码策略。
-    """
-
-    def __init__(self, feature_dim: int, seed: int = 0):
-        self.d = feature_dim
-        self._seed = seed
-        self.rng = np.random.default_rng(seed)
-        # 权重分布的均值和精度（1/方差）
-        self.w_mean = np.zeros(self.d, dtype=np.float32)
-        self.prec = np.ones(self.d, dtype=np.float32) * 1e-2
-        self.grad2 = np.zeros(self.d, dtype=np.float32)
-        self.t = 0
-
-    def _sample_w(self) -> np.ndarray:
-        """从后验分布中采样权重向量"""
-        std = np.sqrt(1.0 / (self.prec + 1e-9))
-        sampled = self.w_mean + self.rng.normal(size=self.d).astype(np.float32) * std
-        return np.asarray(sampled, dtype=np.float32)
-
-    def prob(self, x: np.ndarray) -> float:
-        """计算编码概率"""
-        weight = self._sample_w()
-        dot = float(np.dot(weight, x))
-        if dot >= 0:
-            z = math.exp(-dot)
-            return 1.0 / (1.0 + z)
-        z = math.exp(dot)
-        return z / (1.0 + z)
-
-    def decide(self, x: np.ndarray) -> bool:
-        """执行随机决策"""
-        return bool(self.rng.random() < self.prob(x))
-
-    def update(self, x: np.ndarray, reward: float) -> None:
-        """
-        更新门控模型：
-        如果被检索到了，说明当初“存下来”是正确的决策（reward=1.0）。
-        """
-        self.t += 1
-        y = 1.0 if reward > 0 else 0.0
-        dot = float(np.dot(self.w_mean, x))
-        if dot >= 0:
-            z = math.exp(-dot)
-            p = 1.0 / (1.0 + z)
-        else:
-            z = math.exp(dot)
-            p = z / (1.0 + z)
-        # 梯度上升更新
-        grad = (y - p) * x
-        self.grad2 = np.asarray(0.99 * self.grad2 + 0.01 * (grad * grad), dtype=np.float32)
-        step = np.asarray(
-            (1.0 / math.sqrt(self.t + 1.0)) * grad / (np.sqrt(self.grad2) + 1e-6),
-            dtype=np.float32,
-        )
-        self.w_mean += step
-        self.prec += grad * grad
-
-    def to_state_dict(self) -> Dict[str, Any]:
-        """序列化"""
-        return {
-            "d": self.d,
-            "seed": self._seed,
-            "w_mean": self.w_mean.tolist(),
-            "prec": self.prec.tolist(),
-            "grad2": self.grad2.tolist(),
-            "t": self.t,
-        }
-
-    @classmethod
-    def from_state_dict(cls, data: Dict[str, Any]) -> "ThompsonBernoulliGate":
-        """反序列化"""
-        obj = cls(feature_dim=int(data["d"]), seed=int(data.get("seed", 0)))
-        obj.w_mean = np.asarray(data["w_mean"], dtype=np.float32)
-        obj.prec = np.asarray(data["prec"], dtype=np.float32)
-        obj.grad2 = np.asarray(data["grad2"], dtype=np.float32)
         obj.t = int(data.get("t", 0))
         return obj
 
@@ -491,101 +406,6 @@ class VectorIndex:
         obj.kinds = [str(item) for item in data.get("kinds", [])]
         obj.vecs = [np.asarray(vec, dtype=np.float32) for vec in data.get("vecs", [])]
         return obj
-
-
-class CRPAssigner:
-    """
-    中餐馆过程 (Chinese Restaurant Process) 采样器：
-    用于贝叶斯非参数聚类。决定新输入应当加入现有群体还是开创一个新群体。
-    """
-
-    def __init__(self, alpha: float = 1.0, seed: int = 0):
-        self.alpha = alpha  # 集中参数：alpha 越大，开创群体的概率越大
-        self._seed = seed
-        self.rng = np.random.default_rng(seed)
-
-    def sample(self, logps: Dict[str, float]) -> Tuple[Optional[str], Dict[str, float]]:
-        """
-        采样：
-        logps 为新输入属于各个群体的对数似然。
-        """
-        logs = dict(logps)
-        logs["__new__"] = math.log(self.alpha)
-        keys = list(logs.keys())
-        probs = softmax([logs[k] for k in keys])
-        choice = str(self.rng.choice(keys, p=np.asarray(probs, dtype=np.float64)))
-        post = {k: p for k, p in zip(keys, probs)}
-        if choice == "__new__":
-            return None, post
-        return choice, post
-
-    def to_state_dict(self) -> Dict[str, Any]:
-        return {"alpha": float(self.alpha), "seed": self._seed}
-
-    @classmethod
-    def from_state_dict(cls, data: Dict[str, Any]) -> "CRPAssigner":
-        return cls(alpha=float(data["alpha"]), seed=int(data.get("seed", 0)))
-
-
-class StoryModel:
-    """
-    故事模型：计算一个情节 (Plot) 属于某个故事弧 (StoryArc) 的对数似然。
-    综合考虑了语义距离、时间间隔、角色重合度以及来源一致性。
-    """
-
-    def __init__(self, metric: LowRankMetric):
-        self.metric = metric
-
-    def loglik(self, plot: Plot, story: StoryArc) -> float:
-        # 1. 语义似然：基于度量学习的距离和故事内部方差
-        ll_sem = 0.0
-        if story.centroid is not None:
-            d2 = self.metric.d2(plot.embedding, story.centroid)
-            variance = max(story.dist_var(), 1e-3)
-            ll_sem = -0.5 * d2 / variance
-
-        # 2. 时间似然：假设情节发生符合泊松过程（指数分布间隔）
-        ll_time = 0.0
-        if story.plot_ids:
-            gap = max(0.0, plot.ts - story.updated_ts)
-            tau = story.gap_mean_safe()
-            lam = 1.0 / max(tau, 1e-6)
-            ll_time = math.log(lam + 1e-12) - lam * gap
-
-        # 3. 角色似然：平滑的计数模型
-        ll_actor = 0.0
-        beta = 1.0
-        total = sum(story.actor_counts.values())
-        denom = total + beta * max(len(story.actor_counts), 1)
-        for actor in plot.actors:
-            ll_actor += math.log(story.actor_counts.get(actor, 0) + beta) - math.log(denom + 1e-12)
-
-        # 4. 来源似然
-        if story.source_counts:
-            total_sources = sum(story.source_counts.values())
-            ll_source = math.log(story.source_counts.get(plot.source, 0) + 1.0) - math.log(
-                total_sources + len(story.source_counts) + 1e-12
-            )
-        else:
-            ll_source = 0.0
-
-        return ll_sem + ll_time + ll_actor + ll_source
-
-
-class ThemeModel:
-    """
-    主题模型：计算一个故事弧属于某个主题的对数似然。
-    目前主要基于语义重心距离。
-    """
-
-    def __init__(self, metric: LowRankMetric):
-        self.metric = metric
-
-    def loglik(self, story: StoryArc, theme: Theme) -> float:
-        if theme.prototype is None or story.centroid is None:
-            return 0.0
-        d2 = self.metric.d2(story.centroid, theme.prototype)
-        return -0.5 * d2
 
 
 @dataclass(frozen=True)

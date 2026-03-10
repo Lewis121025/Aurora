@@ -26,10 +26,3 @@ MEANING_EXTRACTION_USER_PROMPT_TEMPLATE = """请把下面这段互动映射成 E
 Text:
 {text}
 """
-
-
-def build_meaning_extraction_user_prompt(*, text: str) -> str:
-    """
-    组装语义提取的用户提示词。
-    """
-    return MEANING_EXTRACTION_USER_PROMPT_TEMPLATE.format(text=text)

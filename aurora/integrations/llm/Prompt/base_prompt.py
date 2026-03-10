@@ -20,10 +20,3 @@ def instruction(model_name: str) -> str:
         "你必须且只能输出有效的 JSON。不要包含 Markdown 标记。不要包含多余的键。"
         f"Schema 版本: {SCHEMA_VERSION}。输出必须符合 {model_name} 的结构。"
     )
-
-
-def render(template: str, **kwargs: object) -> str:
-    """
-    渲染提示词模板。
-    """
-    return template.format(**kwargs)

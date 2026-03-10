@@ -20,7 +20,7 @@
 | 准确检索 (AR) | 22 | `query()` + `FieldRetriever` |
 | 测试时学习 (TTL) | 6 | `ingest()` + `evolve()` |
 | 长程理解 (LRU) | 110 | Story/Theme 物化视图 + plot synthesis |
-| 冲突解决 (CR) | 8 | `TensionManager` + `CoherenceGuardian` |
+| 冲突解决 (CR) | 8 | contradiction edge scanning + resolution synthesis |
 
 ### 2. LOCOMO (ACL 2024)
 

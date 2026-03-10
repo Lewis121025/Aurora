@@ -46,17 +46,17 @@ aurora/
 
 Aurora Soul 当前的主算法簇有 4 组：
 
-1. 编码决策  
-   `OnlineKDE + LowRankMetric + ThompsonBernoulliGate`
+1. 记忆摄入  
+   `OnlineKDE + LowRankMetric + bounded local graph linking`
 
-2. 叙事结构涌现  
-   `CRPAssigner + StoryModel + ThemeModel`
+2. 结构涌现  
+   `Louvain communities + StoryArc/Theme materialization`
 
 3. 场式检索  
-   `mean shift attractor tracing + personalized PageRank + query/time/fact boost`
+   `mean shift attractor tracing + personalized PageRank + contradiction inhibition + query/time/fact boost`
 
 4. 身份演化  
-   `dissonance + repair + dream + mode emergence + schema consolidation`
+   `contradiction scanning + GraphRepairOperator + GraphDreamOperator + schema consolidation`
 
 ## 安装
 

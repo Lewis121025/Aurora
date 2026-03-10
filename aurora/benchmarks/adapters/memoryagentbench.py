@@ -16,8 +16,8 @@ AURORA Capability Mapping:
 |---------------------|----------------------|
 | Accurate Retrieval  | query() + FieldRetriever |
 | Test-Time Learning  | ingest() + evolve() |
-| Long-Range Understanding | Story aggregation + Theme emergence + plot synthesis |
-| Conflict Resolution | TensionManager + CoherenceGuardian |
+| Long-Range Understanding | Story/Theme materialization + plot synthesis |
+| Conflict Resolution | contradiction edge scanning + resolution synthesis |
 
 Usage:
     from aurora.benchmarks.adapters.memoryagentbench import MemoryAgentBenchAdapter
@@ -1554,9 +1554,9 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         and produce the most current/correct answer.
 
         AURORA Implementation:
-        - TensionManager detects and classifies conflicts
-        - CoherenceGuardian maintains consistency
-        - Smart resolution decides what to preserve vs resolve
+        - Contradiction edges mark incompatible updates
+        - Retrieval applies bounded inhibition to stale/conflicting paths
+        - Resolution synthesis prefers newer and better-supported facts
 
         Args:
             instance: Benchmark instance
@@ -3233,7 +3233,7 @@ Provide concise answers that demonstrate understanding of the learned rules."""
         2. Resolves conflicts by preferring newer, more reliable information
         3. Tracks reasoning trace for debugging
 
-        Uses TensionManager and CoherenceGuardian patterns.
+        Uses graph contradiction scanning and resolution synthesis patterns.
 
         Args:
             query_result: Query results
@@ -3665,25 +3665,6 @@ Provide concise answers that demonstrate understanding of the learned rules."""
 # =============================================================================
 # Utility Functions
 # =============================================================================
-
-
-def create_adapter(
-    llm_provider: Optional[Any] = None,
-    **kwargs: Any,
-) -> MemoryAgentBenchAdapter:
-    """Factory function to create MemoryAgentBench adapter.
-
-    Args:
-        llm_provider: LLM provider for evaluation
-        **kwargs: Additional adapter options
-
-    Returns:
-        Configured MemoryAgentBenchAdapter instance
-    """
-    return MemoryAgentBenchAdapter(
-        llm_provider=llm_provider,
-        **kwargs,
-    )
 
 
 # =============================================================================

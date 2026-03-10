@@ -188,12 +188,12 @@ class BenchmarkCapability(Enum):
     LONG_RANGE_UNDERSTANDING:
         在扩展叙述中形成连贯摘要的能力。
         测试: 摘要、主题提取、叙事弧检测。
-        AURORA: Story aggregation + Theme emergence
+        AURORA: Story/Theme materialization + plot synthesis
 
     CONFLICT_RESOLUTION:
         适当处理矛盾信息更新的能力。
         测试: 事实更新、偏好变化、时间推理。
-        AURORA: TensionManager + CoherenceGuardian
+        AURORA: contradiction edge scanning + resolution synthesis
     """
 
     ACCURATE_RETRIEVAL = "accurate_retrieval"
