@@ -6,7 +6,7 @@ Aurora 的主线很简单：
 
 `interfaces -> runtime -> soul -> integrations`
 
-其中 `aurora.soul` 是唯一生产核心。`aurora.lab` 保留研究算法，但不参与默认运行链路。
+其中 `aurora.soul` 是唯一生产核心。历史研究代码和旧文档已迁移到 `legacy_research_stack` 分支。
 
 ## 它做什么
 
@@ -27,7 +27,6 @@ aurora/
 ├── runtime/        # 编排层：配置、装配、生命周期、响应流程
 ├── interfaces/     # CLI / terminal / API / MCP
 ├── integrations/   # embeddings / llm / storage
-├── lab/            # 研究能力，不走默认主链
 ├── benchmarks/     # 基准测试与适配器
 ├── system/         # errors / version
 └── utils/          # 通用小工具
@@ -242,7 +241,7 @@ server = create_mcp_server(runtime)
 - 从具体模块导入，不依赖顶层聚合导出
 - `aurora/__init__.py` 只保留版本信息
 - `aurora.soul` 是唯一生产核心
-- `aurora.lab` 里的算法默认不进入运行时主链
+- 历史研究代码请切到 `legacy_research_stack` 分支查看
 
 基本回归：
 
@@ -255,8 +254,7 @@ pytest tests -q
 - 文档总览见 [docs/README.md](docs/README.md)
 - 研究文档在 [docs/research](docs/research)
 - 架构决策在 [docs/adr](docs/adr)
-- 迁移与质量记录在 [docs/migrations](docs/migrations) 和 [docs/quality](docs/quality)
-- 旧研究/迁移文档已统一标注为“归档说明”，仅保留作历史参考
+- 历史迁移/质量/旧研究文档已迁移到 `legacy_research_stack` 分支
 
 ## 许可证
 

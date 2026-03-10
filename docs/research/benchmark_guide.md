@@ -19,7 +19,7 @@
 |------|--------|-------------|
 | 准确检索 (AR) | 22 | `query()` + `FieldRetriever` |
 | 测试时学习 (TTL) | 6 | `ingest()` + `evolve()` |
-| 长程理解 (LRU) | 110 | Story 聚合 + Theme 涌现 + `NarratorEngine` |
+| 长程理解 (LRU) | 110 | Story/Theme 物化视图 + plot synthesis |
 | 冲突解决 (CR) | 8 | `TensionManager` + `CoherenceGuardian` |
 
 ### 2. LOCOMO (ACL 2024)
@@ -33,7 +33,7 @@
 | 任务 | 推理类型 | AURORA 实现 |
 |------|----------|-------------|
 | 问答 | 单跳/多跳/时序/常识/世界知识 | `query()` + 关系优先检索 |
-| 事件摘要 | - | Story narrative + `NarratorEngine` |
+| 事件摘要 | - | Story/Theme 物化视图 + recent plot synthesis |
 | 多模态对话 | - | （可选扩展） |
 
 ---

@@ -19,7 +19,7 @@ LOCOMO (ACL 2024) - 长期对话记忆基准的适配器。
 
 2. 事件总结
    - 生成连贯的事件摘要
-   - AURORA 实现: 故事叙述 + NarratorEngine
+   - AURORA 实现: Story/Theme 物化视图 + recent plot synthesis
 
 3. 多模态对话 (可选)
    - 图像共享上下文
@@ -292,12 +292,12 @@ class LOCOMOAdapter(BenchmarkAdapter):
     - 准确检索: query() + FieldRetriever
     - 多跳推理: 图遍历 + 吸引子追踪
     - 时间推理: 故事时间线 + 时间边
-    - 总结: 故事叙述 + NarratorEngine
+    - 总结: Story/Theme 物化视图 + recent plot synthesis
 
     属性:
         llm: 用于 LLM-as-judge 评估的可选 LLM 提供者
         evaluation_method: 答案评估方法
-        use_narrator_for_summary: 是否使用 NarratorEngine 进行总结
+        use_story_summary: 是否优先使用 story/theme 视图进行总结
 
     使用示例:
         adapter = LOCOMOAdapter(llm_provider=my_llm)
@@ -321,7 +321,7 @@ class LOCOMOAdapter(BenchmarkAdapter):
         llm_provider: Any = None,
         seed: int = 0,
         evaluation_method: EvaluationMethod = EvaluationMethod.LLM_JUDGE,
-        use_narrator_for_summary: bool = True,
+        use_story_summary: bool = True,
         f1_threshold: float = 0.5,
         fuzzy_threshold: float = 0.7,
     ) -> None:
@@ -331,14 +331,14 @@ class LOCOMOAdapter(BenchmarkAdapter):
             llm_provider: 用于 LLM-as-judge 评估的可选 LLM 提供者
             seed: 用于可重现性的随机种子
             evaluation_method: 用于评估预测的方法
-            use_narrator_for_summary: 是否使用 NarratorEngine 进行总结
+            use_story_summary: 是否优先使用 story/theme 视图进行总结
             f1_threshold: F1 基础正确性的阈值
             fuzzy_threshold: 模糊匹配的阈值
         """
         super().__init__(llm_provider=llm_provider, seed=seed)
 
         self.evaluation_method = evaluation_method
-        self.use_narrator_for_summary = use_narrator_for_summary
+        self.use_story_summary = use_story_summary
         self.f1_threshold = f1_threshold
         self.fuzzy_threshold = fuzzy_threshold
 
@@ -1086,7 +1086,7 @@ Be concise and answer directly."""
     ) -> BenchmarkResult:
         """评估事件总结任务。
 
-        使用 AURORA 的 NarratorEngine 生成故事摘要
+        使用 AURORA 当前 story/theme 视图生成故事摘要
         并与真实答案进行比较。
 
         参数:
@@ -1101,8 +1101,8 @@ Be concise and answer directly."""
 
         try:
             # Generate summary using AURORA
-            if self.use_narrator_for_summary:
-                prediction = self._generate_narrative_summary(memory, instance)
+            if self.use_story_summary:
+                prediction = self._generate_story_summary(memory, instance)
             else:
                 prediction = self._generate_simple_summary(memory, instance)
 
@@ -1147,12 +1147,12 @@ Be concise and answer directly."""
                 reasoning_trace=reasoning_trace,
             )
 
-    def _generate_narrative_summary(
+    def _generate_story_summary(
         self,
         memory: Any,
         instance: BenchmarkInstance,
     ) -> str:
-        """使用 AURORA 的 NarratorEngine 生成摘要。
+        """使用 AURORA 当前 story/theme 视图生成摘要。
 
         参数:
             memory: AURORA 内存实例
@@ -1161,45 +1161,38 @@ Be concise and answer directly."""
         返回:
             生成的摘要文本
         """
-        try:
-            from aurora.lab.narrator.reconstruction import NarratorEngine
+        parts: List[str] = []
 
-            # Get all plots
-            plots = list(memory.plots.values())
-
-            if not plots:
-                return "No events to summarize."
-
-            # Create narrator engine with safe attribute access
-            vindex = getattr(memory, "vindex", None)
-            graph = getattr(memory, "graph", None)
-
-            narrator = NarratorEngine(
-                metric=memory.metric,
-                vindex=vindex,
-                graph=graph,
-                seed=self._seed,
+        for theme in getattr(memory, "themes", {}).values():
+            label = (
+                getattr(theme, "label", "")
+                or getattr(theme, "name", "")
+                or getattr(theme, "description", "")
             )
+            if label:
+                parts.append(str(label))
 
-            # Reconstruct story
-            trace = narrator.reconstruct_story(
-                query=instance.query or "Summarize the conversation events",
-                plots=plots,
-                stories=memory.stories,
-                themes=memory.themes,
-            )
+        for story in getattr(memory, "stories", {}).values():
+            plot_ids = list(getattr(story, "plot_ids", []))
+            plot_texts = [
+                str(memory.plots[plot_id].text)
+                for plot_id in plot_ids
+                if hasattr(memory, "plots") and plot_id in memory.plots
+            ]
+            if plot_texts:
+                parts.append(" ".join(plot_texts[:3]))
 
-            return trace.narrative_text
+        if parts:
+            return "\n".join(parts[:5])
 
-        except ImportError:
-            return self._generate_simple_summary(memory, instance)
+        return self._generate_simple_summary(memory, instance)
 
     def _generate_simple_summary(
         self,
         memory: Any,
         instance: BenchmarkInstance,
     ) -> str:
-        """不使用 NarratorEngine 生成简单摘要。
+        """使用 recent plots 生成简单摘要。
 
         参数:
             memory: AURORA 内存实例
@@ -1208,17 +1201,9 @@ Be concise and answer directly."""
         返回:
             生成的摘要文本
         """
-        # Get story summaries
         summaries: List[str] = []
 
-        for story in memory.stories.values():
-            if story.is_relationship_story():
-                summaries.append(story.to_relationship_narrative())
-            else:
-                summaries.append(story.to_narrative_summary())
-
         if not summaries:
-            # Fall back to recent plots
             recent_plots = sorted(
                 memory.plots.values(),
                 key=lambda p: p.ts,

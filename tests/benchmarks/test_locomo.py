@@ -464,7 +464,7 @@ class TestEvaluateSummarization:
         adapter = LOCOMOAdapter(
             seed=42,
             evaluation_method=EvaluationMethod.FUZZY,
-            use_narrator_for_summary=False,  # Use simple summary for testing
+            use_story_summary=False,
         )
         memory = MockMemory()
 
@@ -493,7 +493,7 @@ class TestEvaluateSummarization:
         adapter = LOCOMOAdapter(
             seed=42,
             evaluation_method=EvaluationMethod.FUZZY,
-            use_narrator_for_summary=False,
+            use_story_summary=False,
         )
         memory = MockMemory()
 

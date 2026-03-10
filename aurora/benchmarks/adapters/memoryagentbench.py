@@ -16,7 +16,7 @@ AURORA Capability Mapping:
 |---------------------|----------------------|
 | Accurate Retrieval  | query() + FieldRetriever |
 | Test-Time Learning  | ingest() + evolve() |
-| Long-Range Understanding | Story aggregation + Theme emergence + NarratorEngine |
+| Long-Range Understanding | Story aggregation + Theme emergence + plot synthesis |
 | Conflict Resolution | TensionManager + CoherenceGuardian |
 
 Usage:
@@ -1499,7 +1499,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         AURORA Implementation:
         - Story aggregation organizes related plots
         - Theme emergence captures patterns
-        - NarratorEngine reconstructs coherent narratives
+        - Materialized views and retrieved plots provide coherent summaries
 
         Args:
             instance: Benchmark instance
@@ -3170,9 +3170,7 @@ Provide concise answers that demonstrate understanding of the learned rules."""
         question: str,
         memory: Any,
     ) -> str:
-        """Generate summary for LRU using narrative reconstruction.
-
-        Uses NarratorEngine if available.
+        """Generate summary for LRU using current graph-first memory views.
 
         Args:
             query_result: Query results
@@ -3203,43 +3201,22 @@ Provide concise answers that demonstrate understanding of the learned rules."""
         if not contents:
             return "Insufficient information for summary."
 
-        # Try to use NarratorEngine for story reconstruction
-        if hasattr(memory, "stories") and hasattr(memory, "plots"):
-            # Get plots for narrative reconstruction
-            plots = []
-            for item in ranked:
-                node_id = item[0] if isinstance(item, tuple) else item.get("id", "")
-                if node_id in memory.plots:
-                    plots.append(memory.plots[node_id])
+        # Prefer higher-level story/theme summaries when available.
+        summary_parts: List[str] = []
+        for item in ranked:
+            if isinstance(item, tuple):
+                node_id, _score, kind = item
+            else:
+                node_id = item.get("id", "")
+                kind = item.get("kind", "plot")
+            content = self._get_node_content(memory, node_id, kind)
+            if content and content not in summary_parts:
+                summary_parts.append(content)
 
-            if plots:
-                try:
-                    from aurora.lab.narrator.reconstruction import NarratorEngine
+        if summary_parts:
+            return "\n".join(summary_parts[:5])
 
-                    # Get vindex and graph from memory if available
-                    vindex = getattr(memory, "vindex", None)
-                    graph = getattr(memory, "graph", None)
-
-                    narrator = NarratorEngine(
-                        metric=memory.metric,
-                        vindex=vindex,
-                        graph=graph,
-                        seed=42,
-                    )
-                    trace = narrator.reconstruct_story(
-                        query=question,
-                        plots=plots,
-                        stories=memory.stories,
-                        themes=getattr(memory, "themes", {}),
-                    )
-
-                    if trace.narrative_text:
-                        return trace.narrative_text
-
-                except Exception as e:
-                    logger.debug(f"NarratorEngine failed: {e}")
-
-        # Fallback: concatenate contents
+        # Fallback: concatenate plot contents
         return "\n".join(contents[:5])
 
     def _generate_cr_answer(
@@ -3590,21 +3567,26 @@ Provide concise answers that demonstrate understanding of the learned rules."""
         elif kind == "story" and hasattr(memory, "stories"):
             story = memory.stories.get(node_id)
             if story:
-                # Get story summary
-                if hasattr(story, "to_narrative_summary"):
-                    return str(story.to_narrative_summary())
-                elif hasattr(story, "to_relationship_narrative"):
-                    return str(story.to_relationship_narrative())
-                else:
-                    return f"Story with {len(story.plot_ids)} events"
+                plot_ids = list(getattr(story, "plot_ids", []))
+                plot_texts = [
+                    str(memory.plots[plot_id].text)
+                    for plot_id in plot_ids
+                    if hasattr(memory, "plots") and plot_id in memory.plots
+                ]
+                if plot_texts:
+                    return " ".join(plot_texts[:3])
+                return f"Story with {len(plot_ids)} events"
 
         elif kind == "theme" and hasattr(memory, "themes"):
             theme = memory.themes.get(node_id)
             if theme:
-                if hasattr(theme, "identity_dimension") and theme.identity_dimension:
-                    return str(theme.identity_dimension)
-                elif hasattr(theme, "name") and theme.name:
-                    return str(theme.name)
+                label = (
+                    getattr(theme, "label", "")
+                    or getattr(theme, "name", "")
+                    or getattr(theme, "description", "")
+                )
+                if label:
+                    return str(label)
 
         return ""
 
