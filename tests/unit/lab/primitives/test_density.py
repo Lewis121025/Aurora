@@ -1,7 +1,6 @@
 """OnlineKDE 密度估计的测试。"""
 
 import numpy as np
-import pytest
 
 from aurora.lab.primitives.density import OnlineKDE
 

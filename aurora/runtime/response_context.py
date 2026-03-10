@@ -9,7 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, List
 
-from aurora.integrations.llm.Prompt.response_prompt import RESPONSE_SYSTEM_PROMPT, build_response_user_prompt
+from aurora.integrations.llm.Prompt.response_prompt import (
+    RESPONSE_SYSTEM_PROMPT,
+    build_response_user_prompt,
+)
 from aurora.runtime.results import EvidenceRef, RetrievalTraceSummary, StructuredMemoryContext
 from aurora.soul.models import RetrievalTrace
 
@@ -17,6 +20,7 @@ from aurora.soul.models import RetrievalTrace
 @dataclass(frozen=True)
 class ResponsePrompt:
     """包含了最终发送给 LLM 的系统 Prompt、用户 Prompt 以及渲染后的记忆摘要。"""
+
     system_prompt: str
     user_prompt: str
     rendered_memory_brief: str
@@ -26,8 +30,9 @@ class ResponseContextBuilder:
     """
     上下文构建器：将底层复杂的记忆拓扑和心理状态“降维”成文本，以便 LLM 处理。
     """
+
     def __init__(self, *, memory: Any) -> None:
-        self._memory = memory # 传入 AuroraSoul 实例
+        self._memory = memory  # 传入 AuroraSoul 实例
 
     def build(self, *, trace: RetrievalTrace, max_items: int = 6) -> StructuredMemoryContext:
         """
@@ -40,12 +45,14 @@ class ResponseContextBuilder:
         summary = self._memory.narrative_summary()
         evidence_refs: List[EvidenceRef] = []
         retrieval_hits: List[str] = []
-        
+
         # 提取前 N 个检索结果
         for node_id, score, kind in trace.ranked[:max_items]:
-            evidence_refs.append(EvidenceRef(id=node_id, kind=kind, score=float(score), role="retrieved"))
+            evidence_refs.append(
+                EvidenceRef(id=node_id, kind=kind, score=float(score), role="retrieved")
+            )
             retrieval_hits.append(self._hit_summary(node_id=node_id, kind=kind, score=score))
-            
+
         return StructuredMemoryContext(
             mode=identity.current_mode,
             narrative_pressure=summary.pressure,
@@ -68,7 +75,9 @@ class ResponseContextBuilder:
             time_relation=trace.time_range.relation if trace.time_range is not None else None,
             time_start=trace.time_range.start if trace.time_range is not None else None,
             time_end=trace.time_range.end if trace.time_range is not None else None,
-            time_anchor_event=trace.time_range.anchor_event if trace.time_range is not None else None,
+            time_anchor_event=trace.time_range.anchor_event
+            if trace.time_range is not None
+            else None,
         )
 
     @staticmethod
@@ -87,13 +96,21 @@ class ResponseContextBuilder:
         ]
         if identity is not None:
             # 排序并展示最重要的性格轴
-            axis_items = sorted(identity.axis_state.items(), key=lambda item: abs(item[1]), reverse=True)
+            axis_items = sorted(
+                identity.axis_state.items(), key=lambda item: abs(item[1]), reverse=True
+            )
             top_axes = ", ".join(f"{name}={value:+.2f}" for name, value in axis_items[:4]) or "none"
             # 展示潜意识直觉
-            intuition = ", ".join(
-                f"{name}={value:+.2f}" for name, value in sorted(identity.intuition_axes.items(), key=lambda item: abs(item[1]), reverse=True)[:3]
-                if abs(value) >= 0.05
-            ) or "none"
+            intuition = (
+                ", ".join(
+                    f"{name}={value:+.2f}"
+                    for name, value in sorted(
+                        identity.intuition_axes.items(), key=lambda item: abs(item[1]), reverse=True
+                    )[:3]
+                    if abs(value) >= 0.05
+                )
+                or "none"
+            )
             lines.extend(
                 [
                     f"- active_energy: {identity.active_energy:.3f}",
@@ -105,7 +122,7 @@ class ResponseContextBuilder:
             )
         if summary is not None:
             salient_axes = ", ".join(summary.salient_axes[:4]) or "none"
-            
+
         lines.append("")
         lines.append("[Narrative Summary]")
         if summary is not None:
@@ -113,21 +130,21 @@ class ResponseContextBuilder:
             lines.append(f"- salient_axes: {salient_axes}")
         else:
             lines.append("- none")
-            
+
         lines.append("")
         lines.append("[System Intuition]")
         if context.intuition:
             lines.extend(f"- {item}" for item in context.intuition)
         else:
             lines.append("- none")
-            
+
         lines.append("")
         lines.append("[Relevant Memory]")
         if context.retrieval_hits:
             lines.extend(f"- {item}" for item in context.retrieval_hits)
         else:
             lines.append("- none")
-            
+
         return "\n".join(lines)
 
     @staticmethod

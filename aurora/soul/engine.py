@@ -1,6 +1,6 @@
 """
 aurora/soul/engine.py
-核心引擎模块：负责记忆的摄入 (Ingest)、身份的演化 (Evolution)、潜意识的处理 (Subconscious) 
+核心引擎模块：负责记忆的摄入 (Ingest)、身份的演化 (Evolution)、潜意识的处理 (Subconscious)
 以及模式的涌现 (Mode Emergence)。它是 Aurora V4 系统的枢纽，将所有子系统（检索、聚类、提取）结合在一起。
 """
 
@@ -12,7 +12,7 @@ import math
 import random
 import uuid
 from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, TypeVar, cast
 
 import numpy as np
 
@@ -37,9 +37,9 @@ from aurora.soul.models import (
     Plot,
     PsychologicalSchema,
     RepairCandidate,
+    RetrievalTrace,
     StoryArc,
     Theme,
-    axes_to_phrase,
     clamp,
     clamp01,
     heuristic_persona_axes,
@@ -48,8 +48,6 @@ from aurora.soul.models import (
     schema_from_profile,
     sigmoid,
     softmax,
-    stable_hash,
-    top_axes_description,
 )
 from aurora.soul.retrieval import (
     CRPAssigner,
@@ -79,7 +77,14 @@ def stable_uuid(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:10]}"
 
 
-def weighted_choice(items: Sequence[Any], weights: Sequence[float], rng: np.random.Generator) -> Any:
+WeightedItem = TypeVar("WeightedItem")
+
+
+def weighted_choice(
+    items: Sequence[WeightedItem],
+    weights: Sequence[float],
+    rng: np.random.Generator,
+) -> WeightedItem:
     """基于权重的随机采样"""
     if not items:
         raise ValueError("weighted_choice on empty items")
@@ -95,6 +100,7 @@ class SubconsciousField:
     潜意识场：负责存储、采样和合成“梦境”。
     它像一个蓄水池，保存了那些高张力或未解决的记忆碎片。
     """
+
     def __init__(self, reservoir: int = 1024, seed: int = 0):
         self.reservoir = reservoir
         self._seed = seed
@@ -131,7 +137,9 @@ class SubconsciousField:
 
     def operator(self, fragments: Sequence[LatentFragment], state: IdentityState) -> str:
         """根据碎片性质和当前状态选择梦境的操作符（梦的性质）"""
-        unresolved = float(np.mean([fragment.unresolved for fragment in fragments])) if fragments else 0.0
+        unresolved = (
+            float(np.mean([fragment.unresolved for fragment in fragments])) if fragments else 0.0
+        )
         # 高冲突碎片倾向于：恐惧预演或反事实重跑
         if unresolved > 0.72:
             return weighted_choice(
@@ -200,18 +208,71 @@ class SubconsciousField:
         # 生成梦境的 EventFrame
         dream_frame = EventFrame(
             axis_evidence=blended,
-            valence=clamp(np.mean([sum(fragment.axis_evidence.values()) / max(len(fragment.axis_evidence), 1) for fragment in fragments])),
-            arousal=clamp01(0.30 + 0.25 * np.mean([fragment.unresolved for fragment in fragments])),
-            care=max(0.0, np.mean([0.25 + 0.25 * max(0.0, fragment.axis_evidence.get("affiliation", 0.0)) for fragment in fragments])),
-            threat=max(0.0, np.mean([0.25 + 0.25 * max(0.0, fragment.axis_evidence.get("vigilance", 0.0)) for fragment in fragments])),
+            valence=clamp(
+                float(
+                    np.mean(
+                        [
+                            sum(fragment.axis_evidence.values())
+                            / max(len(fragment.axis_evidence), 1)
+                            for fragment in fragments
+                        ]
+                    )
+                )
+            ),
+            arousal=clamp01(
+                0.30 + 0.25 * float(np.mean([fragment.unresolved for fragment in fragments]))
+            ),
+            care=max(
+                0.0,
+                float(
+                    np.mean(
+                        [
+                            0.25 + 0.25 * max(0.0, fragment.axis_evidence.get("affiliation", 0.0))
+                            for fragment in fragments
+                        ]
+                    )
+                ),
+            ),
+            threat=max(
+                0.0,
+                float(
+                    np.mean(
+                        [
+                            0.25 + 0.25 * max(0.0, fragment.axis_evidence.get("vigilance", 0.0))
+                            for fragment in fragments
+                        ]
+                    )
+                ),
+            ),
             agency_signal=max(0.0, blended.get("agency", 0.0)),
-            shame=max(0.0, -clamp(np.mean([sum(fragment.axis_evidence.values()) / max(len(fragment.axis_evidence), 1) for fragment in fragments]))) * 0.15,
+            shame=max(
+                0.0,
+                -clamp(
+                    float(
+                        np.mean(
+                            [
+                                sum(fragment.axis_evidence.values())
+                                / max(len(fragment.axis_evidence), 1)
+                                for fragment in fragments
+                            ]
+                        )
+                    )
+                )
+                * 0.15,
+            ),
             novelty=0.40,
             self_relevance=0.85,
             tags=tuple(["dream", operator, *tags][:12]),
         )
         # 计算共鸣度
-        resonance = float(np.mean([np.dot(state.self_vector, fragment.embedding) * (0.5 + fragment.unresolved) for fragment in fragments]))
+        resonance = float(
+            np.mean(
+                [
+                    np.dot(state.self_vector, fragment.embedding) * (0.5 + fragment.unresolved)
+                    for fragment in fragments
+                ]
+            )
+        )
         return text, dream_frame, resonance
 
     def to_state_dict(self) -> Dict[str, Any]:
@@ -235,6 +296,7 @@ class SchemaConsolidator:
     Schema 整合器：负责管理性格轴的演变，发现相似轴并进行合并。
     防止人设维度无限增长导致的性能下降和语义发散。
     """
+
     def __init__(self, every_events: int = 50, budget: int = 24):
         self.every_events = every_events
         self.budget = budget
@@ -252,7 +314,9 @@ class SchemaConsolidator:
 
     def should_run(self, added_axis: bool, persona_count: int) -> bool:
         """判断是否需要运行合并检查"""
-        return added_axis or self.events_since_last >= self.every_events or persona_count > self.budget
+        return (
+            added_axis or self.events_since_last >= self.every_events or persona_count > self.budget
+        )
 
     def maybe_consolidate(
         self,
@@ -282,8 +346,12 @@ class SchemaConsolidator:
                     # 综合评分：方向相似度 + 锚点相似度 + 激活文本重合度
                     direction_sim = cosine_sim(left.direction, right.direction)
                     anchor_sim = cosine_sim(left.positive_anchor, right.positive_anchor)
-                    overlap = set(self.axis_texts.get(left.name, [])) & set(self.axis_texts.get(right.name, []))
-                    score = 0.55 * direction_sim + 0.35 * anchor_sim + 0.10 * min(len(overlap), 3)
+                    overlap_set = set(self.axis_texts.get(left.name, [])) & set(
+                        self.axis_texts.get(right.name, [])
+                    )
+                    score = (
+                        0.55 * direction_sim + 0.35 * anchor_sim + 0.10 * min(len(overlap_set), 3)
+                    )
                     if score > best_score:
                         best_score = score
                         best_pair = (left_name, right_name)
@@ -294,7 +362,9 @@ class SchemaConsolidator:
             left_name, right_name = best_pair
             left = schema.persona_axes[left_name]
             right = schema.persona_axes[right_name]
-            overlap = list(set(self.axis_texts.get(left.name, [])) & set(self.axis_texts.get(right.name, [])))
+            overlap = list(
+                set(self.axis_texts.get(left.name, [])) & set(self.axis_texts.get(right.name, []))
+            )
             # 最终合并决策由 narrator (LLM) 做出
             should_merge, reason = narrator.judge_axis_merge(left, right, overlap)
             # 如果超出预算且相似度极高，强制合并
@@ -303,8 +373,12 @@ class SchemaConsolidator:
                 break
 
             # 执行合并，保留支持度高的作为规范名
-            canonical, alias = (left, right) if left.support_count >= right.support_count else (right, left)
-            schema.merge_persona_axes(canonical.name, alias.name, note=reason or f"similarity={best_score:.3f}")
+            canonical, alias = (
+                (left, right) if left.support_count >= right.support_count else (right, left)
+            )
+            schema.merge_persona_axes(
+                canonical.name, alias.name, note=reason or f"similarity={best_score:.3f}"
+            )
             schema.persona_axes[canonical.name].compile(axis_embedder)
             merges.append((canonical.name, alias.name))
             if len(schema.persona_axes) <= self.budget and best_score < 0.90:
@@ -330,29 +404,33 @@ class SchemaConsolidator:
             budget=int(data.get("budget", 24)),
         )
         obj.events_since_last = int(data.get("events_since_last", 0))
-        obj.axis_texts = {str(key): [str(item) for item in value] for key, value in data.get("axis_texts", {}).items()}
+        obj.axis_texts = {
+            str(key): [str(item) for item in value]
+            for key, value in data.get("axis_texts", {}).items()
+        }
         return obj
 
 
 @dataclass(frozen=True)
 class SoulConfig:
     """灵魂引擎配置类：控制维度、阈值和蓄水池容量"""
-    dim: int = 384                 # 向量维度
-    metric_rank: int = 64          # 低秩度量学习的秩
-    max_plots: int = 5000          # 最大情节存储量
-    kde_reservoir: int = 4096      # KDE 采样蓄水池大小
-    subconscious_reservoir: int = 1024 # 潜意识采样蓄水池大小
-    story_alpha: float = 1.0       # CRP 故事聚类的 Alpha（控制发现新故事的概率）
-    theme_alpha: float = 0.6       # CRP 主题聚类的 Alpha
-    gate_feature_dim: int = 8      # 门控特征维度
-    retrieval_kinds: Tuple[str, ...] = ("theme", "story", "plot") # 检索类型
-    mode_refractory_steps: int = 4 # 模式切换冷却步数
-    mode_new_threshold: float = 0.52 # 发现新模式的阈值
-    encode_min_events_before_gating: int = 6 # 开启门控前的最少事件数
-    max_recent_texts: int = 12     # 最近文本历史保留数
-    profile_text: str = ""         # 初始人设文本
-    persona_axes_json: Optional[str] = None # 预设人设轴 JSON
-    axis_merge_every_events: int = 50 # 轴合并检查频率
+
+    dim: int = 384  # 向量维度
+    metric_rank: int = 64  # 低秩度量学习的秩
+    max_plots: int = 5000  # 最大情节存储量
+    kde_reservoir: int = 4096  # KDE 采样蓄水池大小
+    subconscious_reservoir: int = 1024  # 潜意识采样蓄水池大小
+    story_alpha: float = 1.0  # CRP 故事聚类的 Alpha（控制发现新故事的概率）
+    theme_alpha: float = 0.6  # CRP 主题聚类的 Alpha
+    gate_feature_dim: int = 8  # 门控特征维度
+    retrieval_kinds: Tuple[str, ...] = ("theme", "story", "plot")  # 检索类型
+    mode_refractory_steps: int = 4  # 模式切换冷却步数
+    mode_new_threshold: float = 0.52  # 发现新模式的阈值
+    encode_min_events_before_gating: int = 6  # 开启门控前的最少事件数
+    max_recent_texts: int = 12  # 最近文本历史保留数
+    profile_text: str = ""  # 初始人设文本
+    persona_axes_json: Optional[str] = None  # 预设人设轴 JSON
+    axis_merge_every_events: int = 50  # 轴合并检查频率
     persona_axis_budget: int = 24  # 人设轴数量预算
 
     def to_state_dict(self) -> Dict[str, Any]:
@@ -407,6 +485,7 @@ class AuroraSoul:
     负责记忆的生命周期管理（Ingest -> Store -> Query -> Evolve）。
     驱动身份动力学模拟（Dissonance -> Repair -> Mode Transition）。
     """
+
     def __init__(
         self,
         cfg: SoulConfig = SoulConfig(),
@@ -497,7 +576,7 @@ class AuroraSoul:
         # 尝试通过 provider 智能提取
         bootstrapper = getattr(self.meaning_provider, "bootstrap_persona_axes", None)
         if callable(bootstrapper):
-            extracted = bootstrapper(self.cfg.profile_text)
+            extracted = cast(List[Dict[str, Any]], bootstrapper(self.cfg.profile_text))
         else:
             extracted = self.meaning_provider.extract_persona_axes(self.cfg.profile_text)
         if extracted:
@@ -630,7 +709,9 @@ class AuroraSoul:
             axis_alignments[axis_name] = max(0.0, current * evidence)
 
         # 高维空间冲突
-        semantic_conflict = max(0.0, -float(np.dot(self.identity.self_vector, embedding))) * frame.self_relevance
+        semantic_conflict = (
+            max(0.0, -float(np.dot(self.identity.self_vector, embedding))) * frame.self_relevance
+        )
         # 情感负荷：基于唤醒度、负效价以及威胁/羞耻等信号
         affective_load = (
             0.30 * frame.arousal
@@ -641,7 +722,9 @@ class AuroraSoul:
             + 0.10 * frame.abandonment
         )
         # 叙事不一致性
-        narrative_incongruity = mean_abs(axis_conflicts.values()) * (0.55 + 0.45 * frame.self_relevance)
+        narrative_incongruity = mean_abs(axis_conflicts.values()) * (
+            0.55 + 0.45 * frame.self_relevance
+        )
         # 综合总分计算
         total = (
             0.36 * mean_abs(axis_conflicts.values())
@@ -690,24 +773,37 @@ class AuroraSoul:
         salient_axes = self._top_conflict_axes(dissonance)
         if not salient_axes:
             fallback_scores = {
-                name: abs(plot.frame.axis_evidence.get(name, 0.0))
-                for name in self._axis_names()
+                name: abs(plot.frame.axis_evidence.get(name, 0.0)) for name in self._axis_names()
             }
-            salient_axes = [name for name, value in sorted(fallback_scores.items(), key=lambda item: item[1], reverse=True)[:4] if value > 0.08]
+            salient_axes = [
+                name
+                for name, value in sorted(
+                    fallback_scores.items(), key=lambda item: item[1], reverse=True
+                )[:4]
+                if value > 0.08
+            ]
             if not salient_axes:
                 return []
 
         # 潜意识（梦境）对当前事件的支持度
         dream_support = 0.0
         for axis_name in self._axis_names():
-            dream_support += state.intuition_axes.get(axis_name, 0.0) * plot.frame.axis_evidence.get(axis_name, 0.0)
+            dream_support += state.intuition_axes.get(
+                axis_name, 0.0
+            ) * plot.frame.axis_evidence.get(axis_name, 0.0)
         dream_support /= max(len(self._axis_names()), 1)
 
         # 现实拟合度
-        repeated_conflict = float(np.mean([
-            self._reality_fit_for_axis(axis_name, plot.frame.axis_evidence.get(axis_name, 0.0))
-            for axis_name in salient_axes
-        ]))
+        repeated_conflict = float(
+            np.mean(
+                [
+                    self._reality_fit_for_axis(
+                        axis_name, plot.frame.axis_evidence.get(axis_name, 0.0)
+                    )
+                    for axis_name in salient_axes
+                ]
+            )
+        )
 
         def shift_axes(mode: str) -> Tuple[Dict[str, float], np.ndarray]:
             """根据不同模式模拟轴向得分的变动"""
@@ -715,20 +811,27 @@ class AuroraSoul:
             for axis_name in salient_axes:
                 evidence = plot.frame.axis_evidence.get(axis_name, 0.0)
                 current = axes.get(axis_name, 0.0)
-                if mode == "preserve": # 坚持自我：强化当前偏移以对抗冲突
+                if mode == "preserve":  # 坚持自我：强化当前偏移以对抗冲突
                     if current * evidence < 0:
-                        axes[axis_name] = clamp(current + 0.18 * np.sign(current if abs(current) > 0.02 else -evidence))
-                elif mode == "reframe": # 重构：轻微向证据靠拢
+                        axes[axis_name] = clamp(
+                            current + 0.18 * np.sign(current if abs(current) > 0.02 else -evidence)
+                        )
+                elif mode == "reframe":  # 重构：轻微向证据靠拢
                     axes[axis_name] = clamp(current + 0.10 * evidence * (0.5 + state.plasticity()))
-                elif mode == "revise": # 修正：大幅向现实证据靠拢
+                elif mode == "revise":  # 修正：大幅向现实证据靠拢
                     axes[axis_name] = clamp(current + 0.22 * evidence * (0.45 + repeated_conflict))
-                elif mode == "differentiate": # 分化：建立边界
+                elif mode == "differentiate":  # 分化：建立边界
                     axes[axis_name] = clamp(current + 0.10 * evidence * 0.5)
-                else: # 整合：深度融合新证据和梦境直觉
-                    axes[axis_name] = clamp(current + 0.16 * evidence * (0.35 + repeated_conflict + max(0.0, dream_support)))
+                else:  # 整合：深度融合新证据和梦境直觉
+                    axes[axis_name] = clamp(
+                        current
+                        + 0.16 * evidence * (0.35 + repeated_conflict + max(0.0, dream_support))
+                    )
 
             # 处理防御性轴（Vigilance, Agency 等）
-            threat_load = plot.frame.threat + 0.7 * plot.frame.control + 0.6 * plot.frame.abandonment
+            threat_load = (
+                plot.frame.threat + 0.7 * plot.frame.control + 0.6 * plot.frame.abandonment
+            )
             if mode == "preserve":
                 axes["vigilance"] = clamp(axes.get("vigilance", 0.0) + 0.18 * threat_load)
                 axes["exploration"] = clamp(axes.get("exploration", 0.0) - 0.12 * threat_load)
@@ -740,16 +843,22 @@ class AuroraSoul:
                 axes["coherence"] = clamp(axes.get("coherence", 0.0) + 0.14)
                 axes["exploration"] = clamp(axes.get("exploration", 0.0) + 0.08 * repeated_conflict)
             elif mode == "differentiate":
-                axes["agency"] = clamp(axes.get("agency", 0.0) + 0.22 * max(plot.frame.agency_signal, threat_load))
+                axes["agency"] = clamp(
+                    axes.get("agency", 0.0) + 0.22 * max(plot.frame.agency_signal, threat_load)
+                )
                 axes["affiliation"] = clamp(axes.get("affiliation", 0.0) - 0.10 * threat_load)
                 axes["vigilance"] = clamp(axes.get("vigilance", 0.0) + 0.12 * threat_load)
                 axes["coherence"] = clamp(axes.get("coherence", 0.0) + 0.06)
             else:
                 axes["coherence"] = clamp(axes.get("coherence", 0.0) + 0.16)
                 axes["regulation"] = clamp(axes.get("regulation", 0.0) + 0.12)
-                axes["exploration"] = clamp(axes.get("exploration", 0.0) + 0.08 * max(plot.frame.care, repeated_conflict))
+                axes["exploration"] = clamp(
+                    axes.get("exploration", 0.0) + 0.08 * max(plot.frame.care, repeated_conflict)
+                )
                 axes["agency"] = clamp(axes.get("agency", 0.0) + 0.06 * plot.frame.agency_signal)
-                axes["affiliation"] = clamp(axes.get("affiliation", 0.0) + 0.08 * plot.frame.care - 0.04 * threat_load)
+                axes["affiliation"] = clamp(
+                    axes.get("affiliation", 0.0) + 0.08 * plot.frame.care - 0.04 * threat_load
+                )
             return axes, self._compose_self_vector(axes)
 
         def score(
@@ -761,17 +870,23 @@ class AuroraSoul:
         ) -> RepairCandidate:
             """评估策略的效用 (Utility)"""
             drift = 1.0 - float(np.dot(state.self_vector, new_vector))
-            coherence_gain = max(0.0, axes.get("coherence", 0.0) - state.axis_state.get("coherence", 0.0))
+            coherence_gain = max(
+                0.0, axes.get("coherence", 0.0) - state.axis_state.get("coherence", 0.0)
+            )
             current_pressure = state.narrative_pressure()
             new_contradiction = moving_average(state.contradiction_ema, dissonance.total, 0.20)
             projected_pressure = active_after + 0.85 * repressed_after + 1.20 * new_contradiction
             pressure_relief = max(0.0, current_pressure - projected_pressure)
-            reality = float(np.mean([
-                self._reality_fit_for_axis(axis_name, axes.get(axis_name, 0.0))
-                for axis_name in salient_axes
-            ]))
+            reality = float(
+                np.mean(
+                    [
+                        self._reality_fit_for_axis(axis_name, axes.get(axis_name, 0.0))
+                        for axis_name in salient_axes
+                    ]
+                )
+            )
             continuity_penalty = drift * (0.85 - 0.45 * repeated_conflict)
-            
+
             # 综合效用分公式
             utility = (
                 0.36 * pressure_relief
@@ -788,9 +903,15 @@ class AuroraSoul:
             elif mode == "revise":
                 utility += 0.16 * repeated_conflict + 0.08 * plot.evidence_weight
             elif mode == "differentiate":
-                utility += 0.14 * (plot.frame.threat + plot.frame.control + plot.frame.agency_signal)
+                utility += 0.14 * (
+                    plot.frame.threat + plot.frame.control + plot.frame.agency_signal
+                )
             else:
-                utility += 0.12 * state.plasticity() + 0.12 * max(0.0, dream_support) + 0.06 * plot.frame.care
+                utility += (
+                    0.12 * state.plasticity()
+                    + 0.12 * max(0.0, dream_support)
+                    + 0.06 * plot.frame.care
+                )
 
             # 生成叙事解释
             explanation = self.narrator.compose_repair(
@@ -828,11 +949,31 @@ class AuroraSoul:
 
         candidates: List[RepairCandidate] = []
         for mode, active_after, repressed_after in [
-            ("preserve", state.active_energy - 0.28 * dissonance.total, state.repressed_energy + 0.52 * dissonance.total),
-            ("reframe", state.active_energy - 0.48 * dissonance.total, state.repressed_energy + 0.16 * dissonance.total),
-            ("revise", state.active_energy - 0.72 * dissonance.total, state.repressed_energy + 0.06 * dissonance.total),
-            ("differentiate", state.active_energy - 0.60 * dissonance.total, state.repressed_energy + 0.12 * dissonance.total),
-            ("integrate", state.active_energy - 0.82 * dissonance.total, max(0.0, state.repressed_energy - 0.10 * dissonance.total)),
+            (
+                "preserve",
+                state.active_energy - 0.28 * dissonance.total,
+                state.repressed_energy + 0.52 * dissonance.total,
+            ),
+            (
+                "reframe",
+                state.active_energy - 0.48 * dissonance.total,
+                state.repressed_energy + 0.16 * dissonance.total,
+            ),
+            (
+                "revise",
+                state.active_energy - 0.72 * dissonance.total,
+                state.repressed_energy + 0.06 * dissonance.total,
+            ),
+            (
+                "differentiate",
+                state.active_energy - 0.60 * dissonance.total,
+                state.repressed_energy + 0.12 * dissonance.total,
+            ),
+            (
+                "integrate",
+                state.active_energy - 0.82 * dissonance.total,
+                max(0.0, state.repressed_energy - 0.10 * dissonance.total),
+            ),
         ]:
             axes, new_vector = shift_axes(mode)
             candidates.append(score(mode, axes, new_vector, active_after, repressed_after))
@@ -846,7 +987,7 @@ class AuroraSoul:
         self.identity.repressed_energy = candidate.new_repressed
         self.identity.repair_count += 1
         self.identity.narrative_log.append(candidate.explanation)
-        
+
         # 将自我反思的结果作为一条新记忆（repair 类型）摄入系统
         repair_plot = self.ingest(
             candidate.explanation,
@@ -872,15 +1013,17 @@ class AuroraSoul:
             # 无法消化则压抑能量
             self.identity.repressed_energy += 0.22 * dissonance.total
             return
-            
+
         candidates = self._candidate_repairs(plot, dissonance)
         if not candidates:
             self.identity.repressed_energy += 0.15 * dissonance.total
             return
-            
+
         # 按照效用分进行概率采样 (Softmax)
         probs = softmax([candidate.utility for candidate in candidates])
-        idx = int(self.rng.choice(np.arange(len(candidates)), p=np.asarray(probs, dtype=np.float64)))
+        idx = int(
+            self.rng.choice(np.arange(len(candidates)), p=np.asarray(probs, dtype=np.float64))
+        )
         self._apply_candidate_repair(candidates[idx], plot)
 
     def _current_axis_signature(self) -> Dict[str, float]:
@@ -896,8 +1039,14 @@ class AuroraSoul:
             return None
 
         pressure = self.identity.narrative_pressure()
-        current_mode = self.modes.get(self.identity.current_mode_id) if self.identity.current_mode_id else None
-        current_score = current_mode.score(self.identity.self_vector, self.identity.axis_state) if current_mode else 0.0
+        current_mode = (
+            self.modes.get(self.identity.current_mode_id) if self.identity.current_mode_id else None
+        )
+        current_score = (
+            current_mode.score(self.identity.self_vector, self.identity.axis_state)
+            if current_mode
+            else 0.0
+        )
 
         # 寻找与当前状态最匹配的模式吸引子
         best_mode = current_mode
@@ -936,15 +1085,21 @@ class AuroraSoul:
             return None
         # 如果还在旧模式范围内，则对旧模式中心进行微调强化
         if current_mode is not None and best_mode.id == current_mode.id:
-            current_mode.prototype = l2_normalize(0.92 * current_mode.prototype + 0.08 * self.identity.self_vector)
+            current_mode.prototype = l2_normalize(
+                0.92 * current_mode.prototype + 0.08 * self.identity.self_vector
+            )
             for key, value in self.identity.axis_state.items():
-                current_mode.axis_prototype[key] = moving_average(current_mode.axis_prototype.get(key, 0.0), value, 0.08)
+                current_mode.axis_prototype[key] = moving_average(
+                    current_mode.axis_prototype.get(key, 0.0), value, 0.08
+                )
             current_mode.support += 1
             current_mode.updated_ts = now_ts()
             return None
 
         # 模式切换检查：必须跨越“滞后势垒”
-        threshold = best_mode.barrier + best_mode.hysteresis * (1.0 + 0.35 * self.identity.mode_change_count)
+        threshold = best_mode.barrier + best_mode.hysteresis * (
+            1.0 + 0.35 * self.identity.mode_change_count
+        )
         if best_score - current_score <= threshold:
             return None
 
@@ -955,7 +1110,9 @@ class AuroraSoul:
         self.identity.mode_change_count += 1
         self.identity.last_mode_step = self.step
         self.identity.last_mode_change_ts = now_ts()
-        self.identity.narrative_log.append(f"Mode transition: {previous_label} -> {best_mode.label}")
+        self.identity.narrative_log.append(
+            f"Mode transition: {previous_label} -> {best_mode.label}"
+        )
 
         # 摄入一条“相变记忆”
         mode_plot = self.ingest(
@@ -983,7 +1140,7 @@ class AuroraSoul:
             self.stories[story.id] = story
             self.graph.add_node(story.id, "story", story)
             self.vindex.add(story.id, plot.embedding, kind="story")
-        
+
         story = self.stories[chosen_story_id]
         # 更新故事重心和统计量
         if story.centroid is None:
@@ -1004,7 +1161,7 @@ class AuroraSoul:
         plot.story_id = story.id
         self.graph.ensure_edge(plot.id, story.id, "belongs_to")
         self.graph.ensure_edge(story.id, plot.id, "contains")
-        
+
         # 更新向量索引中的位置
         if story.id in self.vindex.ids:
             idx = self.vindex.ids.index(story.id)
@@ -1035,8 +1192,9 @@ class AuroraSoul:
             )
             self.themes[theme.id] = theme
             self.graph.add_node(theme.id, "theme", theme)
+            assert theme.prototype is not None
             self.vindex.add(theme.id, theme.prototype, kind="theme")
-            
+
         theme = self.themes[chosen_theme_id]
         if story.id not in theme.story_ids:
             theme.story_ids.append(story.id)
@@ -1050,7 +1208,7 @@ class AuroraSoul:
         theme.name = theme.name or theme.label
         self.graph.ensure_edge(story.id, theme.id, "instantiates")
         self.graph.ensure_edge(theme.id, story.id, "grounds")
-        
+
         if theme.id in self.vindex.ids:
             idx = self.vindex.ids.index(theme.id)
             self.vindex.vecs[idx] = self._theme_vector_for_index(theme)
@@ -1104,17 +1262,20 @@ class AuroraSoul:
             axis = self.schema.all_axes().get(axis_name)
             # 稳态轴同化速度较快，人设轴较慢（更稳定）
             rate = 0.015 if (axis is not None and axis.level == "persona") else 0.025
-            rate *= (0.55 + 0.45 * frame.self_relevance)
+            rate *= 0.55 + 0.45 * frame.self_relevance
             self.identity.axis_state[axis_name] = moving_average(
                 self.identity.axis_state.get(axis_name, 0.0),
                 evidence,
                 rate,
             )
             changed = True
-        
+
         # 情感反馈通道的固定调节逻辑
         self.identity.axis_state["regulation"] = clamp(
-            self.identity.axis_state.get("regulation", 0.0) + 0.03 * frame.care - 0.04 * frame.arousal - 0.03 * frame.threat
+            self.identity.axis_state.get("regulation", 0.0)
+            + 0.03 * frame.care
+            - 0.04 * frame.arousal
+            - 0.03 * frame.threat
         )
         self.identity.axis_state["vigilance"] = clamp(
             self.identity.axis_state.get("vigilance", 0.0) + 0.03 * frame.threat - 0.02 * frame.care
@@ -1157,7 +1318,9 @@ class AuroraSoul:
             strength = abs(bias) * corroboration
             # 概率性固化
             if self.rng.random() < sigmoid(3.0 * (strength - 0.35)):
-                self.identity.axis_state[axis_name] = clamp(self.identity.axis_state.get(axis_name, 0.0) + 0.05 * bias)
+                self.identity.axis_state[axis_name] = clamp(
+                    self.identity.axis_state.get(axis_name, 0.0) + 0.05 * bias
+                )
         self.identity.self_vector = self._compose_self_vector(self.identity.axis_state)
 
     def _encode_features(self, plot: Plot) -> np.ndarray:
@@ -1200,7 +1363,9 @@ class AuroraSoul:
             self.identity.axis_state.setdefault(axis.name, 0.0)
             self.identity.intuition_axes.setdefault(axis.name, 0.0)
             self.wake_axis_stats.setdefault(axis.name, {"pos": 1.0, "neg": 1.0})
-            self.identity.narrative_log.append(f"New axis emerged: {axis.name} ({axis.positive_pole} ↔ {axis.negative_pole})")
+            self.identity.narrative_log.append(
+                f"New axis emerged: {axis.name} ({axis.positive_pole} ↔ {axis.negative_pole})"
+            )
             return True
         return False
 
@@ -1209,7 +1374,9 @@ class AuroraSoul:
         if len(self.plots) <= self.cfg.max_plots:
             return
         # 挑选 Mass 最小的牺牲品
-        victims = sorted(self.plots.values(), key=lambda plot: plot.mass())[: max(1, len(self.plots) - self.cfg.max_plots)]
+        victims = sorted(self.plots.values(), key=lambda plot: plot.mass())[
+            : max(1, len(self.plots) - self.cfg.max_plots)
+        ]
         for victim in victims:
             victim.status = "archived"
             self.vindex.remove(victim.id)
@@ -1276,7 +1443,10 @@ class AuroraSoul:
         )
 
         # 长期记忆门控决策：利用 Thompson 门控模型决定是否值得存入索引
-        encode = source in {"dream", "repair", "mode"} or len(self.plots) < self.cfg.encode_min_events_before_gating
+        encode = (
+            source in {"dream", "repair", "mode"}
+            or len(self.plots) < self.cfg.encode_min_events_before_gating
+        )
         if not encode:
             encode = self.gate.decide(self._encode_features(plot))
         if encode:
@@ -1290,9 +1460,14 @@ class AuroraSoul:
         # 身份能量流转
         energy_scale = {"wake": 1.0, "dream": 0.35, "repair": 0.20, "mode": 0.15}[source]
         self.identity.active_energy += energy_scale * (
-            0.38 * dissonance.total + 0.26 * frame.arousal + 0.16 * max(0.0, -frame.valence) + 0.10 * frame.threat
+            0.38 * dissonance.total
+            + 0.26 * frame.arousal
+            + 0.16 * max(0.0, -frame.valence)
+            + 0.10 * frame.threat
         )
-        self.identity.contradiction_ema = moving_average(self.identity.contradiction_ema, dissonance.total, 0.24)
+        self.identity.contradiction_ema = moving_average(
+            self.identity.contradiction_ema, dissonance.total, 0.24
+        )
 
         # 潜意识采样
         self.subconscious.add(
@@ -1341,7 +1516,9 @@ class AuroraSoul:
             fragments = self.subconscious.sample(n=int(self.rng.integers(1, 4)))
             if not fragments:
                 continue
-            text, frame, resonance = self.subconscious.synthesize(fragments, self.identity, self.schema, self.narrator)
+            text, frame, resonance = self.subconscious.synthesize(
+                fragments, self.identity, self.schema, self.narrator
+            )
             plot = self.ingest(
                 text,
                 actors=("self",),
@@ -1360,7 +1537,7 @@ class AuroraSoul:
         """公开的演化接口"""
         return self.dream(n=dreams)
 
-    def query(self, text: str, k: int = 8):
+    def query(self, text: str, k: int = 8) -> RetrievalTrace:
         """记忆检索接口：场论驱动的复杂检索"""
         trace = self.retriever.retrieve(
             query_text=text,
@@ -1401,7 +1578,9 @@ class AuroraSoul:
         # 更新图和主题的证据置信度
         if self.graph.kind(chosen_id) == "theme" and chosen_id in self.themes:
             self.themes[chosen_id].update_evidence(success)
-        for neighbor in list(self.graph.g.predecessors(chosen_id)) + list(self.graph.g.successors(chosen_id)):
+        for neighbor in list(self.graph.g.predecessors(chosen_id)) + list(
+            self.graph.g.successors(chosen_id)
+        ):
             if self.graph.g.has_edge(neighbor, chosen_id):
                 self.graph.edge_belief(neighbor, chosen_id).update(success)
             if self.graph.g.has_edge(chosen_id, neighbor):
@@ -1409,7 +1588,9 @@ class AuroraSoul:
 
     def intuition_keywords(self, limit: int = 2) -> List[str]:
         """获取当前最显著的直觉（梦中倾向）"""
-        items = sorted(self.identity.intuition_axes.items(), key=lambda item: abs(item[1]), reverse=True)
+        items = sorted(
+            self.identity.intuition_axes.items(), key=lambda item: abs(item[1]), reverse=True
+        )
         phrases: List[str] = []
         for axis_name, value in items[:limit]:
             axis = self.schema.all_axes().get(axis_name)
@@ -1424,8 +1605,13 @@ class AuroraSoul:
         ordered = self._axis_names()
         return IdentitySnapshot(
             current_mode=self.identity.current_mode_label,
-            axis_state={name: round(float(self.identity.axis_state.get(name, 0.0)), 4) for name in ordered},
-            intuition_axes={name: round(float(self.identity.intuition_axes.get(name, 0.0)), 4) for name in ordered},
+            axis_state={
+                name: round(float(self.identity.axis_state.get(name, 0.0)), 4) for name in ordered
+            },
+            intuition_axes={
+                name: round(float(self.identity.intuition_axes.get(name, 0.0)), 4)
+                for name in ordered
+            },
             persona_axes={
                 name: {
                     "positive_pole": axis.positive_pole,
@@ -1472,7 +1658,9 @@ class AuroraSoul:
             "graph": self.graph.to_state_dict(),
             "vindex": self.vindex.to_state_dict(),
             "plots": {plot_id: plot.to_state_dict() for plot_id, plot in self.plots.items()},
-            "stories": {story_id: story.to_state_dict() for story_id, story in self.stories.items()},
+            "stories": {
+                story_id: story.to_state_dict() for story_id, story in self.stories.items()
+            },
             "themes": {theme_id: theme.to_state_dict() for theme_id, theme in self.themes.items()},
             "crp_story": self.crp_story.to_state_dict(),
             "crp_theme": self.crp_theme.to_state_dict(),
@@ -1514,9 +1702,17 @@ class AuroraSoul:
         obj.metric = LowRankMetric.from_state_dict(data["metric"])
         obj.gate = ThompsonBernoulliGate.from_state_dict(data["gate"])
         obj.vindex = VectorIndex.from_state_dict(data["vindex"])
-        obj.plots = {plot_id: Plot.from_state_dict(item) for plot_id, item in data.get("plots", {}).items()}
-        obj.stories = {story_id: StoryArc.from_state_dict(item) for story_id, item in data.get("stories", {}).items()}
-        obj.themes = {theme_id: Theme.from_state_dict(item) for theme_id, item in data.get("themes", {}).items()}
+        obj.plots = {
+            plot_id: Plot.from_state_dict(item) for plot_id, item in data.get("plots", {}).items()
+        }
+        obj.stories = {
+            story_id: StoryArc.from_state_dict(item)
+            for story_id, item in data.get("stories", {}).items()
+        }
+        obj.themes = {
+            theme_id: Theme.from_state_dict(item)
+            for theme_id, item in data.get("themes", {}).items()
+        }
         obj.graph = MemoryGraph()
         # 重建图节点
         for plot_id, plot in obj.plots.items():
@@ -1532,11 +1728,18 @@ class AuroraSoul:
         obj.subconscious = SubconsciousField.from_state_dict(data["subconscious"])
         obj.schema = PsychologicalSchema.from_state_dict(data["schema"])
         for axis in obj.schema.all_axes().values():
-            if axis.direction is None or axis.positive_anchor is None or axis.negative_anchor is None:
+            if (
+                axis.direction is None
+                or axis.positive_anchor is None
+                or axis.negative_anchor is None
+            ):
                 axis.compile(obj.axis_embedder)
         obj.consolidator = SchemaConsolidator.from_state_dict(data.get("consolidator", {}))
         obj.identity = IdentityState.from_state_dict(data["identity"])
-        obj.modes = {mode_id: IdentityMode.from_state_dict(item) for mode_id, item in data.get("modes", {}).items()}
+        obj.modes = {
+            mode_id: IdentityMode.from_state_dict(item)
+            for mode_id, item in data.get("modes", {}).items()
+        }
         obj.recent_texts = [str(item) for item in data.get("recent_texts", [])]
         obj.step = int(data.get("step", 0))
         obj.wake_axis_stats = copy.deepcopy(data.get("wake_axis_stats", {}))

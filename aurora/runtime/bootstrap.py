@@ -40,7 +40,9 @@ def create_llm_provider(settings: AuroraSettings) -> Optional[LLMProvider]:
     """根据 settings 创建并返回 LLM 提供者实例。"""
     if settings.llm_provider == "bailian":
         if not settings.bailian_llm_api_key:
-            raise ConfigurationError("Bailian LLM provider selected but AURORA_BAILIAN_LLM_API_KEY is not set")
+            raise ConfigurationError(
+                "Bailian LLM provider selected but AURORA_BAILIAN_LLM_API_KEY is not set"
+            )
         from aurora.integrations.llm.bailian import BailianLLM
 
         return BailianLLM(
@@ -67,12 +69,16 @@ def create_llm_provider(settings: AuroraSettings) -> Optional[LLMProvider]:
     return None
 
 
-def create_embedding_provider(settings: AuroraSettings, *, provider_override: Optional[str] = None) -> EmbeddingProvider:
+def create_embedding_provider(
+    settings: AuroraSettings, *, provider_override: Optional[str] = None
+) -> EmbeddingProvider:
     """根据 settings 创建并返回 Embedding 提供者实例。支持缓存配置。"""
     provider = provider_override or settings.embedding_provider
     if provider == "bailian":
         if not settings.bailian_embedding_api_key:
-            raise ConfigurationError("Bailian embedding provider selected but AURORA_BAILIAN_EMBEDDING_API_KEY is not set")
+            raise ConfigurationError(
+                "Bailian embedding provider selected but AURORA_BAILIAN_EMBEDDING_API_KEY is not set"
+            )
         from aurora.integrations.embeddings.bailian import BailianEmbedding
 
         return BailianEmbedding(
@@ -86,7 +92,9 @@ def create_embedding_provider(settings: AuroraSettings, *, provider_override: Op
 
     if provider == "ark":
         if not settings.ark_api_key:
-            raise ConfigurationError("Ark embedding provider selected but AURORA_ARK_API_KEY is not set")
+            raise ConfigurationError(
+                "Ark embedding provider selected but AURORA_ARK_API_KEY is not set"
+            )
         from aurora.integrations.embeddings.ark import ArkEmbedding
 
         return ArkEmbedding(
@@ -99,9 +107,11 @@ def create_embedding_provider(settings: AuroraSettings, *, provider_override: Op
     if provider == "hash":
         # 基于分词和哈希的简易 Embedding，无需外部 API。
         from aurora.integrations.embeddings.hash import HashEmbedding
+
         return HashEmbedding(dim=settings.dim)
 
     from aurora.integrations.embeddings.local_semantic import LocalSemanticEmbedding
+
     # 默认使用本地语义 Embedding。
     return LocalSemanticEmbedding(dim=settings.dim)
 
@@ -174,7 +184,7 @@ def create_memory(*, settings: AuroraSettings, llm: Optional[LLMProvider] = None
     )
     meaning_provider = create_meaning_provider(settings=settings, llm=llm)
     narrator = create_narrative_provider(settings=settings, llm=llm)
-    
+
     return AuroraSoul(
         cfg=cfg,
         seed=int(settings.memory_seed),

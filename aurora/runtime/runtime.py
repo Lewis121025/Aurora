@@ -50,22 +50,27 @@ class AuroraRuntime:
     Aurora 运行时：这是整个系统的中枢。
     它不仅持有 AuroraSoul 引擎，还负责与数据库（SQLite）、大模型 API 的具体通信。
     """
+
     def __init__(self, *, settings: AuroraSettings, llm: Optional[LLMProvider] = None):
         self.settings = settings
         self.llm = llm if llm is not None else create_llm_provider(settings)
 
         # 启动前自检
         check_embedding_api_keys()
-        self._lock = threading.RLock() # 确保多线程下的内存状态安全
+        self._lock = threading.RLock()  # 确保多线程下的内存状态安全
 
         # 初始化持久化存储
         os.makedirs(self.settings.data_dir, exist_ok=True)
         # 1. 事件日志：记录原始交互流（Source of Truth）
-        self.event_log = SQLiteEventLog(os.path.join(self.settings.data_dir, self.settings.event_log_filename))
+        self.event_log = SQLiteEventLog(
+            os.path.join(self.settings.data_dir, self.settings.event_log_filename)
+        )
         # 2. 文档存储：存储解析后的情节、结果快照等
         self.doc_store = SQLiteDocStore(os.path.join(self.settings.data_dir, "docs.sqlite3"))
         # 3. 快照存储：存储序列化后的引擎完整状态
-        self.snapshots = SnapshotStore(os.path.join(self.settings.data_dir, self.settings.snapshot_dirname))
+        self.snapshots = SnapshotStore(
+            os.path.join(self.settings.data_dir, self.settings.snapshot_dirname)
+        )
 
         self.last_seq = 0
         self._loaded_snapshot_seq = 0
@@ -85,7 +90,7 @@ class AuroraRuntime:
             latest = self.snapshots.latest()
         except ValueError as exc:
             raise ConfigurationError(str(exc).replace("V2", "Aurora Soul V4")) from exc
-            
+
         if latest is not None:
             _seq, snap = latest
             self.last_seq = snap.last_seq
@@ -94,7 +99,8 @@ class AuroraRuntime:
             event_embedder = create_embedding_provider(self.settings)
             axis_embedder = create_embedding_provider(
                 self.settings,
-                provider_override=self.settings.axis_embedding_provider or self.settings.embedding_provider,
+                provider_override=self.settings.axis_embedding_provider
+                or self.settings.embedding_provider,
             )
             meaning_provider = create_meaning_provider(settings=self.settings, llm=self.llm)
             narrator = create_narrative_provider(settings=self.settings, llm=self.llm)
@@ -145,7 +151,7 @@ class AuroraRuntime:
                 context=event.payload.get("context"),
                 actors=event.payload.get("actors"),
                 ts=event.ts,
-                persist=False, # 重放时不重复持久化
+                persist=False,  # 重放时不重复持久化
             )
             self.last_seq = seq
             replayed += 1
@@ -200,7 +206,10 @@ class AuroraRuntime:
                 persist=True,
             )
             self.last_seq = max(self.last_seq, seq)
-            if self.settings.snapshot_every_events > 0 and self.last_seq % self.settings.snapshot_every_events == 0:
+            if (
+                self.settings.snapshot_every_events > 0
+                and self.last_seq % self.settings.snapshot_every_events == 0
+            ):
                 self._snapshot()
             return result
 
@@ -259,7 +268,9 @@ class AuroraRuntime:
             self._persist_interaction_artifacts(event_id=event_id, ts=ts, plot=plot, result=result)
         return result
 
-    def _persist_interaction_artifacts(self, *, event_id: str, ts: float, plot: Any, result: IngestResult) -> None:
+    def _persist_interaction_artifacts(
+        self, *, event_id: str, ts: float, plot: Any, result: IngestResult
+    ) -> None:
         """将摄入产物（情节和结果）保存到文档存储中。"""
         self.doc_store.upsert(
             Document(
@@ -329,10 +340,14 @@ class AuroraRuntime:
             tension=float(body.get("tension", 0.0)),
             contradiction=float(body.get("contradiction", 0.0)),
             active_energy=float(body.get("active_energy", self.mem.identity.active_energy)),
-            repressed_energy=float(body.get("repressed_energy", self.mem.identity.repressed_energy)),
+            repressed_energy=float(
+                body.get("repressed_energy", self.mem.identity.repressed_energy)
+            ),
         )
 
-    def build_response_context(self, *, user_message: str, k: int = 6) -> tuple[StructuredMemoryContext, Any]:
+    def build_response_context(
+        self, *, user_message: str, k: int = 6
+    ) -> tuple[StructuredMemoryContext, Any]:
         """检索并构建当前对话所需的记忆上下文。"""
         with self._lock:
             trace = self.mem.query(user_message, k=k)
@@ -389,7 +404,9 @@ class AuroraRuntime:
                 user_message=user_message,
                 reason=llm_error,
             )
-            yield ChatStreamEvent(kind="status", stage="generation", text="未配置语言模型，使用系统降级回复")
+            yield ChatStreamEvent(
+                kind="status", stage="generation", text="未配置语言模型，使用系统降级回复"
+            )
             yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
         else:
             try:
@@ -419,14 +436,18 @@ class AuroraRuntime:
                 llm_error = str(exc)
                 reply = "".join(reply_parts).strip()
                 if reply:
-                    yield ChatStreamEvent(kind="status", stage="generation", text="流式生成中断，保留已生成内容")
+                    yield ChatStreamEvent(
+                        kind="status", stage="generation", text="流式生成中断，保留已生成内容"
+                    )
                 else:
                     reply = self._build_response_fallback(
                         memory_context=memory_context,
                         user_message=user_message,
                         reason=llm_error,
                     )
-                    yield ChatStreamEvent(kind="status", stage="generation", text="生成失败，已切换到降级回复")
+                    yield ChatStreamEvent(
+                        kind="status", stage="generation", text="生成失败，已切换到降级回复"
+                    )
                     yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
         generation_ms = (time.perf_counter() - generation_started) * 1000.0
 
@@ -493,7 +514,9 @@ class AuroraRuntime:
 
         generation_started = time.perf_counter()
         llm_error: Optional[str] = None
-        reply = self._generate_reply(prompt=prompt, memory_context=memory_context, user_message=user_message)
+        reply = self._generate_reply(
+            prompt=prompt, memory_context=memory_context, user_message=user_message
+        )
         if reply.startswith("__LLM_ERROR__:"):
             llm_error = reply.removeprefix("__LLM_ERROR__:")
             reply = self._build_response_fallback(
@@ -534,7 +557,9 @@ class AuroraRuntime:
             llm_error=llm_error,
         )
 
-    def _generate_reply(self, *, prompt: Any, memory_context: StructuredMemoryContext, user_message: str) -> str:
+    def _generate_reply(
+        self, *, prompt: Any, memory_context: StructuredMemoryContext, user_message: str
+    ) -> str:
         """调用 LLM 进行文本补全。"""
         if self.llm is None:
             return "__LLM_ERROR__:llm_not_configured"
@@ -563,7 +588,10 @@ class AuroraRuntime:
         else:
             prefix = "这轮语言模型调用失败了。"
         if memory_context.narrative_summary is not None:
-            return prefix + f"我现在还能稳住的内部状态是：{memory_context.narrative_summary.current_mode}。"
+            return (
+                prefix
+                + f"我现在还能稳住的内部状态是：{memory_context.narrative_summary.current_mode}。"
+            )
         return (
             f"{prefix} 当前没有足够稳定的 soul-memory 线索来回答。"
             f"我会先把这轮对话记住：{user_message[:80]}"
@@ -581,7 +609,15 @@ class AuroraRuntime:
                     plot = self.mem.plots.get(node_id)
                     if plot is not None:
                         metadata = {"source": plot.source, "story_id": plot.story_id or ""}
-                hits.append(QueryHit(id=node_id, kind=kind, score=float(score), snippet=snippet, metadata=metadata))
+                hits.append(
+                    QueryHit(
+                        id=node_id,
+                        kind=kind,
+                        score=float(score),
+                        snippet=snippet,
+                        metadata=metadata,
+                    )
+                )
         return QueryResult(query=text, attractor_path_len=len(trace.attractor_path), hits=hits)
 
     def _snippet_for(self, *, node_id: str, kind: str) -> str:

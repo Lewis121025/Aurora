@@ -8,7 +8,7 @@ AURORA 记忆系统的配置数据类。
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 
 @dataclass
@@ -33,7 +33,7 @@ class AlgorithmConfig:
 
     # --- LowRankMetric 参数 ---
     metric_init_noise: float = 0.01  # 初始化噪声规模
-    metric_window_size: int = 8000   # 从 10000 降低以加快适应
+    metric_window_size: int = 8000  # 从 10000 降低以加快适应
     metric_decay_factor: float = 0.6  # 从 0.5 增加以减缓遗忘
 
     # --- ThompsonBernoulliGate 参数 ---
@@ -133,7 +133,7 @@ class MemoryConfig:
 
     def __post_init__(self):
         if self.algo is None:
-            object.__setattr__(self, 'algo', AlgorithmConfig())
+            object.__setattr__(self, "algo", AlgorithmConfig())
 
     def to_state_dict(self) -> Dict[str, Any]:
         """序列化为 JSON 兼容的字典。"""

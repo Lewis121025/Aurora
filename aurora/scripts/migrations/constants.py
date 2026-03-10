@@ -20,22 +20,22 @@ from typing import Dict, Set
 # 常量到新模块的映射
 CONSTANT_TO_MODULE = {
     # knowledge.py
-    'KNOWLEDGE_CLASSIFICATION_MIN_CONFIDENCE': 'aurora.lab.knowledge.config',
-    'COMPLEMENTARY_TRAIT_SIM_MIN': 'aurora.lab.knowledge.config',
-    'COMPLEMENTARY_TRAIT_SIM_MAX': 'aurora.lab.knowledge.config',
-    'CONTRADICTORY_TRAIT_SIM_THRESHOLD': 'aurora.lab.knowledge.config',
-    'KNOWLEDGE_TYPE_WEIGHT_STATE': 'aurora.lab.knowledge.config',
-    'KNOWLEDGE_TYPE_WEIGHT_STATIC': 'aurora.lab.knowledge.config',
-    'KNOWLEDGE_TYPE_WEIGHT_TRAIT': 'aurora.lab.knowledge.config',
-    'KNOWLEDGE_TYPE_WEIGHT_VALUE': 'aurora.lab.knowledge.config',
-    'KNOWLEDGE_TYPE_WEIGHT_PREFERENCE': 'aurora.lab.knowledge.config',
-    'KNOWLEDGE_TYPE_WEIGHT_BEHAVIOR': 'aurora.lab.knowledge.config',
-    'UPDATE_TIME_GAP_THRESHOLD': 'aurora.lab.knowledge.config',
-    'REINFORCEMENT_TIME_WINDOW': 'aurora.lab.knowledge.config',
-    'UPDATE_HIGH_SIMILARITY_THRESHOLD': 'aurora.lab.knowledge.config',
-    'UPDATE_MODERATE_SIMILARITY_THRESHOLD': 'aurora.lab.knowledge.config',
-    'UPDATE_KEYWORDS': 'aurora.lab.knowledge.config',
-    'NUMERIC_CHANGE_INDICATORS': 'aurora.lab.knowledge.config',
+    "KNOWLEDGE_CLASSIFICATION_MIN_CONFIDENCE": "aurora.lab.knowledge.config",
+    "COMPLEMENTARY_TRAIT_SIM_MIN": "aurora.lab.knowledge.config",
+    "COMPLEMENTARY_TRAIT_SIM_MAX": "aurora.lab.knowledge.config",
+    "CONTRADICTORY_TRAIT_SIM_THRESHOLD": "aurora.lab.knowledge.config",
+    "KNOWLEDGE_TYPE_WEIGHT_STATE": "aurora.lab.knowledge.config",
+    "KNOWLEDGE_TYPE_WEIGHT_STATIC": "aurora.lab.knowledge.config",
+    "KNOWLEDGE_TYPE_WEIGHT_TRAIT": "aurora.lab.knowledge.config",
+    "KNOWLEDGE_TYPE_WEIGHT_VALUE": "aurora.lab.knowledge.config",
+    "KNOWLEDGE_TYPE_WEIGHT_PREFERENCE": "aurora.lab.knowledge.config",
+    "KNOWLEDGE_TYPE_WEIGHT_BEHAVIOR": "aurora.lab.knowledge.config",
+    "UPDATE_TIME_GAP_THRESHOLD": "aurora.lab.knowledge.config",
+    "REINFORCEMENT_TIME_WINDOW": "aurora.lab.knowledge.config",
+    "UPDATE_HIGH_SIMILARITY_THRESHOLD": "aurora.lab.knowledge.config",
+    "UPDATE_MODERATE_SIMILARITY_THRESHOLD": "aurora.lab.knowledge.config",
+    "UPDATE_KEYWORDS": "aurora.lab.knowledge.config",
+    "NUMERIC_CHANGE_INDICATORS": "aurora.lab.knowledge.config",
 }
 
 
@@ -46,7 +46,7 @@ def analyze_file(file_path: Path) -> Set[str]:
 
     # 查找所有大写常量的使用
     for constant in CONSTANT_TO_MODULE.keys():
-        if re.search(rf'\b{constant}\b', content):
+        if re.search(rf"\b{constant}\b", content):
             used_constants.add(constant)
 
     return used_constants
@@ -58,8 +58,10 @@ def migrate_file(file_path: Path, dry_run: bool = False) -> bool:
     original_content = content
 
     # 检查是否使用了 constants
-    if 'from aurora.core.constants import' not in content and \
-       'from aurora.core import constants' not in content:
+    if (
+        "from aurora.core.constants import" not in content
+        and "from aurora.core import constants" not in content
+    ):
         return False
 
     used_constants = analyze_file(file_path)
@@ -83,32 +85,24 @@ def migrate_file(file_path: Path, dry_run: bool = False) -> bool:
         module_to_constants[module].add(constant)
 
     # 移除旧的导入
-    content = re.sub(
-        r'from aurora\.core\.constants import.*?\n',
-        '',
-        content
-    )
-    content = re.sub(
-        r'from aurora\.core import constants\n',
-        '',
-        content
-    )
+    content = re.sub(r"from aurora\.core\.constants import.*?\n", "", content)
+    content = re.sub(r"from aurora\.core import constants\n", "", content)
 
     # 添加新的导入
     new_imports = []
     for module, constants in sorted(module_to_constants.items()):
-        constants_str = ', '.join(sorted(constants))
-        new_imports.append(f'from {module} import {constants_str}')
+        constants_str = ", ".join(sorted(constants))
+        new_imports.append(f"from {module} import {constants_str}")
 
     # 在文件开头的导入区域插入新导入
     import_section_end = 0
-    for i, line in enumerate(content.split('\n')):
-        if line.startswith('from ') or line.startswith('import '):
+    for i, line in enumerate(content.split("\n")):
+        if line.startswith("from ") or line.startswith("import "):
             import_section_end = i + 1
 
-    lines = content.split('\n')
-    lines.insert(import_section_end, '\n'.join(new_imports))
-    content = '\n'.join(lines)
+    lines = content.split("\n")
+    lines.insert(import_section_end, "\n".join(new_imports))
+    content = "\n".join(lines)
 
     if dry_run:
         print(f"Would migrate {file_path}")
@@ -130,12 +124,12 @@ def main():
         sys.exit(1)
 
     path = Path(sys.argv[1])
-    dry_run = '--dry-run' in sys.argv
+    dry_run = "--dry-run" in sys.argv
 
     if path.is_file():
         files = [path]
     else:
-        files = list(path.rglob('*.py'))
+        files = list(path.rglob("*.py"))
 
     migrated = 0
     for file_path in files:
@@ -145,5 +139,5 @@ def main():
     print(f"\n{'Would migrate' if dry_run else 'Migrated'} {migrated} files")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

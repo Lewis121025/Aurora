@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import re
 from difflib import SequenceMatcher
-from typing import Any, Callable, Dict, List, Optional, Protocol, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Protocol, TYPE_CHECKING
 
 import numpy as np
 
@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 # -----------------------------------------------------------------------------
 # LLM 提供者协议
 # -----------------------------------------------------------------------------
+
 
 class LLMProviderProtocol(Protocol):
     """用于 LLM-as-a-Judge 评分的 LLM 提供者协议。"""
@@ -81,8 +82,8 @@ def _normalize_number(text: str) -> str:
     """规范化数字表达式。"""
     result = text.lower()
     # 移除年龄/单位后缀
-    result = re.sub(r'(\d+)\s*[岁年月日号天周个]', r'\1', result)
-    result = re.sub(r'(\d+)\s*(?:years?\s*old|months?|days?)', r'\1', result)
+    result = re.sub(r"(\d+)\s*[岁年月日号天周个]", r"\1", result)
+    result = re.sub(r"(\d+)\s*(?:years?\s*old|months?|days?)", r"\1", result)
     return result
 
 
@@ -90,21 +91,38 @@ def _normalize_date(text: str) -> str:
     """将日期表达式规范化为 M/D 格式。"""
     result = text.lower()
     month_map = {
-        "january": "1", "jan": "1", "february": "2", "feb": "2",
-        "march": "3", "mar": "3", "april": "4", "apr": "4",
-        "may": "5", "june": "6", "jun": "6", "july": "7", "jul": "7",
-        "august": "8", "aug": "8", "september": "9", "sep": "9",
-        "october": "10", "oct": "10", "november": "11", "nov": "11",
-        "december": "12", "dec": "12",
+        "january": "1",
+        "jan": "1",
+        "february": "2",
+        "feb": "2",
+        "march": "3",
+        "mar": "3",
+        "april": "4",
+        "apr": "4",
+        "may": "5",
+        "june": "6",
+        "jun": "6",
+        "july": "7",
+        "jul": "7",
+        "august": "8",
+        "aug": "8",
+        "september": "9",
+        "sep": "9",
+        "october": "10",
+        "oct": "10",
+        "november": "11",
+        "nov": "11",
+        "december": "12",
+        "dec": "12",
     }
-    
+
     # Month Day format
     for month, num in month_map.items():
-        result = re.sub(rf'\b{month}\s+(\d{{1,2}})(?:st|nd|rd|th)?\b', rf'{num}/\1', result)
-    
+        result = re.sub(rf"\b{month}\s+(\d{{1,2}})(?:st|nd|rd|th)?\b", rf"{num}/\1", result)
+
     # Chinese date format: 3月15日
-    result = re.sub(r'(\d{1,2})月(\d{1,2})日?', r'\1/\2', result)
-    
+    result = re.sub(r"(\d{1,2})月(\d{1,2})日?", r"\1/\2", result)
+
     return result
 
 
@@ -134,35 +152,35 @@ def exact_match(predicted: str, expected: str) -> float:
     """
     if not predicted or not expected:
         return 0.0
-    
+
     pred_norm = predicted.strip().lower()
     exp_norm = expected.strip().lower()
-    
+
     # Direct match
     if pred_norm == exp_norm:
         return 1.0
-    
+
     # Synonym match
     pred_canonical = _SYNONYM_LOOKUP.get(pred_norm, pred_norm)
     exp_canonical = _SYNONYM_LOOKUP.get(exp_norm, exp_norm)
-    
+
     if pred_canonical == exp_canonical:
         return 1.0
-    
+
     # Number normalization match
     pred_num = _normalize_number(pred_norm)
     exp_num = _normalize_number(exp_norm)
-    
+
     if pred_num == exp_num:
         return 1.0
-    
+
     # Date normalization match
     pred_date = _normalize_date(pred_norm)
     exp_date = _normalize_date(exp_norm)
-    
+
     if pred_date == exp_date:
         return 1.0
-    
+
     return 0.0
 
 
@@ -193,22 +211,22 @@ def fuzzy_match(
     """
     if not predicted or not expected:
         return 0.0
-    
+
     pred_norm = predicted.strip().lower()
     exp_norm = expected.strip().lower()
-    
+
     # Apply normalizations before fuzzy matching
     pred_norm = _normalize_number(pred_norm)
     pred_norm = _normalize_date(pred_norm)
     exp_norm = _normalize_number(exp_norm)
     exp_norm = _normalize_date(exp_norm)
-    
+
     ratio = SequenceMatcher(None, pred_norm, exp_norm).ratio()
-    
+
     # Full credit if above threshold
     if ratio >= threshold:
         return ratio
-    
+
     # Partial credit for lower similarity (scaled down)
     return ratio * 0.5
 
@@ -237,36 +255,36 @@ def contains_match(predicted: str, expected: str) -> float:
     """
     if not predicted or not expected:
         return 0.0
-    
+
     pred_norm = predicted.strip().lower()
     exp_norm = expected.strip().lower()
-    
+
     # Direct containment
     if exp_norm in pred_norm:
         return 1.0
-    
+
     # Synonym containment
     exp_canonical = _SYNONYM_LOOKUP.get(exp_norm, exp_norm)
     if exp_canonical in _COMMON_SYNONYMS:
         for variant in _COMMON_SYNONYMS[exp_canonical]:
             if variant.lower() in pred_norm:
                 return 0.95
-    
+
     # Also check reverse: if pred has a variant of expected
     pred_canonical = _SYNONYM_LOOKUP.get(pred_norm.split()[0] if pred_norm else "", "")
     if pred_canonical and pred_canonical == exp_canonical:
         return 0.9
-    
+
     # Keyword overlap
-    exp_words = set(re.findall(r'\w+', exp_norm))
-    pred_words = set(re.findall(r'\w+', pred_norm))
-    
+    exp_words = set(re.findall(r"\w+", exp_norm))
+    pred_words = set(re.findall(r"\w+", pred_norm))
+
     if exp_words:
         overlap = exp_words & pred_words
         overlap_ratio = len(overlap) / len(exp_words)
         if overlap_ratio >= 0.5:
             return overlap_ratio * 0.8
-    
+
     return 0.0
 
 
@@ -290,30 +308,31 @@ def token_f1(predicted: str, expected: str) -> float:
     """
     if not predicted or not expected:
         return 0.0
-    
+
     # Simple tokenization
-    def tokenize(s: str) -> set:
-        return set(re.findall(r'\w+', s.lower()))
-    
+    def tokenize(s: str) -> set[str]:
+        return set(re.findall(r"\w+", s.lower()))
+
     pred_tokens = tokenize(predicted)
     exp_tokens = tokenize(expected)
-    
+
     if not pred_tokens or not exp_tokens:
         return 0.0
-    
+
     common = pred_tokens & exp_tokens
     if not common:
         return 0.0
-    
+
     precision = len(common) / len(pred_tokens)
     recall = len(common) / len(exp_tokens)
-    
+
     return 2 * precision * recall / (precision + recall)
 
 
 # -----------------------------------------------------------------------------
 # LLM-as-a-Judge 评分
 # -----------------------------------------------------------------------------
+
 
 def llm_judge_score(
     predicted: str,
@@ -353,40 +372,40 @@ def llm_judge_score(
     """
     if not predicted:
         return 0.0
-    
+
     template = prompt_template or METRICS_LLM_JUDGE_PROMPT
     prompt = template.format(
         query=query,
         expected=expected or "(No expected answer provided)",
         predicted=predicted,
     )
-    
+
     for attempt in range(max_retries):
         try:
             response = llm_provider.complete(prompt)
-            
+
             # Parse the score from response
             score_text = response.strip()
-            
+
             # Handle responses like "Score: 8" or just "8"
-            match = re.search(r'\b(\d+)\b', score_text)
+            match = re.search(r"\b(\d+)\b", score_text)
             if match:
                 score = int(match.group(1))
                 # Clamp to valid range and normalize
                 score = max(0, min(10, score))
                 return score / 10.0
-            
+
         except Exception as e:
             logger.debug(f"LLM judge attempt {attempt + 1} failed: {e}")
             if attempt == max_retries - 1:
                 raise
-    
+
     # Fallback if all retries fail
     return 0.0
 
 
 def llm_judge_score_batch(
-    instances: List[tuple],
+    instances: List[tuple[str, str, str]],
     llm_provider: LLMProviderProtocol,
     prompt_template: Optional[str] = None,
 ) -> List[float]:
@@ -424,6 +443,7 @@ def llm_judge_score_batch(
 # -----------------------------------------------------------------------------
 # 延迟统计
 # -----------------------------------------------------------------------------
+
 
 def calculate_latency_stats(latencies: List[float]) -> Dict[str, float]:
     """
@@ -463,9 +483,9 @@ def calculate_latency_stats(latencies: List[float]) -> Dict[str, float]:
             "p99_ms": 0.0,
             "count": 0,
         }
-    
+
     arr = np.array(latencies, dtype=np.float64)
-    
+
     return {
         "mean_ms": float(np.mean(arr)),
         "std_ms": float(np.std(arr)),
@@ -482,6 +502,7 @@ def calculate_latency_stats(latencies: List[float]) -> Dict[str, float]:
 # -----------------------------------------------------------------------------
 # 按能力的准确率
 # -----------------------------------------------------------------------------
+
 
 def calculate_accuracy_by_capability(
     results: List["BenchmarkResult"],
@@ -509,31 +530,32 @@ def calculate_accuracy_by_capability(
     """
     if not results:
         return {"accuracy": 0.0}
-    
+
     # Import here to avoid circular dependency
-    from aurora.benchmarks.interface import BenchmarkCapability
-    
+
     # Group by capability
     by_capability: Dict[BenchmarkCapability, List[float]] = {}
     all_scores: List[float] = []
-    
+
     for result in results:
         cap = result.capability
+        if cap is None:
+            continue
         if cap not in by_capability:
             by_capability[cap] = []
         by_capability[cap].append(result.score)
         all_scores.append(result.score)
-    
+
     # Compute metrics
     metrics: Dict[str, float] = {
         "accuracy": float(np.mean(all_scores)) if all_scores else 0.0,
     }
-    
+
     for cap, scores in by_capability.items():
         key = f"accuracy_{cap.value}"
         metrics[key] = float(np.mean(scores)) if scores else 0.0
         metrics[f"count_{cap.value}"] = float(len(scores))
-    
+
     return metrics
 
 
@@ -557,15 +579,15 @@ def calculate_token_efficiency(
     total_tokens = 0
     correct_tokens = 0
     correct_count = 0
-    
+
     for result in results:
         tokens = result.metadata.get("tokens_used", 0)
         total_tokens += tokens
-        
+
         if result.score >= 0.5:
             correct_tokens += tokens
             correct_count += 1
-    
+
     return {
         "mean_tokens": total_tokens / len(results) if results else 0.0,
         "tokens_per_correct": correct_tokens / correct_count if correct_count > 0 else 0.0,
@@ -576,6 +598,7 @@ def calculate_token_efficiency(
 # -----------------------------------------------------------------------------
 # 复合评分
 # -----------------------------------------------------------------------------
+
 
 def composite_score(
     predicted: str,
@@ -615,7 +638,7 @@ def composite_score(
     """
     if not predicted or not expected:
         return 0.0
-    
+
     # Compute individual scores
     scores = {
         "exact_match": exact_match(predicted, expected),
@@ -623,16 +646,14 @@ def composite_score(
         "contains_match": contains_match(predicted, expected),
         "token_f1": token_f1(predicted, expected),
     }
-    
+
     # Add LLM judge if available
     if llm_provider is not None:
         try:
-            scores["llm_judge"] = llm_judge_score(
-                predicted, expected, query, llm_provider
-            )
+            scores["llm_judge"] = llm_judge_score(predicted, expected, query, llm_provider)
         except Exception as e:
             logger.debug(f"LLM judge scoring failed, falling back to non-LLM scoring: {e}")
-    
+
     # Default weights
     if weights is None:
         if "llm_judge" in scores:
@@ -650,14 +671,14 @@ def composite_score(
                 "contains_match": 0.2,
                 "token_f1": 0.2,
             }
-    
+
     # Compute weighted sum
     total_weight = 0.0
     weighted_sum = 0.0
-    
+
     for metric, score in scores.items():
         w = weights.get(metric, 0.0)
         weighted_sum += w * score
         total_weight += w
-    
+
     return weighted_sum / total_weight if total_weight > 0 else 0.0

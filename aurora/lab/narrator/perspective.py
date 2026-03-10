@@ -44,6 +44,7 @@ from aurora.utils.time_utils import now_ts
 # Enums
 # =============================================================================
 
+
 class NarrativePerspective(Enum):
     """用于故事重构的叙事视角。
 
@@ -55,40 +56,48 @@ class NarrativePerspective(Enum):
     FOCUSED: 围绕特定方面，最适合深入探索
     ABSTRACTED: 高级模式和主题，最适合身份综合
     """
-    CHRONOLOGICAL = "chronological"    # 时间序：按时间顺序叙述
-    RETROSPECTIVE = "retrospective"    # 回顾式：从现在回望过去
-    CONTRASTIVE = "contrastive"        # 对比式：突出变化和对比
-    FOCUSED = "focused"                # 聚焦式：围绕特定主题深入
-    ABSTRACTED = "abstracted"          # 抽象式：提炼模式和主题
+
+    CHRONOLOGICAL = "chronological"  # 时间序：按时间顺序叙述
+    RETROSPECTIVE = "retrospective"  # 回顾式：从现在回望过去
+    CONTRASTIVE = "contrastive"  # 对比式：突出变化和对比
+    FOCUSED = "focused"  # 聚焦式：围绕特定主题深入
+    ABSTRACTED = "abstracted"  # 抽象式：提炼模式和主题
+
 
 class NarrativeRole(Enum):
     """内存元素在叙事中可以扮演的角色。"""
-    EXPOSITION = "exposition"          # 背景介绍
-    RISING_ACTION = "rising_action"    # 情节发展
-    CLIMAX = "climax"                  # 高潮/转折点
+
+    EXPOSITION = "exposition"  # 背景介绍
+    RISING_ACTION = "rising_action"  # 情节发展
+    CLIMAX = "climax"  # 高潮/转折点
     FALLING_ACTION = "falling_action"  # 情节回落
-    RESOLUTION = "resolution"          # 结局/解决
+    RESOLUTION = "resolution"  # 结局/解决
+
 
 # =============================================================================
 # Data Classes
 # =============================================================================
 
+
 @dataclass
 class PerspectiveScore:
     """具有不确定性的视角选择分数。"""
+
     perspective: NarrativePerspective
-    score: float                    # 主要分数
-    uncertainty: float = 0.5        # 认识论不确定性
+    score: float  # 主要分数
+    uncertainty: float = 0.5  # 认识论不确定性
 
     # 证据信号
-    temporal_signal: float = 0.0   # 时间模式的强度
-    contrast_signal: float = 0.0   # 对比模式的强度
-    focus_signal: float = 0.0      # 查询特异性
+    temporal_signal: float = 0.0  # 时间模式的强度
+    contrast_signal: float = 0.0  # 对比模式的强度
+    focus_signal: float = 0.0  # 查询特异性
     abstraction_signal: float = 0.0  # 主题相关性
+
 
 # =============================================================================
 # Perspective Selector
 # =============================================================================
+
 
 class PerspectiveSelector:
     """使用贝叶斯方法选择叙事视角。
@@ -119,7 +128,7 @@ class PerspectiveSelector:
         """
         self.metric: LowRankMetric = metric
         self.rng: np.random.Generator = rng
-        
+
         # Default beliefs if not provided
         self.perspective_beliefs = perspective_beliefs or {
             NarrativePerspective.CHRONOLOGICAL: (2.0, 1.0),
@@ -128,7 +137,7 @@ class PerspectiveSelector:
             NarrativePerspective.FOCUSED: (1.5, 1.0),
             NarrativePerspective.ABSTRACTED: (1.0, 1.0),
         }
-    
+
     def select_perspective(
         self,
         query: str,
@@ -190,7 +199,7 @@ class PerspectiveSelector:
         prob_dict = {p.value: float(prob) for p, prob in zip(perspectives, probs)}
 
         return selected, prob_dict
-    
+
     def _compute_perspective_score(
         self,
         perspective: NarrativePerspective,
@@ -250,7 +259,7 @@ class PerspectiveSelector:
             score.score += 0.4 * score.abstraction_signal
 
         return score
-    
+
     def feedback(self, perspective: NarrativePerspective, success: bool) -> None:
         """基于反馈更新信念。
 
@@ -264,9 +273,11 @@ class PerspectiveSelector:
         else:
             self.perspective_beliefs[perspective] = (a, b + 1.0)
 
+
 # =============================================================================
 # Perspective-specific Organization
 # =============================================================================
+
 
 class PerspectiveOrganizer:
     """根据不同的叙事视角组织情节。
@@ -283,7 +294,7 @@ class PerspectiveOrganizer:
         """
         self.metric: LowRankMetric = metric
         self.rng: np.random.Generator = rng
-    
+
     def organize_chronological(
         self,
         plots: List[Plot],
@@ -299,7 +310,7 @@ class PerspectiveOrganizer:
             包含情节信息和角色的元素字典列表
         """
         sorted_plots = sorted(plots, key=lambda p: p.ts)
-        
+
         elements = []
         for plot in sorted_plots:
             element = {
@@ -312,9 +323,9 @@ class PerspectiveOrganizer:
                 "annotation": "",
             }
             elements.append(element)
-        
+
         return elements
-    
+
     def organize_retrospective(
         self,
         plots: List[Plot],
@@ -351,7 +362,7 @@ class PerspectiveOrganizer:
             elements.append(element)
 
         return elements
-    
+
     def organize_contrastive(
         self,
         plots: List[Plot],
@@ -414,7 +425,7 @@ class PerspectiveOrganizer:
                 used.add(best_contrast.id)
 
         return elements
-    
+
     def organize_focused(
         self,
         plots: List[Plot],
@@ -449,7 +460,7 @@ class PerspectiveOrganizer:
             elements.append(element)
 
         return elements
-    
+
     def organize_abstracted(
         self,
         plots: List[Plot],
@@ -502,4 +513,4 @@ class PerspectiveOrganizer:
         """将内容截断到最大长度。"""
         if len(content) <= SNIPPET_MAX_LENGTH:
             return content
-        return content[:SNIPPET_MAX_LENGTH - 3] + "..."
+        return content[: SNIPPET_MAX_LENGTH - 3] + "..."

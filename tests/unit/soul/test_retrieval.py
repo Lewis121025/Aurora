@@ -43,8 +43,8 @@ def retriever_setup():
 
     # 添加一些边
     for i in range(19):
-        graph.ensure_edge(f"plot_{i}", f"plot_{i+1}", "temporal")
-        graph.ensure_edge(f"plot_{i+1}", f"plot_{i}", "temporal")
+        graph.ensure_edge(f"plot_{i}", f"plot_{i + 1}", "temporal")
+        graph.ensure_edge(f"plot_{i + 1}", f"plot_{i}", "temporal")
 
     retriever = FieldRetriever(metric=metric, vindex=vindex, graph=graph)
 
@@ -196,7 +196,9 @@ class TestKindFiltering:
         kinds_in_results = {kind for _, _, kind in trace.ranked}
         assert "plot" in kinds_in_results or "story" in kinds_in_results
 
-    def test_non_plot_payload_without_embedded_vector_still_retrieves(self, retriever_setup, identity_state):
+    def test_non_plot_payload_without_embedded_vector_still_retrieves(
+        self, retriever_setup, identity_state
+    ):
         """测试 story/theme 等节点即使 payload 未携带向量，也不会在重排阶段崩溃。"""
         retriever, embedder, vindex, graph = retriever_setup
 
@@ -256,4 +258,4 @@ class TestRetrievalTrace:
             k=5,
         )
 
-        assert hasattr(trace, 'attractor_path')
+        assert hasattr(trace, "attractor_path")

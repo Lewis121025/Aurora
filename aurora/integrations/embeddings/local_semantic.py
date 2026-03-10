@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from typing import Dict, List
+from typing import Dict, List, Sequence
 
 import numpy as np
 
@@ -28,19 +28,19 @@ from aurora.utils.math_utils import l2_normalize
 
 class LocalSemanticEmbedding(EmbeddingProvider):
     """本地语义嵌入，使用词频向量捕获基本语义相似性。
-    
+
     比 HashEmbedding 更好，因为语义相似的文本会有相似的向量。
-    
+
     原理：
     - 每个词映射到一个确定性的随机向量（基于词的哈希）
     - 文本的向量是其所有词向量的加权平均
     - 共享相同词的文本会有相似的向量
-    
+
     Attributes:
         dim: Embedding dimension
         seed: Random seed for reproducibility
     """
-    
+
     def __init__(self, dim: int = 384, seed: int = 0):
         """初始化本地语义嵌入。
 
@@ -53,7 +53,7 @@ class LocalSemanticEmbedding(EmbeddingProvider):
         self.rng = np.random.default_rng(seed)
         # 缓存词向量以提高性能
         self._word_vectors: Dict[str, np.ndarray] = {}
-        
+
     def _get_word_vector(self, word: str) -> np.ndarray:
         """获取词的固定投影向量（确定性）。
 
@@ -74,7 +74,7 @@ class LocalSemanticEmbedding(EmbeddingProvider):
             # 归一化词向量
             self._word_vectors[word] = l2_normalize(vec)
         return self._word_vectors[word]
-    
+
     def _tokenize(self, text: str) -> List[str]:
         """简单分词，支持中英文。
 
@@ -92,19 +92,19 @@ class LocalSemanticEmbedding(EmbeddingProvider):
         tokens = []
 
         # 英文按单词分词
-        english_words = re.findall(r'[a-z]+', text)
+        english_words = re.findall(r"[a-z]+", text)
         tokens.extend(english_words)
 
         # 中文按字符分词（对于简单语义相似度已足够）
-        chinese_chars = re.findall(r'[\u4e00-\u9fff]', text)
+        chinese_chars = re.findall(r"[\u4e00-\u9fff]", text)
         tokens.extend(chinese_chars)
 
         # 数字也可能有意义
-        numbers = re.findall(r'\d+', text)
+        numbers = re.findall(r"\d+", text)
         tokens.extend(numbers)
 
         return tokens
-    
+
     def embed(self, text: str) -> np.ndarray:
         """生成文本的语义向量。
 
@@ -138,8 +138,8 @@ class LocalSemanticEmbedding(EmbeddingProvider):
 
         # L2 归一化
         return l2_normalize(embedding)
-    
-    def embed_batch(self, texts: List[str]) -> List[np.ndarray]:
+
+    def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
         """嵌入多个文本。
 
         参数：
@@ -149,7 +149,7 @@ class LocalSemanticEmbedding(EmbeddingProvider):
             嵌入向量列表
         """
         return [self.embed(t) for t in texts]
-    
+
     def similarity(self, text1: str, text2: str) -> float:
         """计算两个文本的余弦相似度。
 

@@ -41,7 +41,6 @@ from aurora.integrations.llm.schemas import (
 from aurora.soul.models import (
     AxisSpec,
     EventFrame,
-    IdentityMode,
     IdentityState,
     NarrativeSummary,
     PsychologicalSchema,
@@ -49,7 +48,6 @@ from aurora.soul.models import (
     clamp,
     clamp01,
     heuristic_persona_axes,
-    mean_abs,
     top_axes_description,
     tokenize_loose,
 )
@@ -57,6 +55,7 @@ from aurora.soul.models import (
 
 class MeaningProvider(Protocol):
     """意义提取器接口协议，定义了从文本中提取 EventFrame 的标准方法"""
+
     def extract(
         self,
         text: str,
@@ -78,6 +77,7 @@ class MeaningProvider(Protocol):
 
 class NarrativeProvider(Protocol):
     """叙事生成器接口协议，定义了生成自我总结、修复描述和梦境描述的标准方法"""
+
     def compose_summary(
         self,
         state: IdentityState,
@@ -140,32 +140,123 @@ class NarrativeProvider(Protocol):
 
 class HeuristicMeaningProvider:
     """基于规则和词库的启发式意义提取器，通常作为 LLM 方案的快速回退（Fallback）"""
+
     # 预定义的认知词库，用于快速判断基础倾向
     CARE_WORDS = {
-        "care", "support", "listen", "comfort", "hug", "gentle", "warm",
-        "陪", "安慰", "理解", "照顾", "拥抱", "温柔", "支持", "倾听",
+        "care",
+        "support",
+        "listen",
+        "comfort",
+        "hug",
+        "gentle",
+        "warm",
+        "陪",
+        "安慰",
+        "理解",
+        "照顾",
+        "拥抱",
+        "温柔",
+        "支持",
+        "倾听",
     }
     THREAT_WORDS = {
-        "attack", "betray", "lie", "control", "reject", "ignore", "hurt", "abandon", "manipulate",
-        "攻击", "背叛", "欺骗", "控制", "拒绝", "不理", "伤害", "抛弃", "利用",
+        "attack",
+        "betray",
+        "lie",
+        "control",
+        "reject",
+        "ignore",
+        "hurt",
+        "abandon",
+        "manipulate",
+        "攻击",
+        "背叛",
+        "欺骗",
+        "控制",
+        "拒绝",
+        "不理",
+        "伤害",
+        "抛弃",
+        "利用",
     }
     SHAME_WORDS = {
-        "shame", "embarrass", "humiliate", "worthless", "失败", "羞耻", "丢脸", "没用", "糟糕",
+        "shame",
+        "embarrass",
+        "humiliate",
+        "worthless",
+        "失败",
+        "羞耻",
+        "丢脸",
+        "没用",
+        "糟糕",
     }
     AGENCY_WORDS = {
-        "choose", "decide", "build", "refuse", "set boundary", "speak up", "行动", "选择", "决定", "建立", "拒绝", "边界", "表达",
+        "choose",
+        "decide",
+        "build",
+        "refuse",
+        "set boundary",
+        "speak up",
+        "行动",
+        "选择",
+        "决定",
+        "建立",
+        "拒绝",
+        "边界",
+        "表达",
     }
     CONTROL_WORDS = {
-        "control", "force", "must", "can't", "manipulate", "管", "强迫", "必须", "不许", "操控",
+        "control",
+        "force",
+        "must",
+        "can't",
+        "manipulate",
+        "管",
+        "强迫",
+        "必须",
+        "不许",
+        "操控",
     }
     ABANDON_WORDS = {
-        "leave", "left", "distance", "ghost", "cold", "离开", "冷淡", "失联", "消失", "疏远",
+        "leave",
+        "left",
+        "distance",
+        "ghost",
+        "cold",
+        "离开",
+        "冷淡",
+        "失联",
+        "消失",
+        "疏远",
     }
     POSITIVE_WORDS = {
-        "safe", "trust", "good", "happy", "gentle", "kind", "可靠", "安心", "喜欢", "愉快", "幸福", "温暖",
+        "safe",
+        "trust",
+        "good",
+        "happy",
+        "gentle",
+        "kind",
+        "可靠",
+        "安心",
+        "喜欢",
+        "愉快",
+        "幸福",
+        "温暖",
     }
     NEGATIVE_WORDS = {
-        "bad", "pain", "fear", "cry", "angry", "hurt", "awful", "害怕", "痛", "哭", "生气", "难过", "糟糕",
+        "bad",
+        "pain",
+        "fear",
+        "cry",
+        "angry",
+        "hurt",
+        "awful",
+        "害怕",
+        "痛",
+        "哭",
+        "生气",
+        "难过",
+        "糟糕",
     }
 
     def extract_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
@@ -193,8 +284,7 @@ class HeuristicMeaningProvider:
 
         # 核心：计算新输入在现有每一个心理轴上的投影得分
         axis_evidence = {
-            name: axis.score(embedding, text)
-            for name, axis in schema.all_axes().items()
+            name: axis.score(embedding, text) for name, axis in schema.all_axes().items()
         }
 
         # 计算各个基础维度的命中得分
@@ -211,7 +301,10 @@ class HeuristicMeaningProvider:
         valence = clamp(pos - neg)
         arousal = clamp01(0.25 + 0.45 * threat + 0.20 * shame + 0.15 * agency_signal + 0.15 * neg)
         self_relevance = 0.40
-        if any(marker in text_lower for marker in ["我", "自己", "她", "你", "we", "i ", " me ", " my ", "you "]):
+        if any(
+            marker in text_lower
+            for marker in ["我", "自己", "她", "你", "we", "i ", " me ", " my ", "you "]
+        ):
             self_relevance += 0.18
         if "self" in text_lower:
             self_relevance += 0.12
@@ -232,7 +325,9 @@ class HeuristicMeaningProvider:
         # 计算新颖度（基于轴激活数量）
         novelty = clamp01(
             0.12
-            + 0.55 * len([name for name, value in axis_evidence.items() if abs(value) > 0.25]) / max(len(axis_evidence), 1)
+            + 0.55
+            * len([name for name, value in axis_evidence.items() if abs(value) > 0.25])
+            / max(len(axis_evidence), 1)
             + 0.10 * max(0, len(set(tags)) - 3)
         )
 
@@ -278,7 +373,9 @@ class HeuristicMeaningProvider:
         """基于激活度和匹配词生成语义标签"""
         tags: List[str] = []
         # 将得分最高的前三个轴加入标签
-        for name, value in sorted(axis_evidence.items(), key=lambda item: abs(item[1]), reverse=True)[:3]:
+        for name, value in sorted(
+            axis_evidence.items(), key=lambda item: abs(item[1]), reverse=True
+        )[:3]:
             if abs(value) > 0.18:
                 tags.append(name)
                 tags.append(f"{name}:{'pos' if value >= 0 else 'neg'}")
@@ -308,6 +405,7 @@ class HeuristicMeaningProvider:
 
 class LLMMeaningProvider:
     """基于大模型的意义提取器，能进行复杂的语义理解和定向轴评分"""
+
     def __init__(
         self,
         llm: LLMProvider,
@@ -394,6 +492,7 @@ class LLMMeaningProvider:
 
 class CombinatorialNarrativeProvider:
     """基于规则组合的叙事生成器，作为 LLM 的快速回退方案"""
+
     # 预定义的文学开场白和叙事短语
     OPENINGS = [
         "She tries to make the event legible to herself.",
@@ -414,7 +513,12 @@ class CombinatorialNarrativeProvider:
         recent_texts: Sequence[str],
     ) -> NarrativeSummary:
         """生成身份摘要"""
-        salient_axes = [name for name, _ in sorted(state.axis_state.items(), key=lambda item: abs(item[1]), reverse=True)[:4]]
+        salient_axes = [
+            name
+            for name, _ in sorted(
+                state.axis_state.items(), key=lambda item: abs(item[1]), reverse=True
+            )[:4]
+        ]
         axes_text = top_axes_description(state.axis_state, schema, topn=4)
         recent_hint = ""
         if recent_texts:
@@ -471,7 +575,9 @@ class CombinatorialNarrativeProvider:
         opener = random.choice(self.DREAM_OPENERS)
         tags = ", ".join(fragment_tags[:4]) or "unfinished feelings"
         if operator == "counterfactual":
-            body = f"She reruns {tags} with a different boundary, testing whether the ending changes."
+            body = (
+                f"She reruns {tags} with a different boundary, testing whether the ending changes."
+            )
         elif operator == "integration":
             body = f"{tags} are stitched into the same cloth until pain and meaning become visible together."
         elif operator == "fear_rehearsal":
@@ -523,7 +629,10 @@ class CombinatorialNarrativeProvider:
             score += 1.0
         if canonical.negative_pole.lower() == alias.negative_pole.lower():
             score += 0.5
-        if canonical.name in alias.description.lower() or alias.name in canonical.description.lower():
+        if (
+            canonical.name in alias.description.lower()
+            or alias.name in canonical.description.lower()
+        ):
             score += 0.5
         if shared:
             score += 0.2
@@ -532,6 +641,7 @@ class CombinatorialNarrativeProvider:
 
 class LLMNarrativeProvider:
     """基于大模型的叙事生成器，提供富有文学性和连贯性的描述"""
+
     def __init__(
         self,
         llm: LLMProvider,
@@ -628,7 +738,9 @@ class LLMNarrativeProvider:
         try:
             payload = self._llm.complete_json(
                 system=GEN_SOUL_DREAM_SYSTEM_PROMPT,
-                user=build_gen_soul_dream_user_prompt(operator=operator, fragment_tags=fragment_tags),
+                user=build_gen_soul_dream_user_prompt(
+                    operator=operator, fragment_tags=fragment_tags
+                ),
                 schema=DreamNarrationPayloadV4,
                 temperature=0.3,
                 timeout_s=self._timeout_s,
@@ -676,7 +788,9 @@ class LLMNarrativeProvider:
         evidence_overlap: Sequence[str],
     ) -> tuple[bool, str]:
         """利用 LLM 智能判断两个心理轴是否应当合并"""
-        fallback_merge, fallback_reason = self._fallback.judge_axis_merge(canonical, alias, evidence_overlap)
+        fallback_merge, fallback_reason = self._fallback.judge_axis_merge(
+            canonical, alias, evidence_overlap
+        )
         try:
             payload = self._llm.complete_json(
                 system=GEN_SOUL_AXIS_MERGE_SYSTEM_PROMPT,

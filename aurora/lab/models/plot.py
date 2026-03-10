@@ -25,6 +25,7 @@ from aurora.utils.time_utils import now_ts
 # 关系层和身份层数据结构
 # -----------------------------------------------------------------------------
 
+
 @dataclass
 class RelationalContext:
     """
@@ -33,10 +34,11 @@ class RelationalContext:
     这是核心创新：记忆不仅仅是关于发生了什么，
     而是关于它对关系和我在其中的角色意味着什么。
     """
-    with_whom: str                      # 关系实体 ID
-    my_role_in_relation: str            # "我在这段关系中是谁"
-    relationship_quality_delta: float   # 对关系质量的影响 [-1, 1]
-    what_this_says_about_us: str        # 关系含义的自然语言描述
+
+    with_whom: str  # 关系实体 ID
+    my_role_in_relation: str  # "我在这段关系中是谁"
+    relationship_quality_delta: float  # 对关系质量的影响 [-1, 1]
+    what_this_says_about_us: str  # 关系含义的自然语言描述
 
     def to_state_dict(self) -> Dict[str, Any]:
         """序列化为 JSON 兼容的字典。"""
@@ -72,11 +74,12 @@ class IdentityImpact:
     关键洞察：一个经历的含义可以随时间演变。
     看起来像失败的东西后来可能被理解为转折点。
     """
-    when_formed: float                              # 何时形成这个解释
-    initial_meaning: str                            # 初始理解
-    current_meaning: str                            # 当前理解（可以更新）
-    identity_dimensions_affected: List[str]         # 哪些身份维度受到影响
-    evolution_history: List[Tuple[float, str]]      # （时间戳，含义）演变历史
+
+    when_formed: float  # 何时形成这个解释
+    initial_meaning: str  # 初始理解
+    current_meaning: str  # 当前理解（可以更新）
+    identity_dimensions_affected: List[str]  # 哪些身份维度受到影响
+    evolution_history: List[Tuple[float, str]]  # （时间戳，含义）演变历史
 
     def update_meaning(self, new_meaning: str) -> None:
         """更新当前含义并记录演变。"""
@@ -115,6 +118,7 @@ class IdentityImpact:
 # -----------------------------------------------------------------------------
 # Plot 模型
 # -----------------------------------------------------------------------------
+
 
 @dataclass
 class Plot:
@@ -188,22 +192,24 @@ class Plot:
 
     # === 知识更新追踪 ===
     # 用于重新叙述：旧信息不被删除，而是重新定位为"过去的自我"
-    supersedes_id: Optional[str] = None       # 该 Plot 替代/更新的 Plot 的 ID
-    superseded_by_id: Optional[str] = None    # 替代该 Plot 的 Plot 的 ID
+    supersedes_id: Optional[str] = None  # 该 Plot 替代/更新的 Plot 的 ID
+    superseded_by_id: Optional[str] = None  # 替代该 Plot 的 Plot 的 ID
     update_type: Optional[Literal["state_change", "correction", "refinement"]] = None
     redundancy_type: Optional[Literal["novel", "update", "reinforcement", "pure_redundant"]] = None
 
     # === 知识类型分类 ===
     # 用于智能冲突解决（不是所有矛盾都需要消除）
-    knowledge_type: Optional[Literal[
-        "factual_state",    # 可变事实（地址、工作）- UPDATE 策略
-        "factual_static",   # 不可变事实（生日）- CORRECT 策略
-        "identity_trait",   # 性格特征 - PRESERVE_BOTH 策略
-        "identity_value",   # 核心价值观 - PRESERVE_BOTH 策略
-        "preference",       # 喜好/厌恶 - EVOLVE 策略
-        "behavior",         # 行为模式 - EVOLVE 策略
-        "unknown"           # 无法分类
-    ]] = None
+    knowledge_type: Optional[
+        Literal[
+            "factual_state",  # 可变事实（地址、工作）- UPDATE 策略
+            "factual_static",  # 不可变事实（生日）- CORRECT 策略
+            "identity_trait",  # 性格特征 - PRESERVE_BOTH 策略
+            "identity_value",  # 核心价值观 - PRESERVE_BOTH 策略
+            "preference",  # 喜好/厌恶 - EVOLVE 策略
+            "behavior",  # 行为模式 - EVOLVE 策略
+            "unknown",  # 无法分类
+        ]
+    ] = None
     knowledge_confidence: float = 0.0  # 分类置信度 [0, 1]
 
     # === 第5阶段：事实增强索引 ===
@@ -225,19 +231,19 @@ class Plot:
         age = max(1.0, now_ts() - self.ts)
         freshness = 1.0 / math.log1p(age)
         return freshness * math.log1p(self.access_count + 1)
-    
+
     def get_relationship_entity(self) -> Optional[str]:
         """从关系上下文获取关系实体 ID。"""
         return self.relational.with_whom if self.relational else None
-    
+
     def get_my_role(self) -> str:
         """获取我在关系中的角色。"""
         return self.relational.my_role_in_relation if self.relational else "assistant"
-    
+
     def has_identity_impact(self) -> bool:
         """检查该 Plot 是否有身份影响。"""
         return self.identity_impact is not None
-    
+
     def get_identity_dimensions(self) -> List[str]:
         """获取该 Plot 影响的身份维度。"""
         if self.identity_impact:
@@ -294,7 +300,7 @@ class Plot:
         identity_impact = None
         if "identity_impact" in d and d["identity_impact"] is not None:
             identity_impact = IdentityImpact.from_state_dict(d["identity_impact"])
-        
+
         return cls(
             id=d["id"],
             ts=d["ts"],

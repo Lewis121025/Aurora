@@ -57,12 +57,11 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import numpy as np
 
@@ -84,10 +83,10 @@ from aurora.integrations.llm.Prompt.locomo_prompt import (
     LOCOMO_SUMMARIZATION_EVALUATION_USER_PROMPT,
 )
 from aurora.integrations.llm.Prompt.qa_prompt import build_qa_prompt
-from aurora.utils.time_utils import now_ts
 
 try:
     from pydantic import BaseModel, Field
+
     PYDANTIC_AVAILABLE = True
 except ImportError:
     PYDANTIC_AVAILABLE = False
@@ -100,6 +99,7 @@ logger = logging.getLogger(__name__)
 # Enums
 # =============================================================================
 
+
 class LOCOMOReasoningType(Enum):
     """LOCOMO QA 任务所需的推理类型。
 
@@ -110,12 +110,13 @@ class LOCOMOReasoningType(Enum):
     - COMMONSENSE: 常识推理
     - WORLD_KNOWLEDGE: 外部世界知识
     """
+
     SINGLE_HOP = "single_hop"
     MULTI_HOP = "multi_hop"
     TEMPORAL = "temporal"
     COMMONSENSE = "commonsense"
     WORLD_KNOWLEDGE = "world_knowledge"
-    
+
     @classmethod
     def from_string(cls, s: str) -> "LOCOMOReasoningType":
         """从字符串解析推理类型。"""
@@ -144,10 +145,11 @@ class LOCOMOTaskType(Enum):
     EVENT_SUMMARIZATION: 生成连贯的事件摘要
     DIALOGUE_GENERATION: 生成适当的对话响应 (可选)
     """
+
     QUESTION_ANSWERING = "qa"
     EVENT_SUMMARIZATION = "summarization"
     DIALOGUE_GENERATION = "dialogue"
-    
+
     @classmethod
     def from_string(cls, s: str) -> "LOCOMOTaskType":
         """从字符串解析任务类型。"""
@@ -170,19 +172,24 @@ class LOCOMOTaskType(Enum):
 # =============================================================================
 
 if PYDANTIC_AVAILABLE:
+
     class QAEvaluationResult(BaseModel):
         """QA 任务的 LLM-as-judge 评估结果。"""
+
         is_correct: bool = Field(description="Whether the answer is correct")
         score: float = Field(ge=0.0, le=1.0, description="Confidence score [0, 1]")
         explanation: str = Field(description="Brief explanation of the evaluation")
 
     class SummarizationEvaluationResult(BaseModel):
         """总结任务的 LLM-as-judge 评估结果。"""
+
         coherence_score: float = Field(ge=0.0, le=1.0, description="Coherence of summary")
         coverage_score: float = Field(ge=0.0, le=1.0, description="Coverage of key events")
         accuracy_score: float = Field(ge=0.0, le=1.0, description="Factual accuracy")
         overall_score: float = Field(ge=0.0, le=1.0, description="Overall quality score")
-        missing_events: List[str] = Field(default_factory=list, description="Key events not covered")
+        missing_events: List[str] = Field(
+            default_factory=list, description="Key events not covered"
+        )
         explanation: str = Field(description="Brief explanation")
 else:
     QAEvaluationResult = None  # type: ignore
@@ -192,6 +199,7 @@ else:
 # =============================================================================
 # LOCOMO Data Structures
 # =============================================================================
+
 
 @dataclass
 class LOCOMOTurn:
@@ -204,12 +212,13 @@ class LOCOMOTurn:
         timestamp: 可选的时间戳
         metadata: 额外的轮次元数据
     """
+
     turn_id: str
     speaker: str
     text: str
     timestamp: Optional[float] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """转换为字典以供内存摄入。"""
         return {
@@ -232,6 +241,7 @@ class LOCOMOSession:
         events: 时间事件图
         metadata: 会话元数据
     """
+
     session_id: str
     turns: List[LOCOMOTurn]
     personas: Dict[str, str] = field(default_factory=dict)
@@ -251,6 +261,7 @@ class LOCOMOQuestion:
         reasoning_type: 所需的推理类型
         evidence_turns: 包含证据的轮次 ID
     """
+
     question_id: str
     session_id: str
     question: str
@@ -263,6 +274,7 @@ class LOCOMOQuestion:
 # =============================================================================
 # LOCOMO Adapter
 # =============================================================================
+
 
 class LOCOMOAdapter(BenchmarkAdapter):
     """LOCOMO 基准评估适配器。
@@ -294,25 +306,25 @@ class LOCOMOAdapter(BenchmarkAdapter):
         for instance in instances:
             result = adapter.evaluate(instance, memory)
     """
-    
+
     # Dataset URLs
     GITHUB_REPO = "snap-research/locomo"
     DEFAULT_DATA_DIR = "data"
-    
+
     @property
     def name(self) -> str:
         """返回基准名称。"""
         return "LOCOMO"
-    
+
     def __init__(
         self,
-        llm_provider=None,
+        llm_provider: Any = None,
         seed: int = 0,
         evaluation_method: EvaluationMethod = EvaluationMethod.LLM_JUDGE,
         use_narrator_for_summary: bool = True,
         f1_threshold: float = 0.5,
         fuzzy_threshold: float = 0.7,
-    ):
+    ) -> None:
         """初始化 LOCOMO 适配器。
 
         参数:
@@ -324,26 +336,26 @@ class LOCOMOAdapter(BenchmarkAdapter):
             fuzzy_threshold: 模糊匹配的阈值
         """
         super().__init__(llm_provider=llm_provider, seed=seed)
-        
+
         self.evaluation_method = evaluation_method
         self.use_narrator_for_summary = use_narrator_for_summary
         self.f1_threshold = f1_threshold
         self.fuzzy_threshold = fuzzy_threshold
-        
+
         # Cache for loaded sessions
         self._session_cache: Dict[str, LOCOMOSession] = {}
-        
+
         # Statistics tracking
         self._eval_stats: Dict[str, int] = {
             "total_evals": 0,
             "llm_evals": 0,
             "fallback_evals": 0,
         }
-    
+
     # -------------------------------------------------------------------------
     # Dataset Loading
     # -------------------------------------------------------------------------
-    
+
     def load_dataset(
         self,
         path: str,
@@ -366,20 +378,20 @@ class LOCOMOAdapter(BenchmarkAdapter):
             BenchmarkInstance 对象列表
         """
         logger.info(f"Loading LOCOMO dataset from {path}")
-        
+
         # Handle different path types
         if path.startswith("github:") or path.startswith("https://github.com"):
             return self._load_from_github(path, subset, limit)
-        
+
         path_obj = Path(path)
-        
+
         if path_obj.is_file():
             return self._load_from_file(path_obj, subset, limit)
         elif path_obj.is_dir():
             return self._load_from_directory(path_obj, subset, limit)
         else:
             raise FileNotFoundError(f"Dataset path not found: {path}")
-    
+
     def _load_from_file(
         self,
         path: Path,
@@ -389,9 +401,9 @@ class LOCOMOAdapter(BenchmarkAdapter):
         """从单个 JSON 文件加载数据集。"""
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
-        
+
         return self._parse_dataset(data, subset, limit)
-    
+
     def _load_from_directory(
         self,
         path: Path,
@@ -400,39 +412,39 @@ class LOCOMOAdapter(BenchmarkAdapter):
     ) -> List[BenchmarkInstance]:
         """从文件目录加载数据集。"""
         instances: List[BenchmarkInstance] = []
-        
+
         # Look for standard LOCOMO file structure
         sessions_file = path / "sessions.json"
         questions_file = path / "questions.json"
-        
+
         if sessions_file.exists() and questions_file.exists():
             # Standard LOCOMO structure
             with open(sessions_file, "r", encoding="utf-8") as f:
                 sessions_data = json.load(f)
             with open(questions_file, "r", encoding="utf-8") as f:
                 questions_data = json.load(f)
-            
+
             data = {
                 "sessions": sessions_data,
                 "questions": questions_data,
             }
             return self._parse_dataset(data, subset, limit)
-        
+
         # Try loading individual JSON files
         json_files = list(path.glob("*.json"))
         for json_file in json_files:
             with open(json_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             instances.extend(self._parse_dataset(data, subset, None))
-            
+
             if limit and len(instances) >= limit:
                 break
-        
+
         if limit:
             instances = instances[:limit]
-        
+
         return instances
-    
+
     def _load_from_github(
         self,
         url: str,
@@ -447,7 +459,7 @@ class LOCOMOAdapter(BenchmarkAdapter):
             import urllib.request
             import tempfile
             import zipfile
-            
+
             # Extract repo info
             if url.startswith("github:"):
                 repo = url[7:]
@@ -455,33 +467,33 @@ class LOCOMOAdapter(BenchmarkAdapter):
                 # Parse GitHub URL
                 parts = url.replace("https://github.com/", "").split("/")
                 repo = "/".join(parts[:2])
-            
+
             # Download repository as zip
             zip_url = f"https://github.com/{repo}/archive/refs/heads/main.zip"
-            
+
             with tempfile.TemporaryDirectory() as tmpdir:
                 zip_path = Path(tmpdir) / "repo.zip"
-                
+
                 logger.info(f"Downloading LOCOMO dataset from {zip_url}")
                 urllib.request.urlretrieve(zip_url, zip_path)
-                
+
                 # Extract
                 with zipfile.ZipFile(zip_path, "r") as zip_ref:
                     zip_ref.extractall(tmpdir)
-                
+
                 # Find data directory
                 extracted_dirs = list(Path(tmpdir).glob("*/"))
                 if extracted_dirs:
                     data_dir = extracted_dirs[0] / self.DEFAULT_DATA_DIR
                     if data_dir.exists():
                         return self._load_from_directory(data_dir, subset, limit)
-                
+
                 raise FileNotFoundError("Could not find data directory in repository")
-                
+
         except Exception as e:
             logger.warning(f"Failed to load from GitHub: {e}")
             raise
-    
+
     def _parse_dataset(
         self,
         data: Dict[str, Any],
@@ -490,24 +502,24 @@ class LOCOMOAdapter(BenchmarkAdapter):
     ) -> List[BenchmarkInstance]:
         """将数据集 JSON 解析为 BenchmarkInstance 对象。"""
         instances: List[BenchmarkInstance] = []
-        
+
         # Parse sessions
         sessions = data.get("sessions", data.get("dialogues", []))
         if isinstance(sessions, dict):
             sessions = list(sessions.values())
-        
+
         for session_data in sessions:
-            session = self._parse_session(session_data)
-            self._session_cache[session.session_id] = session
-        
+            parsed_session = self._parse_session(session_data)
+            self._session_cache[parsed_session.session_id] = parsed_session
+
         # Parse questions
         questions = data.get("questions", data.get("qa_pairs", []))
         if isinstance(questions, dict):
             questions = list(questions.values())
-        
+
         for q_data in questions:
             question = self._parse_question(q_data)
-            
+
             # Filter by subset (reasoning type)
             if subset:
                 try:
@@ -516,71 +528,71 @@ class LOCOMOAdapter(BenchmarkAdapter):
                         continue
                 except (ValueError, KeyError):
                     pass
-            
+
             # Get session for this question
-            session = self._session_cache.get(question.session_id)
-            if session is None:
+            question_session = self._session_cache.get(question.session_id or "")
+            if question_session is None:
                 logger.warning(f"Session not found for question {question.question_id}")
                 continue
-            
+
             # Create benchmark instance
             instance = BenchmarkInstance(
                 id=question.question_id,
                 task_type=LOCOMOTaskType.QUESTION_ANSWERING.value,
-                conversation_history=[turn.to_dict() for turn in session.turns],
+                conversation_history=[turn.to_dict() for turn in question_session.turns],
                 query=question.question,
                 ground_truth=question.answer,
                 reasoning_type=question.reasoning_type.value,
                 session_id=question.session_id,
                 metadata={
                     "evidence_turns": question.evidence_turns,
-                    "personas": session.personas,
-                    "events": session.events,
+                    "personas": question_session.personas,
+                    "events": question_session.events,
                     **question.metadata,
                 },
             )
             instances.append(instance)
-            
+
             if limit and len(instances) >= limit:
                 break
-        
+
         # Parse summarization tasks if present
         summaries = data.get("summaries", data.get("event_summaries", []))
         if isinstance(summaries, dict):
             summaries = list(summaries.values())
-        
+
         for s_data in summaries:
             session_id = s_data.get("session_id", s_data.get("dialogue_id"))
-            session = self._session_cache.get(session_id)
-            
-            if session is None:
+            summary_session = self._session_cache.get(str(session_id))
+
+            if summary_session is None:
                 continue
-            
+
             instance = BenchmarkInstance(
                 id=s_data.get("id", f"summary_{session_id}"),
                 task_type=LOCOMOTaskType.EVENT_SUMMARIZATION.value,
-                conversation_history=[turn.to_dict() for turn in session.turns],
+                conversation_history=[turn.to_dict() for turn in summary_session.turns],
                 query=s_data.get("instruction", "Summarize the key events in this conversation."),
                 ground_truth=s_data.get("summary", s_data.get("ground_truth", "")),
                 session_id=session_id,
                 metadata=s_data.get("metadata", {}),
             )
             instances.append(instance)
-            
+
             if limit and len(instances) >= limit:
                 break
-        
+
         logger.info(f"Loaded {len(instances)} benchmark instances")
         return instances
-    
+
     def _parse_session(self, data: Dict[str, Any]) -> LOCOMOSession:
         """将会话数据解析为 LOCOMOSession 对象。"""
         session_id = data.get("session_id", data.get("dialogue_id", str(self.rng.integers(10000))))
-        
+
         # Parse turns
         turns_data = data.get("turns", data.get("utterances", data.get("dialogue", [])))
         turns: List[LOCOMOTurn] = []
-        
+
         for i, turn_data in enumerate(turns_data):
             if isinstance(turn_data, str):
                 # Simple string format
@@ -591,32 +603,66 @@ class LOCOMOAdapter(BenchmarkAdapter):
                 )
             elif isinstance(turn_data, dict):
                 turn = LOCOMOTurn(
-                    turn_id=turn_data.get("id", turn_data.get("turn_id", f"{session_id}_turn_{i}")),
-                    speaker=turn_data.get("speaker", turn_data.get("role", "user")),
-                    text=turn_data.get("text", turn_data.get("content", turn_data.get("utterance", ""))),
+                    turn_id=str(
+                        turn_data.get("id", turn_data.get("turn_id", f"{session_id}_turn_{i}"))
+                    ),
+                    speaker=str(turn_data.get("speaker", turn_data.get("role", "user"))),
+                    text=str(
+                        turn_data.get(
+                            "text", turn_data.get("content", turn_data.get("utterance", ""))
+                        )
+                    ),
                     timestamp=turn_data.get("timestamp"),
-                    metadata={k: v for k, v in turn_data.items() 
-                             if k not in ("id", "turn_id", "speaker", "role", "text", "content", "utterance", "timestamp")},
+                    metadata={
+                        k: v
+                        for k, v in turn_data.items()
+                        if k
+                        not in (
+                            "id",
+                            "turn_id",
+                            "speaker",
+                            "role",
+                            "text",
+                            "content",
+                            "utterance",
+                            "timestamp",
+                        )
+                    },
                 )
             else:
                 continue
-            
+
             turns.append(turn)
-        
+
         return LOCOMOSession(
             session_id=session_id,
             turns=turns,
             personas=data.get("personas", data.get("persona", {})),
             events=data.get("events", data.get("temporal_events", [])),
-            metadata={k: v for k, v in data.items() 
-                     if k not in ("session_id", "dialogue_id", "turns", "utterances", "dialogue", 
-                                 "personas", "persona", "events", "temporal_events")},
+            metadata={
+                k: v
+                for k, v in data.items()
+                if k
+                not in (
+                    "session_id",
+                    "dialogue_id",
+                    "turns",
+                    "utterances",
+                    "dialogue",
+                    "personas",
+                    "persona",
+                    "events",
+                    "temporal_events",
+                )
+            },
         )
-    
+
     def _parse_question(self, data: Dict[str, Any]) -> LOCOMOQuestion:
         """将问题数据解析为 LOCOMOQuestion 对象。"""
-        reasoning_str = data.get("reasoning_type", data.get("type", data.get("category", "single_hop")))
-        
+        reasoning_str = data.get(
+            "reasoning_type", data.get("type", data.get("category", "single_hop"))
+        )
+
         return LOCOMOQuestion(
             question_id=data.get("id", data.get("question_id", str(self.rng.integers(10000)))),
             session_id=data.get("session_id", data.get("dialogue_id", "")),
@@ -624,12 +670,29 @@ class LOCOMOAdapter(BenchmarkAdapter):
             answer=data.get("answer", data.get("ground_truth", data.get("response", ""))),
             reasoning_type=LOCOMOReasoningType.from_string(reasoning_str),
             evidence_turns=data.get("evidence_turns", data.get("supporting_turns", [])),
-            metadata={k: v for k, v in data.items()
-                     if k not in ("id", "question_id", "session_id", "dialogue_id", "question", 
-                                 "query", "answer", "ground_truth", "response", "reasoning_type",
-                                 "type", "category", "evidence_turns", "supporting_turns")},
+            metadata={
+                k: v
+                for k, v in data.items()
+                if k
+                not in (
+                    "id",
+                    "question_id",
+                    "session_id",
+                    "dialogue_id",
+                    "question",
+                    "query",
+                    "answer",
+                    "ground_truth",
+                    "response",
+                    "reasoning_type",
+                    "type",
+                    "category",
+                    "evidence_turns",
+                    "supporting_turns",
+                )
+            },
         )
-    
+
     def _parse_conversation(self, conversation: Dict[str, Any]) -> List[Dict[str, Any]]:
         """将 LOCOMO 对话格式解析为轮次列表。
 
@@ -643,32 +706,36 @@ class LOCOMOAdapter(BenchmarkAdapter):
         """
         if isinstance(conversation, list):
             return conversation
-        
+
         # Handle nested format
-        turns = conversation.get("turns", conversation.get("utterances", conversation.get("dialogue", [])))
-        
+        turns = conversation.get(
+            "turns", conversation.get("utterances", conversation.get("dialogue", []))
+        )
+
         parsed_turns: List[Dict[str, Any]] = []
         for turn in turns:
             if isinstance(turn, str):
                 parsed_turns.append({"text": turn})
             elif isinstance(turn, dict):
-                parsed_turns.append({
-                    "id": turn.get("id", turn.get("turn_id")),
-                    "speaker": turn.get("speaker", turn.get("role", "user")),
-                    "text": turn.get("text", turn.get("content", turn.get("utterance", ""))),
-                    "timestamp": turn.get("timestamp"),
-                })
-        
+                parsed_turns.append(
+                    {
+                        "id": turn.get("id", turn.get("turn_id")),
+                        "speaker": turn.get("speaker", turn.get("role", "user")),
+                        "text": turn.get("text", turn.get("content", turn.get("utterance", ""))),
+                        "timestamp": turn.get("timestamp"),
+                    }
+                )
+
         return parsed_turns
-    
+
     # -------------------------------------------------------------------------
     # Memory Preparation
     # -------------------------------------------------------------------------
-    
+
     def _prepare_memory_from_sessions(
         self,
         sessions: List[Dict[str, Any]],
-        memory,
+        memory: Any,
     ) -> None:
         """从多个对话会话准备内存。
 
@@ -681,11 +748,11 @@ class LOCOMOAdapter(BenchmarkAdapter):
         for session in sessions:
             session_id = session.get("session_id", session.get("dialogue_id"))
             turns = self._parse_conversation(session)
-            
+
             for turn in turns:
                 text = turn.get("text", turn.get("content", str(turn)))
                 speaker = turn.get("speaker", turn.get("role", "user"))
-                
+
                 # Format for AURORA ingestion
                 if speaker in ("user", "user1", "user2"):
                     formatted_text = f"用户：{text}"
@@ -693,18 +760,18 @@ class LOCOMOAdapter(BenchmarkAdapter):
                 else:
                     formatted_text = f"助理：{text}"
                     actors = ("agent", "user")
-                
+
                 memory.ingest(
                     interaction_text=formatted_text,
                     actors=actors,
                     event_id=turn.get("id"),
                     context_text=f"session:{session_id}",
                 )
-    
+
     def prepare_memory(
         self,
-        conversation_history: List[Dict[str, Any]],
-        memory,
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
         """通过摄入对话历史来准备内存。
 
@@ -714,10 +781,25 @@ class LOCOMOAdapter(BenchmarkAdapter):
             conversation_history: 对话轮次列表
             memory: AURORA 内存实例
         """
+        if len(args) >= 2 and isinstance(args[0], list):
+            conversation_history = cast(List[Dict[str, Any]], args[0])
+            memory = args[1]
+        elif len(args) >= 2:
+            memory = args[0]
+            conversation_history = cast(List[Dict[str, Any]], args[1])
+        else:
+            conversation_history = cast(
+                List[Dict[str, Any]], kwargs.get("conversation_history", [])
+            )
+            memory = kwargs.get("memory")
+
+        if memory is None:
+            raise ValueError("memory is required")
+
         for turn in conversation_history:
             text = turn.get("text", turn.get("content", str(turn)))
             speaker = turn.get("speaker", turn.get("role", "user"))
-            
+
             # Format for AURORA ingestion
             if speaker in ("user", "user1", "user2"):
                 formatted_text = f"用户：{text}"
@@ -725,22 +807,22 @@ class LOCOMOAdapter(BenchmarkAdapter):
             else:
                 formatted_text = f"助理：{text}"
                 actors = ("agent", "user")
-            
+
             memory.ingest(
                 interaction_text=formatted_text,
                 actors=actors,
                 event_id=turn.get("id"),
             )
-    
+
     # -------------------------------------------------------------------------
     # Evaluation
     # -------------------------------------------------------------------------
-    
+
     def evaluate(
         self,
         instance: BenchmarkInstance,
-        memory,
-        **kwargs,
+        memory: Any,
+        **kwargs: Any,
     ) -> BenchmarkResult:
         """评估单个基准实例。
 
@@ -755,7 +837,7 @@ class LOCOMOAdapter(BenchmarkAdapter):
             包含评估结果的 BenchmarkResult
         """
         task_type = LOCOMOTaskType.from_string(instance.task_type)
-        
+
         if task_type == LOCOMOTaskType.QUESTION_ANSWERING:
             reasoning_type = (
                 LOCOMOReasoningType.from_string(instance.reasoning_type)
@@ -763,21 +845,21 @@ class LOCOMOAdapter(BenchmarkAdapter):
                 else LOCOMOReasoningType.SINGLE_HOP
             )
             return self._evaluate_qa(instance, memory, reasoning_type)
-        
+
         elif task_type == LOCOMOTaskType.EVENT_SUMMARIZATION:
             return self._evaluate_summarization(instance, memory)
-        
+
         elif task_type == LOCOMOTaskType.DIALOGUE_GENERATION:
             return self._evaluate_dialogue(instance, memory)
-        
+
         else:
             # Default to QA evaluation
             return self._evaluate_qa(instance, memory, LOCOMOReasoningType.SINGLE_HOP)
-    
+
     def _evaluate_qa(
         self,
         instance: BenchmarkInstance,
-        memory,
+        memory: Any,
         reasoning_type: LOCOMOReasoningType,
     ) -> BenchmarkResult:
         """评估问答任务。
@@ -795,12 +877,12 @@ class LOCOMOAdapter(BenchmarkAdapter):
         """
         start_time = time.perf_counter()
         reasoning_trace: List[str] = []
-        
+
         try:
             # Query memory for relevant context
             trace = memory.query(instance.query, k=10)
             reasoning_trace.append(f"Retrieved {len(trace.ranked)} memories")
-            
+
             # Gather retrieved content
             retrieved_texts: List[str] = []
             for nid, score, kind in trace.ranked[:5]:
@@ -812,9 +894,9 @@ class LOCOMOAdapter(BenchmarkAdapter):
                         retrieved_texts.append(payload.to_narrative_summary())
                 except Exception as e:
                     logger.debug(f"Failed to retrieve payload for node {nid}: {e}")
-            
+
             reasoning_trace.append(f"Gathered {len(retrieved_texts)} text snippets")
-            
+
             # Generate prediction
             if self.llm is not None:
                 prediction = self._generate_qa_answer(
@@ -825,20 +907,20 @@ class LOCOMOAdapter(BenchmarkAdapter):
             else:
                 # Fallback: use most relevant retrieved text
                 prediction = retrieved_texts[0] if retrieved_texts else ""
-            
+
             reasoning_trace.append(f"Generated prediction: {prediction[:100]}...")
-            
+
             # Evaluate
             score, is_correct = self._evaluate_qa_answer(
                 prediction=prediction,
                 ground_truth=instance.ground_truth,
                 question=instance.query,
             )
-            
+
             reasoning_trace.append(f"Score: {score:.2f}, Correct: {is_correct}")
-            
+
             latency_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return BenchmarkResult(
                 instance_id=instance.id,
                 task_type=f"qa_{reasoning_type.value}",
@@ -854,11 +936,11 @@ class LOCOMOAdapter(BenchmarkAdapter):
                     "retrieved_count": len(retrieved_texts),
                 },
             )
-            
+
         except Exception as e:
             latency_ms = (time.perf_counter() - start_time) * 1000
             logger.error(f"QA evaluation error: {e}")
-            
+
             return BenchmarkResult(
                 instance_id=instance.id,
                 task_type=f"qa_{reasoning_type.value}",
@@ -870,7 +952,7 @@ class LOCOMOAdapter(BenchmarkAdapter):
                 error_message=str(e),
                 reasoning_trace=reasoning_trace,
             )
-    
+
     def _generate_qa_answer(
         self,
         question: str,
@@ -889,50 +971,50 @@ class LOCOMOAdapter(BenchmarkAdapter):
         """
         if self.llm is None:
             return context[0] if context else ""
-        
+
         # Map LOCOMO reasoning type to question type hint
         reasoning_to_qtype = {
             LOCOMOReasoningType.SINGLE_HOP: None,  # Use default
-            LOCOMOReasoningType.MULTI_HOP: 'multi-session',  # Multi-hop often requires aggregation
-            LOCOMOReasoningType.TEMPORAL: 'temporal-reasoning',
+            LOCOMOReasoningType.MULTI_HOP: "multi-session",  # Multi-hop often requires aggregation
+            LOCOMOReasoningType.TEMPORAL: "temporal-reasoning",
             LOCOMOReasoningType.COMMONSENSE: None,  # Use default
             LOCOMOReasoningType.WORLD_KNOWLEDGE: None,  # Use default
         }
-        
+
         qtype_hint = reasoning_to_qtype.get(reasoning_type)
         context_text = "\n\n".join(context) if context else "No relevant context found."
-        
+
         # Use type-specific prompt template
         prompt = build_qa_prompt(
             question=question,
             context=context_text,
             question_type_hint=qtype_hint,
-            max_context_length=5000
+            max_context_length=5000,
         )
-        
+
         system_prompt = """You are a precise question-answering assistant.
 Answer the question based on the provided conversation context.
 Be concise and answer directly."""
-        
+
         try:
             # Use LLM to generate answer with type-specific prompt
             from pydantic import BaseModel, Field
-            
+
             class QAAnswer(BaseModel):
                 answer: str = Field(description="The answer to the question")
-            
+
             result = self.llm.complete_json(
                 system=system_prompt,
                 user=prompt,
                 schema=QAAnswer,
                 temperature=0.1,
             )
-            return result.answer
-            
+            return str(result.answer)
+
         except Exception as e:
             logger.warning(f"LLM generation failed: {e}, falling back to context")
             return context[0] if context else ""
-    
+
     def _evaluate_qa_answer(
         self,
         prediction: str,
@@ -950,11 +1032,13 @@ Be concise and answer directly."""
             (分数, 是否正确) 的元组
         """
         self._eval_stats["total_evals"] += 1
-        
+
         # Try LLM-as-judge if available and configured
-        if (self.evaluation_method == EvaluationMethod.LLM_JUDGE 
-            and self.llm is not None 
-            and QAEvaluationResult is not None):
+        if (
+            self.evaluation_method == EvaluationMethod.LLM_JUDGE
+            and self.llm is not None
+            and QAEvaluationResult is not None
+        ):
             try:
                 result = self.llm.complete_json(
                     system=LOCOMO_QA_EVALUATION_SYSTEM_PROMPT,
@@ -968,37 +1052,37 @@ Be concise and answer directly."""
                 )
                 self._eval_stats["llm_evals"] += 1
                 return result.score, result.is_correct
-                
+
             except Exception as e:
                 logger.warning(f"LLM evaluation failed: {e}, falling back")
-        
+
         # Fallback evaluation methods
         self._eval_stats["fallback_evals"] += 1
-        
+
         # Exact match
         if exact_match_score(prediction, ground_truth) > 0.5:
             return 1.0, True
-        
+
         # Contains match
         if contains_score(prediction, ground_truth) > 0.5:
             return 0.9, True
-        
+
         # F1 score
         f1 = compute_f1_score(prediction, ground_truth)
         if f1 >= self.f1_threshold:
             return f1, True
-        
+
         # Fuzzy match
         fuzzy = fuzzy_match_score(prediction, ground_truth, threshold=self.fuzzy_threshold)
         if fuzzy > 0.5:
             return fuzzy, True
-        
+
         return max(f1, fuzzy * 0.5), False
-    
+
     def _evaluate_summarization(
         self,
         instance: BenchmarkInstance,
-        memory,
+        memory: Any,
     ) -> BenchmarkResult:
         """评估事件总结任务。
 
@@ -1014,27 +1098,27 @@ Be concise and answer directly."""
         """
         start_time = time.perf_counter()
         reasoning_trace: List[str] = []
-        
+
         try:
             # Generate summary using AURORA
             if self.use_narrator_for_summary:
                 prediction = self._generate_narrative_summary(memory, instance)
             else:
                 prediction = self._generate_simple_summary(memory, instance)
-            
+
             reasoning_trace.append(f"Generated summary of {len(prediction)} characters")
-            
+
             # Evaluate
             score, metrics = self._evaluate_summary(
                 prediction=prediction,
                 ground_truth=instance.ground_truth,
             )
-            
+
             is_correct = score >= 0.5
             reasoning_trace.append(f"Score: {score:.2f}")
-            
+
             latency_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return BenchmarkResult(
                 instance_id=instance.id,
                 task_type=LOCOMOTaskType.EVENT_SUMMARIZATION.value,
@@ -1046,11 +1130,11 @@ Be concise and answer directly."""
                 reasoning_trace=reasoning_trace,
                 metadata=metrics,
             )
-            
+
         except Exception as e:
             latency_ms = (time.perf_counter() - start_time) * 1000
             logger.error(f"Summarization evaluation error: {e}")
-            
+
             return BenchmarkResult(
                 instance_id=instance.id,
                 task_type=LOCOMOTaskType.EVENT_SUMMARIZATION.value,
@@ -1062,10 +1146,10 @@ Be concise and answer directly."""
                 error_message=str(e),
                 reasoning_trace=reasoning_trace,
             )
-    
+
     def _generate_narrative_summary(
         self,
-        memory,
+        memory: Any,
         instance: BenchmarkInstance,
     ) -> str:
         """使用 AURORA 的 NarratorEngine 生成摘要。
@@ -1079,24 +1163,24 @@ Be concise and answer directly."""
         """
         try:
             from aurora.lab.narrator.reconstruction import NarratorEngine
-            
+
             # Get all plots
             plots = list(memory.plots.values())
-            
+
             if not plots:
                 return "No events to summarize."
-            
+
             # Create narrator engine with safe attribute access
             vindex = getattr(memory, "vindex", None)
             graph = getattr(memory, "graph", None)
-            
+
             narrator = NarratorEngine(
                 metric=memory.metric,
                 vindex=vindex,
                 graph=graph,
                 seed=self._seed,
             )
-            
+
             # Reconstruct story
             trace = narrator.reconstruct_story(
                 query=instance.query or "Summarize the conversation events",
@@ -1104,15 +1188,15 @@ Be concise and answer directly."""
                 stories=memory.stories,
                 themes=memory.themes,
             )
-            
+
             return trace.narrative_text
-            
+
         except ImportError:
             return self._generate_simple_summary(memory, instance)
-    
+
     def _generate_simple_summary(
         self,
-        memory,
+        memory: Any,
         instance: BenchmarkInstance,
     ) -> str:
         """不使用 NarratorEngine 生成简单摘要。
@@ -1126,13 +1210,13 @@ Be concise and answer directly."""
         """
         # Get story summaries
         summaries: List[str] = []
-        
+
         for story in memory.stories.values():
             if story.is_relationship_story():
                 summaries.append(story.to_relationship_narrative())
             else:
                 summaries.append(story.to_narrative_summary())
-        
+
         if not summaries:
             # Fall back to recent plots
             recent_plots = sorted(
@@ -1140,11 +1224,11 @@ Be concise and answer directly."""
                 key=lambda p: p.ts,
                 reverse=True,
             )[:10]
-            
+
             summaries = [p.text[:200] for p in recent_plots]
-        
+
         return "\n\n".join(summaries) if summaries else "No events to summarize."
-    
+
     def _evaluate_summary(
         self,
         prediction: str,
@@ -1160,11 +1244,13 @@ Be concise and answer directly."""
             (总体分数, 指标字典) 的元组
         """
         self._eval_stats["total_evals"] += 1
-        
+
         # Try LLM-as-judge if available
-        if (self.evaluation_method == EvaluationMethod.LLM_JUDGE 
-            and self.llm is not None 
-            and SummarizationEvaluationResult is not None):
+        if (
+            self.evaluation_method == EvaluationMethod.LLM_JUDGE
+            and self.llm is not None
+            and SummarizationEvaluationResult is not None
+        ):
             try:
                 result = self.llm.complete_json(
                     system=LOCOMO_SUMMARIZATION_EVALUATION_SYSTEM_PROMPT,
@@ -1176,42 +1262,42 @@ Be concise and answer directly."""
                     temperature=0.1,
                 )
                 self._eval_stats["llm_evals"] += 1
-                
+
                 metrics = {
                     "coherence": result.coherence_score,
                     "coverage": result.coverage_score,
                     "accuracy": result.accuracy_score,
                 }
                 return result.overall_score, metrics
-                
+
             except Exception as e:
                 logger.warning(f"LLM evaluation failed: {e}, falling back")
-        
+
         # Fallback: F1-based evaluation
         self._eval_stats["fallback_evals"] += 1
-        
+
         f1 = compute_f1_score(prediction, ground_truth)
         fuzzy = fuzzy_match_score(prediction, ground_truth, threshold=0.3)
-        
+
         # Estimate coverage by keyword overlap
         ground_keywords = set(ground_truth.lower().split())
         pred_keywords = set(prediction.lower().split())
         coverage = len(ground_keywords & pred_keywords) / max(len(ground_keywords), 1)
-        
+
         overall = 0.4 * f1 + 0.3 * fuzzy + 0.3 * coverage
-        
+
         metrics = {
             "f1": f1,
             "fuzzy": fuzzy,
             "coverage": coverage,
         }
-        
+
         return overall, metrics
-    
+
     def _evaluate_dialogue(
         self,
         instance: BenchmarkInstance,
-        memory,
+        memory: Any,
     ) -> BenchmarkResult:
         """评估对话生成任务 (可选)。
 
@@ -1224,13 +1310,13 @@ Be concise and answer directly."""
         """
         # Dialogue generation is optional for initial version
         # Implement basic response relevance evaluation
-        
+
         start_time = time.perf_counter()
-        
+
         try:
             # Query memory for context
             trace = memory.query(instance.query, k=5)
-            
+
             # Generate simple response
             context_texts = []
             for nid, _, _ in trace.ranked[:3]:
@@ -1240,14 +1326,16 @@ Be concise and answer directly."""
                         context_texts.append(payload.text)
                 except Exception as e:
                     logger.debug(f"Failed to retrieve payload for node {nid}: {e}")
-            
-            prediction = context_texts[0] if context_texts else "I don't have enough context to respond."
-            
+
+            prediction = (
+                context_texts[0] if context_texts else "I don't have enough context to respond."
+            )
+
             # Basic evaluation
             f1 = compute_f1_score(prediction, instance.ground_truth)
-            
+
             latency_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return BenchmarkResult(
                 instance_id=instance.id,
                 task_type=LOCOMOTaskType.DIALOGUE_GENERATION.value,
@@ -1258,10 +1346,10 @@ Be concise and answer directly."""
                 latency_ms=latency_ms,
                 retrieval_count=len(trace.ranked),
             )
-            
+
         except Exception as e:
             latency_ms = (time.perf_counter() - start_time) * 1000
-            
+
             return BenchmarkResult(
                 instance_id=instance.id,
                 task_type=LOCOMOTaskType.DIALOGUE_GENERATION.value,
@@ -1272,11 +1360,11 @@ Be concise and answer directly."""
                 latency_ms=latency_ms,
                 error_message=str(e),
             )
-    
+
     # -------------------------------------------------------------------------
     # Result Aggregation
     # -------------------------------------------------------------------------
-    
+
     def aggregate_results(
         self,
         results: List[BenchmarkResult],
@@ -1297,15 +1385,15 @@ Be concise and answer directly."""
         """
         if not results:
             return {"accuracy": 0.0, "mean_latency_ms": 0.0}
-        
+
         # Basic counts
         total = len(results)
         correct = sum(1 for r in results if r.is_correct)
-        
+
         # Averages
         scores = [r.score for r in results]
         latencies = [r.latency_ms for r in results]
-        
+
         metrics: Dict[str, float] = {
             "accuracy": correct / total if total > 0 else 0.0,
             "avg_score": float(np.mean(scores)) if scores else 0.0,
@@ -1316,46 +1404,49 @@ Be concise and answer directly."""
             "total_instances": float(total),
             "correct_instances": float(correct),
         }
-        
+
         # Add reasoning type breakdown for QA tasks
         qa_results = [r for r in results if r.task_type.startswith("qa_")]
-        
+
         for reasoning_type in LOCOMOReasoningType:
             type_results = [
-                r for r in qa_results 
-                if r.metadata.get("reasoning_type") == reasoning_type.value
+                r for r in qa_results if r.metadata.get("reasoning_type") == reasoning_type.value
             ]
-            
+
             if type_results:
                 type_total = len(type_results)
                 type_correct = sum(1 for r in type_results if r.is_correct)
                 type_scores = [r.score for r in type_results]
-                
+
                 prefix = f"qa_{reasoning_type.value}"
                 metrics[f"{prefix}_total"] = float(type_total)
                 metrics[f"{prefix}_correct"] = float(type_correct)
                 metrics[f"{prefix}_accuracy"] = type_correct / type_total if type_total > 0 else 0.0
                 metrics[f"{prefix}_avg_score"] = float(np.mean(type_scores)) if type_scores else 0.0
-        
+
         # Add summarization metrics if present
-        summary_results = [r for r in results if r.task_type == LOCOMOTaskType.EVENT_SUMMARIZATION.value]
+        summary_results = [
+            r for r in results if r.task_type == LOCOMOTaskType.EVENT_SUMMARIZATION.value
+        ]
         if summary_results:
             sum_total = len(summary_results)
             sum_correct = sum(1 for r in summary_results if r.is_correct)
             sum_scores = [r.score for r in summary_results]
-            
+
             metrics["summarization_total"] = float(sum_total)
             metrics["summarization_correct"] = float(sum_correct)
             metrics["summarization_accuracy"] = sum_correct / sum_total if sum_total > 0 else 0.0
             metrics["summarization_avg_score"] = float(np.mean(sum_scores)) if sum_scores else 0.0
-        
+
         # Store for get_evaluation_metrics()
         self._last_metrics = metrics
         self._last_results = results
-        
+
         return metrics
-    
-    def get_evaluation_metrics(self, results: Optional[List[BenchmarkResult]] = None) -> EvaluationMetrics:
+
+    def get_evaluation_metrics(
+        self, results: Optional[List[BenchmarkResult]] = None
+    ) -> EvaluationMetrics:
         """从结果获取 EvaluationMetrics 对象。
 
         参数:
@@ -1365,17 +1456,17 @@ Be concise and answer directly."""
             具有详细分解的 EvaluationMetrics 对象
         """
         if results is None:
-            results = getattr(self, '_last_results', [])
-        
+            results = getattr(self, "_last_results", [])
+
         if not results:
             return EvaluationMetrics()
-        
+
         # Aggregate if not already done
         metrics_dict = self.aggregate_results(results)
-        
+
         # Build metrics_by_type
         metrics_by_type: Dict[str, Dict[str, float]] = {}
-        
+
         for reasoning_type in LOCOMOReasoningType:
             prefix = f"qa_{reasoning_type.value}"
             if f"{prefix}_total" in metrics_dict:
@@ -1385,7 +1476,7 @@ Be concise and answer directly."""
                     "accuracy": metrics_dict[f"{prefix}_accuracy"],
                     "avg_score": metrics_dict[f"{prefix}_avg_score"],
                 }
-        
+
         if "summarization_total" in metrics_dict:
             metrics_by_type["summarization"] = {
                 "total": metrics_dict["summarization_total"],
@@ -1393,7 +1484,7 @@ Be concise and answer directly."""
                 "accuracy": metrics_dict["summarization_accuracy"],
                 "avg_score": metrics_dict["summarization_avg_score"],
             }
-        
+
         return EvaluationMetrics(
             total_instances=int(metrics_dict.get("total_instances", 0)),
             correct_instances=int(metrics_dict.get("correct_instances", 0)),
@@ -1404,7 +1495,7 @@ Be concise and answer directly."""
             p50_latency_ms=metrics_dict.get("p50_latency_ms", 0.0),
             p99_latency_ms=metrics_dict.get("p99_latency_ms", 0.0),
         )
-    
+
     def get_evaluation_stats(self) -> Dict[str, int]:
         """获取关于所使用评估方法的统计信息。
 
@@ -1418,8 +1509,9 @@ Be concise and answer directly."""
 # Factory Functions
 # =============================================================================
 
+
 def create_locomo_adapter(
-    llm_provider=None,
+    llm_provider: Any = None,
     seed: int = 0,
     use_llm_judge: bool = True,
 ) -> LOCOMOAdapter:
@@ -1434,10 +1526,9 @@ def create_locomo_adapter(
         配置好的 LOCOMOAdapter 实例
     """
     evaluation_method = (
-        EvaluationMethod.LLM_JUDGE if use_llm_judge and llm_provider
-        else EvaluationMethod.FUZZY
+        EvaluationMethod.LLM_JUDGE if use_llm_judge and llm_provider else EvaluationMethod.FUZZY
     )
-    
+
     return LOCOMOAdapter(
         llm_provider=llm_provider,
         seed=seed,
@@ -1451,10 +1542,10 @@ def create_locomo_adapter(
 
 if __name__ == "__main__":
     from aurora.soul.engine import AuroraSoul, SoulConfig
-    
+
     # Create adapter (without LLM for demo)
     adapter = LOCOMOAdapter(seed=42)
-    
+
     # Create sample instance for testing
     sample_instance = BenchmarkInstance(
         id="test_1",
@@ -1469,16 +1560,16 @@ if __name__ == "__main__":
         ground_truth="北京",
         reasoning_type="single_hop",
     )
-    
+
     # Create memory and prepare
     config = SoulConfig(dim=64, max_plots=100)
     memory = AuroraSoul(cfg=config, seed=42)
-    
+
     adapter.prepare_memory(sample_instance.conversation_history, memory)
-    
+
     # Evaluate
     result = adapter.evaluate(sample_instance, memory)
-    
+
     print(f"Instance: {result.instance_id}")
     print(f"Task Type: {result.task_type}")
     print(f"Prediction: {result.prediction}")

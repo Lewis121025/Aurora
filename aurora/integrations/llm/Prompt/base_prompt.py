@@ -12,7 +12,7 @@ from aurora.integrations.llm.schemas import SCHEMA_VERSION
 def instruction(model_name: str) -> str:
     """
     生成强制 JSON 输出的指令后缀。
-    
+
     参数：
         model_name: 期望符合的 Pydantic 模型类名。
     """

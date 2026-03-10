@@ -108,7 +108,7 @@ class TestTimeRangeFiltering:
 
         time_range = TimeRange(
             end=base_ts - 25 * 86400,  # 过滤到前 25 天
-            relation="first"
+            relation="first",
         )
 
         filtered = time_extractor.filter_by_range(candidates, time_range)
@@ -131,7 +131,7 @@ class TestTimeRangeFiltering:
 
         time_range = TimeRange(
             start=base_ts - 15 * 86400,  # 过滤到最后 15 天
-            relation="last"
+            relation="last",
         )
 
         filtered = time_extractor.filter_by_range(candidates, time_range)
@@ -210,12 +210,16 @@ class TestTimeFilterIntegration:
 
             vindex.add(node_id, vec, kind="plot")
             # 在有效负载中存储时间戳
-            graph.add_node(node_id, "plot", {
-                "id": node_id,
-                "text": text,
-                "ts": ts,
-                "embedding": vec,
-            })
+            graph.add_node(
+                node_id,
+                "plot",
+                {
+                    "id": node_id,
+                    "text": text,
+                    "ts": ts,
+                    "embedding": vec,
+                },
+            )
 
         retriever = FieldRetriever(metric=metric, vindex=vindex, graph=graph)
 
@@ -243,9 +247,12 @@ class TestTimeFilterIntegration:
             # 检查结果是否按时间过滤
             timestamps = [retriever._payload_ts(graph.payload(nid)) for nid, _, _ in trace.ranked]
             # 对于"first"查询，最早时间戳应在结果中
-            earliest_ts = min(ts for nid in graph.g.nodes()
-                            if graph.kind(nid) == "plot"
-                            for ts in [retriever._payload_ts(graph.payload(nid))])
+            earliest_ts = min(
+                ts
+                for nid in graph.g.nodes()
+                if graph.kind(nid) == "plot"
+                for ts in [retriever._payload_ts(graph.payload(nid))]
+            )
             assert min(timestamps) <= earliest_ts + 86400  # 在 1 天缓冲内
 
     def test_temporal_query_recent(self, retriever_setup, identity_state):
@@ -268,9 +275,12 @@ class TestTimeFilterIntegration:
         if trace.ranked:
             timestamps = [retriever._payload_ts(graph.payload(nid)) for nid, _, _ in trace.ranked]
             # 对于"last"查询，最新时间戳应在结果中
-            latest_ts = max(ts for nid in graph.g.nodes()
-                          if graph.kind(nid) == "plot"
-                          for ts in [retriever._payload_ts(graph.payload(nid))])
+            latest_ts = max(
+                ts
+                for nid in graph.g.nodes()
+                if graph.kind(nid) == "plot"
+                for ts in [retriever._payload_ts(graph.payload(nid))]
+            )
             assert max(timestamps) >= latest_ts - 86400  # 在 1 天缓冲内
 
     def test_non_temporal_query_no_filter(self, retriever_setup, identity_state):

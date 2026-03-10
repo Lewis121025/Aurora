@@ -11,7 +11,9 @@ from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
 
 
 def _get_runtime(data_dir: Optional[str] = None) -> AuroraRuntime:
-    settings = AuroraSettings(data_dir=data_dir or os.environ.get("AURORA_DATA_DIR", DEFAULT_DATA_DIR))
+    settings = AuroraSettings(
+        data_dir=data_dir or os.environ.get("AURORA_DATA_DIR", DEFAULT_DATA_DIR)
+    )
     return AuroraRuntime(settings=settings)
 
 

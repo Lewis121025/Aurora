@@ -32,7 +32,7 @@ class SerializableMixin(ABC):
     这确保了所有模型类型的序列化一致性，
     实现了可靠的持久化和状态转移。
     """
-    
+
     @abstractmethod
     def to_state_dict(self) -> Dict[str, Any]:
         """
@@ -79,7 +79,7 @@ def serialize_value(value: Any) -> Any:
     """
     if isinstance(value, np.ndarray):
         return value.tolist()
-    elif hasattr(value, 'to_state_dict'):
+    elif hasattr(value, "to_state_dict"):
         return value.to_state_dict()
     elif isinstance(value, (list, tuple)):
         return [serialize_value(v) for v in value]

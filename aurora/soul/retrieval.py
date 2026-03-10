@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import math
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 
 import networkx as nx
 import numpy as np
@@ -51,6 +51,7 @@ class OnlineKDE:
     用于评估新输入的“惊讶度 (Surprise)”。如果一个输入落在记忆密度较低的区域，
     则其惊讶度较高，更容易引发系统的注意。
     """
+
     def __init__(self, dim: int, reservoir: int = 4096, k_sigma: int = 25, seed: int = 0):
         self.dim = dim
         self.reservoir = reservoir
@@ -125,6 +126,7 @@ class LowRankMetric:
     用于在线微调向量空间的距离计算。通过用户的反馈（Triplet Loss），
     逐渐学会在该 Agent 的主观视角下，哪些记忆是“相关”的。
     """
+
     def __init__(self, dim: int, rank: int = 64, seed: int = 0):
         self.dim = dim
         self.rank = min(rank, dim)
@@ -206,6 +208,7 @@ class ThompsonBernoulliGate:
     基于贝叶斯多臂老虎机算法，决定是否要将某条交互编码（Encode）进长期记忆。
     它会根据记忆的“特征”和“后续被检索的成功率（奖励）”来学习编码策略。
     """
+
     def __init__(self, feature_dim: int, seed: int = 0):
         self.d = feature_dim
         self._seed = seed
@@ -219,7 +222,8 @@ class ThompsonBernoulliGate:
     def _sample_w(self) -> np.ndarray:
         """从后验分布中采样权重向量"""
         std = np.sqrt(1.0 / (self.prec + 1e-9))
-        return self.w_mean + self.rng.normal(size=self.d).astype(np.float32) * std
+        sampled = self.w_mean + self.rng.normal(size=self.d).astype(np.float32) * std
+        return np.asarray(sampled, dtype=np.float32)
 
     def prob(self, x: np.ndarray) -> float:
         """计算编码概率"""
@@ -251,8 +255,11 @@ class ThompsonBernoulliGate:
             p = z / (1.0 + z)
         # 梯度上升更新
         grad = (y - p) * x
-        self.grad2 = 0.99 * self.grad2 + 0.01 * (grad * grad)
-        step = (1.0 / math.sqrt(self.t + 1.0)) * grad / (np.sqrt(self.grad2) + 1e-6)
+        self.grad2 = np.asarray(0.99 * self.grad2 + 0.01 * (grad * grad), dtype=np.float32)
+        step = np.asarray(
+            (1.0 / math.sqrt(self.t + 1.0)) * grad / (np.sqrt(self.grad2) + 1e-6),
+            dtype=np.float32,
+        )
         self.w_mean += step
         self.prec += grad * grad
 
@@ -283,6 +290,7 @@ class MemoryGraph:
     记忆图谱：存储情节、故事和主题之间的拓扑关系。
     支持带缓存的 PageRank 计算，用于联想式记忆扩散。
     """
+
     def __init__(self) -> None:
         self.g = nx.DiGraph()
         # 针对 personalization 向量和参数的 PageRank 缓存
@@ -306,7 +314,7 @@ class MemoryGraph:
         self._pagerank_cache.clear()
 
     def edge_belief(self, src: str, dst: str) -> EdgeBelief:
-        return self.g.edges[src, dst]["belief"]
+        return cast(EdgeBelief, self.g.edges[src, dst]["belief"])
 
     def _hash_personalization(self, personalization: Dict[str, float]) -> str:
         """为个性化向量生成哈希，用于缓存查找"""
@@ -362,6 +370,7 @@ class VectorIndex:
     """
     轻量级线性向量索引，支持按类型过滤。
     """
+
     def __init__(self, dim: int):
         self.dim = dim
         self.ids: List[str] = []
@@ -392,7 +401,9 @@ class VectorIndex:
         idx = self.ids.index(item_id)
         return self.vecs[idx]
 
-    def search(self, q: np.ndarray, k: int = 10, kind: Optional[str] = None) -> List[Tuple[str, float]]:
+    def search(
+        self, q: np.ndarray, k: int = 10, kind: Optional[str] = None
+    ) -> List[Tuple[str, float]]:
         """执行余弦相似度搜索"""
         if not self.vecs:
             return []
@@ -429,8 +440,9 @@ class CRPAssigner:
     中餐馆过程 (Chinese Restaurant Process) 采样器：
     用于贝叶斯非参数聚类。决定新输入应当加入现有群体还是开创一个新群体。
     """
+
     def __init__(self, alpha: float = 1.0, seed: int = 0):
-        self.alpha = alpha         # 集中参数：alpha 越大，开创群体的概率越大
+        self.alpha = alpha  # 集中参数：alpha 越大，开创群体的概率越大
         self._seed = seed
         self.rng = np.random.default_rng(seed)
 
@@ -462,6 +474,7 @@ class StoryModel:
     故事模型：计算一个情节 (Plot) 属于某个故事弧 (StoryArc) 的对数似然。
     综合考虑了语义距离、时间间隔、角色重合度以及来源一致性。
     """
+
     def __init__(self, metric: LowRankMetric):
         self.metric = metric
 
@@ -506,6 +519,7 @@ class ThemeModel:
     主题模型：计算一个故事弧属于某个主题的对数似然。
     目前主要基于语义重心距离。
     """
+
     def __init__(self, metric: LowRankMetric):
         self.metric = metric
 
@@ -519,6 +533,7 @@ class ThemeModel:
 @dataclass(frozen=True)
 class QueryPlan:
     """针对特定查询生成的执行计划：调整检索深度、加权系数等参数"""
+
     query_type: QueryType
     effective_k: int
     effective_max_iter: int
@@ -543,6 +558,7 @@ class FieldRetriever:
     4. 从吸引子出发执行“重播”式的 PR 计算。
     5. 融合各路得分，并根据 IdentityState 进行性格偏置。
     """
+
     def __init__(self, metric: LowRankMetric, vindex: VectorIndex, graph: MemoryGraph):
         self.metric = metric
         self.vindex = vindex
@@ -560,11 +576,14 @@ class FieldRetriever:
                     return np.asarray(vec, dtype=np.float32)
             return None
         if hasattr(payload, "embedding"):
-            return payload.embedding
+            vec = getattr(payload, "embedding")
+            return None if vec is None else np.asarray(vec, dtype=np.float32)
         if hasattr(payload, "centroid"):
-            return payload.centroid
+            vec = getattr(payload, "centroid")
+            return None if vec is None else np.asarray(vec, dtype=np.float32)
         if hasattr(payload, "prototype"):
-            return payload.prototype
+            vec = getattr(payload, "prototype")
+            return None if vec is None else np.asarray(vec, dtype=np.float32)
         return None
 
     def _node_vec(self, node_id: str, payload: Any) -> Optional[np.ndarray]:
@@ -632,18 +651,20 @@ class FieldRetriever:
         query_type: Optional[QueryType],
     ) -> QueryPlan:
         """根据查询内容构建执行计划"""
-        detected_type = query_type if query_type is not None else self.query_analyzer.classify(query_text)
+        detected_type = (
+            query_type if query_type is not None else self.query_analyzer.classify(query_text)
+        )
 
         effective_k = int(k)
         effective_max_iter = int(max_iter)
         effective_reseed_k = int(reseed_k)
 
         # 针对不同类型的查询调整检索深度
-        if detected_type == QueryType.MULTI_HOP: # 多跳联想：增加迭代次数和结果数
+        if detected_type == QueryType.MULTI_HOP:  # 多跳联想：增加迭代次数和结果数
             effective_k = max(k, int(math.ceil(k * 1.5)))
             effective_max_iter += MULTI_HOP_EXTRA_PAGERANK_ITER
             effective_reseed_k = max(reseed_k, int(math.ceil(reseed_k * 1.2)))
-        elif detected_type == QueryType.USER_FACT: # 用户事实：更广泛的搜索
+        elif detected_type == QueryType.USER_FACT:  # 用户事实：更广泛的搜索
             effective_k = max(k, int(math.ceil(k * SINGLE_SESSION_USER_K_MULTIPLIER)))
             effective_reseed_k = max(reseed_k, int(math.ceil(reseed_k * 1.5)))
 
@@ -716,7 +737,9 @@ class FieldRetriever:
         if time_range.relation == "first":
             filtered.sort(key=lambda item: self._payload_ts(self.graph.payload(item[0])))
         elif time_range.relation == "last":
-            filtered.sort(key=lambda item: self._payload_ts(self.graph.payload(item[0])), reverse=True)
+            filtered.sort(
+                key=lambda item: self._payload_ts(self.graph.payload(item[0])), reverse=True
+            )
         return filtered
 
     def _compute_keyword_boost(self, node_id: str, keywords: Sequence[str]) -> float:
@@ -737,7 +760,11 @@ class FieldRetriever:
     def _compute_user_role_boost(self, node_id: str) -> float:
         """针对用户角色的优先加成"""
         text_lower = self._payload_text(self.graph.payload(node_id)).lower()
-        return USER_ROLE_PRIORITY_BOOST if any(marker in text_lower for marker in USER_MARKERS) else 0.0
+        return (
+            USER_ROLE_PRIORITY_BOOST
+            if any(marker in text_lower for marker in USER_MARKERS)
+            else 0.0
+        )
 
     def _compute_fact_key_boost(self, node_id: str, query_text: str) -> float:
         """针对事实匹配的加成：检查提取出的核心事实键是否重合"""
@@ -761,7 +788,9 @@ class FieldRetriever:
                 if query_fact_text in plot_fact_key or plot_fact_key in query_fact_text:
                     matches += 0.5
                     break
-                if fact.entities and any(entity.lower() in plot_fact_key for entity in fact.entities):
+                if fact.entities and any(
+                    entity.lower() in plot_fact_key for entity in fact.entities
+                ):
                     matches += 0.3
                     break
 
@@ -862,10 +891,15 @@ class FieldRetriever:
             )
         except nx.PowerIterationFailedConvergence:
             node_count = len(weighted.nodes())
-            result = {node_id: 1.0 / node_count for node_id in weighted.nodes()} if node_count > 0 else {}
+            result = (
+                {node_id: 1.0 / node_count for node_id in weighted.nodes()}
+                if node_count > 0
+                else {}
+            )
 
-        self.graph.set_cached_pagerank(personalized, damping, max_iter, result)
-        return result
+        normalized_result = {str(node_id): float(score) for node_id, score in result.items()}
+        self.graph.set_cached_pagerank(personalized, damping, max_iter, normalized_result)
+        return normalized_result
 
     def _direct_semantic_search(
         self,
@@ -926,7 +960,9 @@ class FieldRetriever:
         核心检索入口。
         """
         query_emb = embedder.embed(query_text)
-        self_vec = state.self_vector if getattr(state, "self_vector", None) is not None else query_emb
+        self_vec = (
+            state.self_vector if getattr(state, "self_vector", None) is not None else query_emb
+        )
         plan = self._build_query_plan(
             query_text=query_text,
             kinds=kinds,
@@ -955,7 +991,10 @@ class FieldRetriever:
             enhanced_score = float(score)
             if kind == "plot":
                 enhanced_score += self._compute_fact_key_boost(node_id, query_text)
-                if plan.query_type in {QueryType.USER_FACT, QueryType.FACTUAL} and plan.query_keywords:
+                if (
+                    plan.query_type in {QueryType.USER_FACT, QueryType.FACTUAL}
+                    and plan.query_keywords
+                ):
                     enhanced_score += self._compute_keyword_boost(node_id, plan.query_keywords)
                 if plan.query_type == QueryType.USER_FACT:
                     enhanced_score += self._compute_user_role_boost(node_id)
@@ -1005,7 +1044,10 @@ class FieldRetriever:
                 bonus += 0.10 * payload.frame.alignment_score(state.axis_state)
                 bonus += 0.03 * payload.confidence
                 bonus += self._compute_fact_key_boost(item_id, query_text)
-                if plan.query_type in {QueryType.USER_FACT, QueryType.FACTUAL} and plan.query_keywords:
+                if (
+                    plan.query_type in {QueryType.USER_FACT, QueryType.FACTUAL}
+                    and plan.query_keywords
+                ):
                     bonus += self._compute_keyword_boost(item_id, plan.query_keywords)
                 if plan.query_type == QueryType.USER_FACT:
                     bonus += self._compute_user_role_boost(item_id)
@@ -1034,7 +1076,7 @@ class FieldRetriever:
             for node_id, score, kind in keyword_ranked:
                 current_score, current_kind = merged_scores.get(node_id, (0.0, kind))
                 merged_scores[node_id] = (current_score + 0.6 * score, current_kind)
-        
+
         # 针对事实查询，提升 Plot 节点的优先级
         if plan.query_type == QueryType.FACTUAL:
             for node_id, (score, kind) in list(merged_scores.items()):

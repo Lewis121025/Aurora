@@ -13,8 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 import numpy as np
 
 if TYPE_CHECKING:
-    from aurora.soul.query import QueryType
-    from aurora.lab.support.abstention import AbstentionResult
+    pass
 
 
 @dataclass
@@ -123,6 +122,7 @@ class QueryHit:
         snippet: 内容的文本片段或摘要
         metadata: 关于命中的可选附加元数据
     """
+
     id: str
     kind: str  # "plot"、"story"、"theme"
     score: float
@@ -159,10 +159,11 @@ class KnowledgeTimeline:
         - plot-002: "我搬到了上海" (2024-06) → 历史
         - plot-003: "我搬到了深圳" (2024-12) → 当前
     """
-    chain: List[str]                    # [最旧的情节_id, ..., 最新的情节_id]
-    current_id: Optional[str]           # 活跃情节的 ID（最新的非已过时）
-    topic_signature: str                # 主题的语义签名
-    match_score: float = 0.0            # 查询的最佳匹配分数
+
+    chain: List[str]  # [最旧的情节_id, ..., 最新的情节_id]
+    current_id: Optional[str]  # 活跃情节的 ID（最新的非已过时）
+    topic_signature: str  # 主题的语义签名
+    match_score: float = 0.0  # 查询的最佳匹配分数
 
     def __len__(self) -> int:
         """返回时间线中的情节数。"""
@@ -202,6 +203,7 @@ class TimelineGroup:
         standalone_results: 不属于任何更新链的结果
         total_results: 所有时间线中的唯一情节总数
     """
+
     timelines: List[KnowledgeTimeline] = field(default_factory=list)
     standalone_results: List[Tuple[str, float, str]] = field(default_factory=list)
 

@@ -9,7 +9,7 @@ AURORA 内存图
 from __future__ import annotations
 
 import hashlib
-from typing import Any, Dict, FrozenSet, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import networkx as nx
 
@@ -35,7 +35,7 @@ class MemoryGraph:
         _cache_valid: 指示缓存是否有效的标志
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """初始化一个空的内存图。"""
         self.g = nx.DiGraph()
         # PageRank 缓存：映射 (personalization_hash, damping, max_iter) -> 结果
@@ -62,7 +62,7 @@ class MemoryGraph:
         返回：
             节点类型字符串
         """
-        return self.g.nodes[node_id]["kind"]
+        return cast(str, self.g.nodes[node_id]["kind"])
 
     def payload(self, node_id: str) -> Any:
         """获取节点的有效负载。
@@ -179,7 +179,7 @@ class MemoryGraph:
         返回：
             此边的 EdgeBelief
         """
-        return self.g.edges[src, dst]["belief"]
+        return cast(EdgeBelief, self.g.edges[src, dst]["belief"])
 
     def nodes_of_kind(self, kind: str) -> List[str]:
         """获取特定类型的所有节点。
@@ -201,19 +201,23 @@ class MemoryGraph:
         """
         nodes = []
         for node_id, data in self.g.nodes(data=True):
-            nodes.append({
-                "id": node_id,
-                "kind": data.get("kind", ""),
-            })
+            nodes.append(
+                {
+                    "id": node_id,
+                    "kind": data.get("kind", ""),
+                }
+            )
 
         edges = []
         for src, dst, data in self.g.edges(data=True):
             belief: EdgeBelief = data.get("belief")
-            edges.append({
-                "src": src,
-                "dst": dst,
-                "belief": belief.to_state_dict() if belief else None,
-            })
+            edges.append(
+                {
+                    "src": src,
+                    "dst": dst,
+                    "belief": belief.to_state_dict() if belief else None,
+                }
+            )
 
         return {
             "nodes": nodes,
@@ -222,7 +226,9 @@ class MemoryGraph:
         }
 
     @classmethod
-    def from_state_dict(cls, d: Dict[str, Any], payloads: Optional[Dict[str, Any]] = None) -> "MemoryGraph":
+    def from_state_dict(
+        cls, d: Dict[str, Any], payloads: Optional[Dict[str, Any]] = None
+    ) -> "MemoryGraph":
         """从状态字典重建图。
 
         参数：
@@ -243,7 +249,11 @@ class MemoryGraph:
 
         for edge in d.get("edges", []):
             belief_data = edge.get("belief")
-            belief = EdgeBelief.from_state_dict(belief_data) if belief_data else EdgeBelief(edge_type="unknown")
+            belief = (
+                EdgeBelief.from_state_dict(belief_data)
+                if belief_data
+                else EdgeBelief(edge_type="unknown")
+            )
             obj.g.add_edge(edge["src"], edge["dst"], belief=belief)
 
         # 恢复边版本（缓存将为空，这是正确的）

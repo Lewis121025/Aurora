@@ -87,11 +87,19 @@ class CoherenceGuardian:
             tension_type = self.tension_manager.classify_tension(tension)
             if tension_type in {TensionType.ACTION_BLOCKING, TensionType.IDENTITY_THREATENING}:
                 buckets["conflicts_to_resolve"].append(
-                    {"conflict": conflict, "tension": tension, "reason": f"必须解决：{tension_type.value}"}
+                    {
+                        "conflict": conflict,
+                        "tension": tension,
+                        "reason": f"必须解决：{tension_type.value}",
+                    }
                 )
             elif tension_type == TensionType.ADAPTIVE:
                 buckets["conflicts_to_preserve"].append(
-                    {"conflict": conflict, "tension": tension, "reason": "保留：提供灵活性的适应性矛盾"}
+                    {
+                        "conflict": conflict,
+                        "tension": tension,
+                        "reason": "保留：提供灵活性的适应性矛盾",
+                    }
                 )
             elif tension_type == TensionType.DEVELOPMENTAL:
                 buckets["conflicts_to_accept"].append(
@@ -296,7 +304,9 @@ class CoherenceGuardian:
             for (source, target), belief in causal_beliefs.items():
                 if source not in themes or target not in themes:
                     continue
-                dependency_type = "supports" if belief.effective_causal_weight() > 0.5 else "contradicts"
+                dependency_type = (
+                    "supports" if belief.effective_causal_weight() > 0.5 else "contradicts"
+                )
                 self.belief_network.add_dependency(
                     source,
                     target,

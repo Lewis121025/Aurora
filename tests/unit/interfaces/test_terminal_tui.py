@@ -3,7 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from aurora.interfaces.terminal.observer import run_observer
-from aurora.interfaces.terminal.tui import AuroraTerminalTUI, build_turn_index_block, build_turn_status_block
+from aurora.interfaces.terminal.tui import (
+    AuroraTerminalTUI,
+    build_turn_index_block,
+    build_turn_status_block,
+)
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
 

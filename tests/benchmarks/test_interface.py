@@ -11,9 +11,8 @@ aurora/benchmarks/interface.py 的测试
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from aurora.benchmarks.interface import (
     BenchmarkCapability,
@@ -21,16 +20,13 @@ from aurora.benchmarks.interface import (
     BenchmarkResult,
     EvaluationConfig,
     EvaluationMetrics,
-    EvaluationMethod,
     BenchmarkAdapter,
     AURORABenchmarkRunner,
-    MemoryProtocol,
     exact_match_score,
     contains_score,
     fuzzy_match_score,
     compute_f1_score,
 )
-from aurora.utils.time_utils import now_ts
 
 
 # =============================================================================
@@ -42,21 +38,22 @@ MOCK_MAB_INSTANCE = {
     "capability": "accurate_retrieval",
     "context": "User: What is my name?\nAssistant: Your name is Alice.",
     "query": "What is my name?",
-    "expected_answer": "Alice"
+    "expected_answer": "Alice",
 }
 
 MOCK_LOCOMO_SESSION = {
     "session_id": "test_session_001",
     "turns": [
         {"speaker": "user", "text": "Hello, I'm Bob."},
-        {"speaker": "assistant", "text": "Nice to meet you, Bob!"}
-    ]
+        {"speaker": "assistant", "text": "Nice to meet you, Bob!"},
+    ],
 }
 
 
 # =============================================================================
 # 测试 BenchmarkCapability 枚举
 # =============================================================================
+
 
 class TestBenchmarkCapabilityEnum:
     """BenchmarkCapability 枚举的测试。"""
@@ -67,7 +64,7 @@ class TestBenchmarkCapabilityEnum:
         assert BenchmarkCapability.TEST_TIME_LEARNING.value == "test_time_learning"
         assert BenchmarkCapability.LONG_RANGE_UNDERSTANDING.value == "long_range_understanding"
         assert BenchmarkCapability.CONFLICT_RESOLUTION.value == "conflict_resolution"
-    
+
     def test_capability_str(self):
         """测试能力字符串表示。"""
         assert str(BenchmarkCapability.ACCURATE_RETRIEVAL) == "accurate_retrieval"
@@ -97,6 +94,7 @@ class TestBenchmarkCapabilityEnum:
 # 测试 BenchmarkInstance 创建
 # =============================================================================
 
+
 class TestBenchmarkInstanceCreation:
     """BenchmarkInstance 数据类的测试。"""
 
@@ -107,13 +105,13 @@ class TestBenchmarkInstanceCreation:
             query="What is my name?",
             expected_answer="Alice",
         )
-        
+
         assert instance.id == "test_001"
         assert instance.query == "What is my name?"
         assert instance.expected_answer == "Alice"
         assert instance.task_type == "qa"  # default
         assert isinstance(instance.created_ts, float)
-    
+
     def test_instance_with_capability(self):
         """测试创建具有能力的实例。"""
         instance = BenchmarkInstance(
@@ -174,15 +172,15 @@ class TestBenchmarkInstanceCreation:
             task_type="qa",
             reasoning_type="single_hop",
         )
-        
+
         state = instance.to_state_dict()
-        
+
         assert state["id"] == "test_006"
         assert state["query"] == "What is X?"
         assert state["capability"] == "accurate_retrieval"
         assert state["expected_answer"] == "X is Y"
         assert state["task_type"] == "qa"
-    
+
     def test_instance_from_state_dict(self):
         """测试从状态字典重建。"""
         state = {
@@ -206,6 +204,7 @@ class TestBenchmarkInstanceCreation:
 # =============================================================================
 # 测试 BenchmarkResult 创建
 # =============================================================================
+
 
 class TestBenchmarkResultCreation:
     """BenchmarkResult 数据类的测试。"""
@@ -342,6 +341,7 @@ class TestBenchmarkResultCreation:
 # =============================================================================
 # 测试 AURORABenchmarkRunner
 # =============================================================================
+
 
 class MockMemory:
     """用于测试的模拟内存。"""
@@ -499,6 +499,7 @@ class TestAURORABenchmarkRunner:
         runner = AURORABenchmarkRunner(memory=memory, adapters={"test": adapter})
 
         progress_calls = []
+
         def callback(current, total):
             progress_calls.append((current, total))
 
@@ -545,7 +546,7 @@ class TestAURORABenchmarkRunner:
             adapters={
                 "bench1": MockAdapter(instances=instances1),
                 "bench2": MockAdapter(instances=instances2),
-            }
+            },
         )
 
         datasets = {
@@ -572,7 +573,7 @@ class TestAURORABenchmarkRunner:
                 "metrics": {
                     "accuracy": 0.85,
                     "mean_latency_ms": 45.2,
-                }
+                },
             }
         }
 
@@ -594,7 +595,7 @@ class TestAURORABenchmarkRunner:
                 "metrics": {
                     "accuracy": 0.90,
                     "mean_latency_ms": 30.0,
-                }
+                },
             }
         }
 
@@ -607,6 +608,7 @@ class TestAURORABenchmarkRunner:
 # =============================================================================
 # 测试评估辅助函数
 # =============================================================================
+
 
 class TestEvaluationHelpers:
     """评估辅助函数的测试。"""
@@ -675,6 +677,7 @@ class TestEvaluationHelpers:
 # 测试 EvaluationConfig
 # =============================================================================
 
+
 class TestEvaluationConfig:
     """EvaluationConfig 数据类的测试。"""
 
@@ -705,6 +708,7 @@ class TestEvaluationConfig:
 # =============================================================================
 # 测试 EvaluationMetrics
 # =============================================================================
+
 
 class TestEvaluationMetrics:
     """EvaluationMetrics 数据类的测试。"""

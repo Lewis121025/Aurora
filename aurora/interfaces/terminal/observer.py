@@ -10,7 +10,9 @@ from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="observe_runtime", description="Aurora Soul fullscreen terminal")
+    parser = argparse.ArgumentParser(
+        prog="observe_runtime", description="Aurora Soul fullscreen terminal"
+    )
     parser.add_argument("--data-dir", type=str, default=DEFAULT_DATA_DIR)
     parser.add_argument("--session-id", type=str, default="terminal_observer")
     parser.add_argument("--max-hits", type=int, default=6)
@@ -23,7 +25,9 @@ def run_observer(
     session_id: str = "terminal_observer",
     max_hits: int = 6,
 ) -> None:
-    settings = AuroraSettings(data_dir=data_dir or os.environ.get("AURORA_DATA_DIR", DEFAULT_DATA_DIR))
+    settings = AuroraSettings(
+        data_dir=data_dir or os.environ.get("AURORA_DATA_DIR", DEFAULT_DATA_DIR)
+    )
     settings.llm_timeout = min(float(settings.llm_timeout), 10.0)
     settings.llm_max_retries = 1
     runtime = AuroraRuntime(settings=settings)

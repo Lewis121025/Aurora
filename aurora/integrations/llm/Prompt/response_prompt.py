@@ -36,7 +36,7 @@ Current User Message:
 def build_response_user_prompt(*, user_message: str, rendered_memory_brief: str) -> str:
     """
     组装完整的用户响应提示词。
-    
+
     参数：
         user_message: 用户当前的对话输入。
         rendered_memory_brief: 由 ResponseContextBuilder 渲染生成的记忆摘要文本。

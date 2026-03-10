@@ -5,9 +5,7 @@ aurora/integrations/llm/Prompt/contradiction_prompt.py
 """
 
 # 系统提示词：指导 LLM 如何执行矛盾判定
-CONTRADICTION_SYSTEM_PROMPT = (
-    "你判断两个主张是否相互矛盾。如果它们在不同条件下都可以成立，请视为非严格矛盾，并提供调和提示（reconciliation_hint）。"
-)
+CONTRADICTION_SYSTEM_PROMPT = "你判断两个主张是否相互矛盾。如果它们在不同条件下都可以成立，请视为非严格矛盾，并提供调和提示（reconciliation_hint）。"
 
 # 用户提示词模板
 CONTRADICTION_USER_PROMPT = """{instruction}

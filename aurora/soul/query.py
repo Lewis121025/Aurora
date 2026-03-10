@@ -13,59 +13,224 @@ from typing import List, Optional, Tuple
 
 # 意图识别关键词库
 TEMPORAL_KEYWORDS = {
-    "什么时候", "之前", "之后", "上次", "最近", "以前", "后来", "第一次", "最后",
-    "多久", "当时", "那时", "几点", "几月", "几号", "哪天", "哪年", "历史",
-    "when", "before", "after", "first", "recently", "earlier", "later",
-    "next", "yesterday", "today", "ago", "since", "until", "during",
-    "history", "timeline", "chronological",
+    "什么时候",
+    "之前",
+    "之后",
+    "上次",
+    "最近",
+    "以前",
+    "后来",
+    "第一次",
+    "最后",
+    "多久",
+    "当时",
+    "那时",
+    "几点",
+    "几月",
+    "几号",
+    "哪天",
+    "哪年",
+    "历史",
+    "when",
+    "before",
+    "after",
+    "first",
+    "recently",
+    "earlier",
+    "later",
+    "next",
+    "yesterday",
+    "today",
+    "ago",
+    "since",
+    "until",
+    "during",
+    "history",
+    "timeline",
+    "chronological",
 }
 
 CAUSAL_KEYWORDS = {
-    "为什么", "原因", "因为", "所以", "导致", "结果", "因此", "由于", "怎么会",
-    "为何", "何故", "缘由", "起因", "影响", "后果",
-    "why", "because", "cause", "reason", "result", "therefore", "hence",
-    "consequently", "due to", "leads to", "effect", "impact", "outcome",
+    "为什么",
+    "原因",
+    "因为",
+    "所以",
+    "导致",
+    "结果",
+    "因此",
+    "由于",
+    "怎么会",
+    "为何",
+    "何故",
+    "缘由",
+    "起因",
+    "影响",
+    "后果",
+    "why",
+    "because",
+    "cause",
+    "reason",
+    "result",
+    "therefore",
+    "hence",
+    "consequently",
+    "due to",
+    "leads to",
+    "effect",
+    "impact",
+    "outcome",
 }
 
 MULTI_HOP_KEYWORDS = {
-    "相关", "关联", "联系", "连接", "对比", "比较", "类似", "相似", "区别",
-    "所有", "全部", "总结", "概括", "归纳", "涉及", "包含", "关系",
-    "related", "connection", "link", "compare", "contrast", "similar", "difference",
-    "all", "every", "summarize", "overview", "involve", "contain", "relationship",
-    "between", "across", "through",
+    "相关",
+    "关联",
+    "联系",
+    "连接",
+    "对比",
+    "比较",
+    "类似",
+    "相似",
+    "区别",
+    "所有",
+    "全部",
+    "总结",
+    "概括",
+    "归纳",
+    "涉及",
+    "包含",
+    "关系",
+    "related",
+    "connection",
+    "link",
+    "compare",
+    "contrast",
+    "similar",
+    "difference",
+    "all",
+    "every",
+    "summarize",
+    "overview",
+    "involve",
+    "contain",
+    "relationship",
+    "between",
+    "across",
+    "through",
 }
 
 AGGREGATION_KEYWORDS = {
-    "多少", "几个", "总数", "总共", "合计", "一共", "累计", "汇总", "总计",
-    "所有", "全部", "都", "每", "各",
-    "how many", "how much", "total", "sum", "count", "all", "every", "each",
-    "aggregate", "combined", "together", "altogether", "in total", "in all",
-    "number of", "amount of", "quantity of",
+    "多少",
+    "几个",
+    "总数",
+    "总共",
+    "合计",
+    "一共",
+    "累计",
+    "汇总",
+    "总计",
+    "所有",
+    "全部",
+    "都",
+    "每",
+    "各",
+    "how many",
+    "how much",
+    "total",
+    "sum",
+    "count",
+    "all",
+    "every",
+    "each",
+    "aggregate",
+    "combined",
+    "together",
+    "altogether",
+    "in total",
+    "in all",
+    "number of",
+    "amount of",
+    "quantity of",
 }
 
 # 检索超参数
 MULTI_HOP_EXTRA_PAGERANK_ITER = 20
 
 RECENT_ANCHOR_KEYWORDS = {
-    "最近", "上次", "刚才", "刚刚", "近期", "这段时间", "最新", "最后",
-    "recently", "last time", "just now", "lately", "latest", "most recent",
-    "newest", "current",
-    "last thing", "last topic", "last event", "last item", "the last",
-    "just talked", "just mentioned", "just discussed", "just said",
+    "最近",
+    "上次",
+    "刚才",
+    "刚刚",
+    "近期",
+    "这段时间",
+    "最新",
+    "最后",
+    "recently",
+    "last time",
+    "just now",
+    "lately",
+    "latest",
+    "most recent",
+    "newest",
+    "current",
+    "last thing",
+    "last topic",
+    "last event",
+    "last item",
+    "the last",
+    "just talked",
+    "just mentioned",
+    "just discussed",
+    "just said",
 }
 
 EARLIEST_ANCHOR_KEYWORDS = {
-    "最早", "一开始", "起初", "最初", "开始时", "第一次", "首次", "当初", "最先",
-    "first", "originally", "initially", "earliest", "beginning", "started",
-    "first time", "at first", "in the beginning", "original",
+    "最早",
+    "一开始",
+    "起初",
+    "最初",
+    "开始时",
+    "第一次",
+    "首次",
+    "当初",
+    "最先",
+    "first",
+    "originally",
+    "initially",
+    "earliest",
+    "beginning",
+    "started",
+    "first time",
+    "at first",
+    "in the beginning",
+    "original",
 }
 
 SPAN_ANCHOR_KEYWORDS = {
-    "一直", "从...到", "之前...之后", "历史", "全部", "所有时候", "整个过程",
-    "历程", "演变", "发展过程", "时间线", "变化",
-    "throughout", "over time", "history", "timeline", "evolution",
-    "all along", "from start", "progression", "across time", "journey",
-    "before and after", "development", "changes over",
+    "一直",
+    "从...到",
+    "之前...之后",
+    "历史",
+    "全部",
+    "所有时候",
+    "整个过程",
+    "历程",
+    "演变",
+    "发展过程",
+    "时间线",
+    "变化",
+    "throughout",
+    "over time",
+    "history",
+    "timeline",
+    "evolution",
+    "all along",
+    "from start",
+    "progression",
+    "across time",
+    "journey",
+    "before and after",
+    "development",
+    "changes over",
 }
 
 # 评分加成系数
@@ -81,13 +246,76 @@ FACT_KEY_BOOST_MAX = 0.15
 
 # 停用词库
 QUESTION_STOP_WORDS = {
-    "what", "where", "when", "how", "why", "who", "which", "whose", "whom",
-    "is", "are", "was", "were", "did", "do", "does", "done", "been", "being",
-    "the", "a", "an", "of", "to", "in", "for", "on", "with", "at", "by", "from",
-    "my", "your", "i", "you", "me", "we", "they", "it", "our", "their", "its",
-    "have", "has", "had", "can", "could", "would", "should", "will", "shall",
-    "about", "that", "this", "these", "those", "there", "here",
-    "什么", "哪里", "哪个", "谁", "怎么", "为什么", "是", "的", "了", "吗", "我", "你",
+    "what",
+    "where",
+    "when",
+    "how",
+    "why",
+    "who",
+    "which",
+    "whose",
+    "whom",
+    "is",
+    "are",
+    "was",
+    "were",
+    "did",
+    "do",
+    "does",
+    "done",
+    "been",
+    "being",
+    "the",
+    "a",
+    "an",
+    "of",
+    "to",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "my",
+    "your",
+    "i",
+    "you",
+    "me",
+    "we",
+    "they",
+    "it",
+    "our",
+    "their",
+    "its",
+    "have",
+    "has",
+    "had",
+    "can",
+    "could",
+    "would",
+    "should",
+    "will",
+    "shall",
+    "about",
+    "that",
+    "this",
+    "these",
+    "those",
+    "there",
+    "here",
+    "什么",
+    "哪里",
+    "哪个",
+    "谁",
+    "怎么",
+    "为什么",
+    "是",
+    "的",
+    "了",
+    "吗",
+    "我",
+    "你",
 }
 
 
@@ -108,7 +336,18 @@ AGGREGATION_ENTITY_PATTERNS = {
     "clothing": ["clothing", "clothes", "shirt", "pants", "dress", "jacket", "outfit"],
     "food": ["food", "meal", "restaurant", "dinner", "lunch", "breakfast", "eat"],
     "work": ["work", "job", "project", "task", "assignment"],
-    "money": ["money", "spent", "cost", "price", "paid", "bought", "purchase", "$", "dollar", "dollars"],
+    "money": [
+        "money",
+        "spent",
+        "cost",
+        "price",
+        "paid",
+        "bought",
+        "purchase",
+        "$",
+        "dollar",
+        "dollars",
+    ],
     "luxury": ["luxury", "expensive", "premium", "high-end"],
     "expense": ["expense", "expenses", "spent", "spending", "cost", "costs"],
     "hour": ["hour", "hours"],
@@ -121,49 +360,120 @@ AGGREGATION_ENTITY_PATTERNS = {
 }
 
 AGGREGATION_STOP_WORDS = {
-    "what", "where", "when", "how", "why", "who", "which", "whom",
-    "is", "are", "was", "were", "be", "been", "being",
-    "have", "has", "had", "doing", "the", "a", "an", "this", "that",
-    "i", "me", "my", "we", "us", "our", "you", "your",
-    "to", "of", "in", "for", "on", "with", "at", "by", "from",
-    "and", "but", "or", "so", "many", "much", "some", "any",
-    "can", "could", "will", "would", "total", "number", "count",
+    "what",
+    "where",
+    "when",
+    "how",
+    "why",
+    "who",
+    "which",
+    "whom",
+    "is",
+    "are",
+    "was",
+    "were",
+    "be",
+    "been",
+    "being",
+    "have",
+    "has",
+    "had",
+    "doing",
+    "the",
+    "a",
+    "an",
+    "this",
+    "that",
+    "i",
+    "me",
+    "my",
+    "we",
+    "us",
+    "our",
+    "you",
+    "your",
+    "to",
+    "of",
+    "in",
+    "for",
+    "on",
+    "with",
+    "at",
+    "by",
+    "from",
+    "and",
+    "but",
+    "or",
+    "so",
+    "many",
+    "much",
+    "some",
+    "any",
+    "can",
+    "could",
+    "will",
+    "would",
+    "total",
+    "number",
+    "count",
 }
 
 # 身份与用户事实识别库
 IDENTITY_KEYWORDS = {
-    "你是谁", "你是怎样", "你的性格", "你的价值观", "你的原生人格", "你的前史",
-    "who are you", "what are you", "your personality", "your values",
-    "your identity", "your backstory", "self narrative", "self-model",
+    "你是谁",
+    "你是怎样",
+    "你的性格",
+    "你的价值观",
+    "你的原生人格",
+    "你的前史",
+    "who are you",
+    "what are you",
+    "your personality",
+    "your values",
+    "your identity",
+    "your backstory",
+    "self narrative",
+    "self-model",
 }
 
 USER_FACT_KEYWORDS = {
-    "我", "我的", "我喜欢", "我偏好", "我之前",
-    "remember my", "about me", "my preference", "my habit", "my profile",
+    "我",
+    "我的",
+    "我喜欢",
+    "我偏好",
+    "我之前",
+    "remember my",
+    "about me",
+    "my preference",
+    "my habit",
+    "my profile",
 }
 
 
 class QueryType(Enum):
     """查询类型枚举"""
-    FACTUAL = auto()    # 事实检索
-    TEMPORAL = auto()   # 时间检索
+
+    FACTUAL = auto()  # 事实检索
+    TEMPORAL = auto()  # 时间检索
     MULTI_HOP = auto()  # 多跳联想
-    CAUSAL = auto()     # 因果分析
+    CAUSAL = auto()  # 因果分析
     USER_FACT = auto()  # 用户事实
-    IDENTITY = auto()   # 身份认知
+    IDENTITY = auto()  # 身份认知
 
 
 class TimeAnchor(Enum):
     """时间锚点类型"""
-    RECENT = auto()     # 最近
-    EARLIEST = auto()   # 最早
-    SPAN = auto()       # 时间跨度
+
+    RECENT = auto()  # 最近
+    EARLIEST = auto()  # 最早
+    SPAN = auto()  # 时间跨度
     NONE = auto()
 
 
 @dataclass(frozen=True)
 class TimeRange:
     """时间范围描述对象"""
+
     start: Optional[float] = None
     end: Optional[float] = None
     anchor_event: Optional[str] = None
@@ -188,10 +498,16 @@ class QueryAnalyzer:
     """
     查询分析器：分析查询文本并提取结构化意图。
     """
+
     def classify(self, query_text: str) -> QueryType:
         """分类查询意图"""
         query_lower = query_text.lower()
-        temporal_keywords = TEMPORAL_KEYWORDS | EARLIEST_ANCHOR_KEYWORDS | RECENT_ANCHOR_KEYWORDS | SPAN_ANCHOR_KEYWORDS
+        temporal_keywords = (
+            TEMPORAL_KEYWORDS
+            | EARLIEST_ANCHOR_KEYWORDS
+            | RECENT_ANCHOR_KEYWORDS
+            | SPAN_ANCHOR_KEYWORDS
+        )
 
         if _contains_any(query_lower, temporal_keywords):
             return QueryType.TEMPORAL
@@ -201,7 +517,9 @@ class QueryAnalyzer:
             return QueryType.CAUSAL
         if _contains_any(query_lower, USER_FACT_KEYWORDS):
             return QueryType.USER_FACT
-        if _contains_any(query_lower, AGGREGATION_KEYWORDS) or _contains_any(query_lower, MULTI_HOP_KEYWORDS):
+        if _contains_any(query_lower, AGGREGATION_KEYWORDS) or _contains_any(
+            query_lower, MULTI_HOP_KEYWORDS
+        ):
             return QueryType.MULTI_HOP
         return QueryType.FACTUAL
 
@@ -261,6 +579,7 @@ class TimeRangeExtractor:
     """
     时间范围提取器：将自然语言的时间描述（如“上周”）映射为绝对时间戳范围。
     """
+
     ANCHOR_PATTERNS = {
         "first": list(EARLIEST_ANCHOR_KEYWORDS),
         "last": list(RECENT_ANCHOR_KEYWORDS),
@@ -273,7 +592,9 @@ class TimeRangeExtractor:
         "today": r"(today|今天)",
     }
 
-    def extract(self, query: str, events_timeline: Optional[List[Tuple[str, float]]] = None) -> TimeRange:
+    def extract(
+        self, query: str, events_timeline: Optional[List[Tuple[str, float]]] = None
+    ) -> TimeRange:
         """解析查询并返回时间范围"""
         query_lower = query.lower()
         events_timeline = events_timeline or []
@@ -299,7 +620,7 @@ class TimeRangeExtractor:
         timestamps = [ts for _, ts in events_timeline]
         if relation == "first":
             earliest = min(timestamps)
-            return TimeRange(end=earliest + 86400, relation="first") # 第一天
+            return TimeRange(end=earliest + 86400, relation="first")  # 第一天
         if relation == "last":
             latest = max(timestamps)
             return TimeRange(start=latest - 86400, relation="last")  # 最后一天
@@ -307,7 +628,9 @@ class TimeRangeExtractor:
             return TimeRange(relation="span")
         return TimeRange(relation=relation)
 
-    def _resolve_relative_time(self, pattern_name: str, events_timeline: List[Tuple[str, float]]) -> TimeRange:
+    def _resolve_relative_time(
+        self, pattern_name: str, events_timeline: List[Tuple[str, float]]
+    ) -> TimeRange:
         """解析相对时间词"""
         if not events_timeline:
             return TimeRange(relation="any")
@@ -319,9 +642,13 @@ class TimeRangeExtractor:
         if pattern_name == "today":
             return TimeRange(start=latest_ts - 86400, relation="during")
         if pattern_name == "last_week":
-            return TimeRange(start=latest_ts - 14 * 86400, end=latest_ts - 7 * 86400, relation="during")
+            return TimeRange(
+                start=latest_ts - 14 * 86400, end=latest_ts - 7 * 86400, relation="during"
+            )
         if pattern_name == "last_month":
-            return TimeRange(start=latest_ts - 60 * 86400, end=latest_ts - 30 * 86400, relation="during")
+            return TimeRange(
+                start=latest_ts - 60 * 86400, end=latest_ts - 30 * 86400, relation="during"
+            )
         return TimeRange(relation="any")
 
     def filter_by_range(

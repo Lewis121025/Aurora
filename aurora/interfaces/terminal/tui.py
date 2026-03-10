@@ -16,7 +16,12 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Input, Static, Tab, Tabs
 
-from aurora.runtime.results import ChatStreamEvent, ChatTurnResult, QueryResult, StructuredMemoryContext
+from aurora.runtime.results import (
+    ChatStreamEvent,
+    ChatTurnResult,
+    QueryResult,
+    StructuredMemoryContext,
+)
 from aurora.runtime.runtime import AuroraRuntime
 
 SOURCE_LABELS = {
@@ -200,7 +205,9 @@ def build_turn_retrieval_block(record: TurnRecord) -> str:
         f"时间关系：{trace.time_relation or '-'}",
         f"排序类型：{'，'.join(trace.ranked_kinds[:8]) if trace.ranked_kinds else '-'}",
     ]
-    hit_lines = [f"{idx}. {item}" for idx, item in enumerate(context.retrieval_hits[:10], start=1)] or ["-"]
+    hit_lines = [
+        f"{idx}. {item}" for idx, item in enumerate(context.retrieval_hits[:10], start=1)
+    ] or ["-"]
     evidence_lines = [
         f"{idx}. [{ref.kind}] {ref.role} | {ref.id} | score {ref.score:.3f}"
         for idx, ref in enumerate(context.evidence_refs[:10], start=1)
@@ -225,14 +232,18 @@ def build_context_status_block(context: StructuredMemoryContext, rendered_memory
     ]
     if summary is not None:
         context_lines.append(f"叙事摘要：{summary.text}")
-        context_lines.append(f"显著轴：{'，'.join(summary.salient_axes[:6]) if summary.salient_axes else '-'}")
+        context_lines.append(
+            f"显著轴：{'，'.join(summary.salient_axes[:6]) if summary.salient_axes else '-'}"
+        )
     if identity is not None:
         context_lines.append(f"主导轴：{_format_axis_pairs(identity.axis_state, limit=8)}")
         context_lines.append(f"直觉轴：{_format_axis_pairs(identity.intuition_axes, limit=6)}")
     return "\n\n".join(
         [
             _section("本轮记忆上下文", context_lines),
-            _section("渲染给回复模型的记忆摘要", _truncate_block(rendered_memory_brief, limit=2400)),
+            _section(
+                "渲染给回复模型的记忆摘要", _truncate_block(rendered_memory_brief, limit=2400)
+            ),
         ]
     )
 
@@ -341,7 +352,9 @@ def build_live_state_block(
     return "\n".join(lines)
 
 
-def build_turn_index_block(records: Sequence[TurnRecord], *, selected_index: int, limit: int = MAX_VISIBLE_TURNS) -> str:
+def build_turn_index_block(
+    records: Sequence[TurnRecord], *, selected_index: int, limit: int = MAX_VISIBLE_TURNS
+) -> str:
     if not records:
         return "还没有回合。\n发出第一句话后，这里会出现最近对话。"
     start = max(0, len(records) - limit)
@@ -743,7 +756,11 @@ class AuroraTerminalTUI(App[None]):
                     yield Static("", id="turn-list")
                 with Vertical(id="inspector-card", classes="sidebar-card"):
                     yield Static("检查器", classes="card-title")
-                    yield Tabs(*[Tab(label, id=f"tab-{key}") for key, label in INSPECTOR_TABS], active="tab-overview", id="inspector-tabs")
+                    yield Tabs(
+                        *[Tab(label, id=f"tab-{key}") for key, label in INSPECTOR_TABS],
+                        active="tab-overview",
+                        id="inspector-tabs",
+                    )
                     yield Static("", id="inspector-header")
                     with VerticalScroll(id="inspector-scroll"):
                         yield Static("", id="inspector-body")
@@ -930,7 +947,9 @@ class AuroraTerminalTUI(App[None]):
         if self._selected_tab == "retrieval":
             return build_turn_retrieval_block(record)
         if self._selected_tab == "memory":
-            return build_context_status_block(record.result.memory_context, record.result.rendered_memory_brief)
+            return build_context_status_block(
+                record.result.memory_context, record.result.rendered_memory_brief
+            )
         return build_turn_writeback_block(record)
 
     def _refresh_view(self) -> None:
@@ -967,13 +986,17 @@ class AuroraTerminalTUI(App[None]):
             return
         if name == "identity":
             report = await asyncio.to_thread(self.runtime.get_identity)
-            self._utility_panel = StatusRecord(title="身份快照", body=build_identity_status_block(report))
+            self._utility_panel = StatusRecord(
+                title="身份快照", body=build_identity_status_block(report)
+            )
             self._refresh_live_state(report=report)
             self._refresh_view()
             return
         if name == "stats":
             stats = await asyncio.to_thread(self.runtime.get_stats)
-            self._utility_panel = StatusRecord(title="统计面板", body=build_stats_status_block(stats))
+            self._utility_panel = StatusRecord(
+                title="统计面板", body=build_stats_status_block(stats)
+            )
             self._refresh_live_state(stats=stats)
             self._refresh_view()
             return
@@ -987,30 +1010,42 @@ class AuroraTerminalTUI(App[None]):
                 return
             tab_key = TAB_LOOKUP.get(args[0].lower())
             if tab_key is None:
-                self._utility_panel = StatusRecord(title="命令提示", body=_section("无效页签", f"不支持的页签：{args[0]}"))
+                self._utility_panel = StatusRecord(
+                    title="命令提示", body=_section("无效页签", f"不支持的页签：{args[0]}")
+                )
                 self._refresh_view()
                 return
             self._select_tab(tab_key)
             return
         if name == "turn":
             if not args:
-                self._utility_panel = StatusRecord(title="命令提示", body=_section("用法", "/turn <轮次>"))
+                self._utility_panel = StatusRecord(
+                    title="命令提示", body=_section("用法", "/turn <轮次>")
+                )
                 self._refresh_view()
                 return
             try:
                 self._select_turn_by_no(int(args[0]))
             except ValueError:
-                self._utility_panel = StatusRecord(title="命令提示", body=_section("用法", "/turn <轮次>"))
+                self._utility_panel = StatusRecord(
+                    title="命令提示", body=_section("用法", "/turn <轮次>")
+                )
                 self._refresh_view()
             return
         if name == "query":
             if not args:
-                self._utility_panel = StatusRecord(title="命令提示", body=_section("用法", "/query <文本>"))
+                self._utility_panel = StatusRecord(
+                    title="命令提示", body=_section("用法", "/query <文本>")
+                )
                 self._refresh_view()
                 return
             query_text = " ".join(args)
-            result = await asyncio.to_thread(lambda: self.runtime.query(text=query_text, k=self.max_hits))
-            self._utility_panel = StatusRecord(title="检索观察", body=build_query_status_block(result))
+            result = await asyncio.to_thread(
+                lambda: self.runtime.query(text=query_text, k=self.max_hits)
+            )
+            self._utility_panel = StatusRecord(
+                title="检索观察", body=build_query_status_block(result)
+            )
             self._refresh_view()
             return
         if name in {"events", "plots", "stories", "themes"}:
@@ -1022,7 +1057,9 @@ class AuroraTerminalTUI(App[None]):
                     limit = 6
             self._utility_panel = StatusRecord(
                 title=self._listing_title(name),
-                body=_section(self._listing_title(name), self._render_listing(name=name, limit=limit)),
+                body=_section(
+                    self._listing_title(name), self._render_listing(name=name, limit=limit)
+                ),
             )
             self._refresh_view()
             return
@@ -1044,27 +1081,44 @@ class AuroraTerminalTUI(App[None]):
     def _render_listing(self, *, name: str, limit: int) -> str:
         if name == "events":
             lines = []
-            for seq, event in self.runtime.event_log.iter_events(after_seq=max(0, self.runtime.last_seq - limit)):
+            for seq, event in self.runtime.event_log.iter_events(
+                after_seq=max(0, self.runtime.last_seq - limit)
+            ):
                 lines.append(f"{seq}. {event.id} | 会话 {event.session_id} | 时间 {event.ts:.0f}")
                 lines.append(f"   用户：{str(event.payload.get('user_message', ''))[:120]}")
             return "\n".join(lines or ["暂无事件"])
         if name == "plots":
-            plots = sorted(self.runtime.mem.plots.values(), key=lambda plot: plot.ts, reverse=True)[:limit]
-            return "\n".join(
-                f"{plot.id[:8]} | {SOURCE_LABELS.get(plot.source, plot.source)} | story {plot.story_id or '-'} | 张力 {plot.tension:.3f}\n  {plot.text[:140]}"
-                for plot in plots
-            ) or "暂无 plot"
+            plots = sorted(self.runtime.mem.plots.values(), key=lambda plot: plot.ts, reverse=True)[
+                :limit
+            ]
+            return (
+                "\n".join(
+                    f"{plot.id[:8]} | {SOURCE_LABELS.get(plot.source, plot.source)} | story {plot.story_id or '-'} | 张力 {plot.tension:.3f}\n  {plot.text[:140]}"
+                    for plot in plots
+                )
+                or "暂无 plot"
+            )
         if name == "stories":
-            stories = sorted(self.runtime.mem.stories.values(), key=lambda story: story.updated_ts, reverse=True)[:limit]
-            return "\n".join(
-                f"{story.id[:8]} | 状态 {story.status} | plot {len(story.plot_ids)} | 未解能量 {story.unresolved_energy:.3f}"
-                for story in stories
-            ) or "暂无 story"
-        themes = sorted(self.runtime.mem.themes.values(), key=lambda theme: theme.updated_ts, reverse=True)[:limit]
-        return "\n".join(
-            f"{theme.id[:8]} | 置信 {theme.confidence():.2f} | {(theme.name or theme.description)[:120]}"
-            for theme in themes
-        ) or "暂无 theme"
+            stories = sorted(
+                self.runtime.mem.stories.values(), key=lambda story: story.updated_ts, reverse=True
+            )[:limit]
+            return (
+                "\n".join(
+                    f"{story.id[:8]} | 状态 {story.status} | plot {len(story.plot_ids)} | 未解能量 {story.unresolved_energy:.3f}"
+                    for story in stories
+                )
+                or "暂无 story"
+            )
+        themes = sorted(
+            self.runtime.mem.themes.values(), key=lambda theme: theme.updated_ts, reverse=True
+        )[:limit]
+        return (
+            "\n".join(
+                f"{theme.id[:8]} | 置信 {theme.confidence():.2f} | {(theme.name or theme.description)[:120]}"
+                for theme in themes
+            )
+            or "暂无 theme"
+        )
 
     def _select_tab(self, key: str) -> None:
         if key not in TAB_LABELS:
@@ -1085,7 +1139,9 @@ class AuroraTerminalTUI(App[None]):
             self._refresh_view()
             return
         self._utility_panel = None
-        self._selected_turn_index = max(0, min(len(self._turn_records) - 1, self._selected_turn_index + delta))
+        self._selected_turn_index = max(
+            0, min(len(self._turn_records) - 1, self._selected_turn_index + delta)
+        )
         self._refresh_live_state()
         self._refresh_view()
 
@@ -1097,7 +1153,9 @@ class AuroraTerminalTUI(App[None]):
                 self._refresh_live_state()
                 self._refresh_view()
                 return
-        self._utility_panel = StatusRecord(title="命令提示", body=_section("未找到回合", f"没有第 {turn_no} 轮。"))
+        self._utility_panel = StatusRecord(
+            title="命令提示", body=_section("未找到回合", f"没有第 {turn_no} 轮。")
+        )
         self._refresh_view()
 
     @on(Input.Submitted, "#chat-input")
@@ -1153,7 +1211,14 @@ class AuroraTerminalTUI(App[None]):
                 raise RuntimeError("Aurora stream ended before returning a final result.")
             live_report = self.runtime.get_identity()
             live_stats = self.runtime.get_stats()
-            self.call_from_thread(self._complete_turn, user_message, placeholder_id, final_result, live_report, live_stats)
+            self.call_from_thread(
+                self._complete_turn,
+                user_message,
+                placeholder_id,
+                final_result,
+                live_report,
+                live_stats,
+            )
         except Exception as exc:
             self.call_from_thread(self._fail_turn, placeholder_id, str(exc))
 

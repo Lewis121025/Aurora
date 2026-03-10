@@ -22,7 +22,6 @@ AURORA 基准测试接口
 from __future__ import annotations
 
 import logging
-import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
@@ -39,7 +38,8 @@ logger = logging.getLogger(__name__)
 # 模拟模型检测
 # =============================================================================
 
-def _is_mock_embedder(embedder) -> bool:
+
+def _is_mock_embedder(embedder: Any) -> bool:
     """检查嵌入器是否为模拟/哈希嵌入（不用于生产基准测试）。
 
     Args:
@@ -65,7 +65,7 @@ def _is_mock_embedder(embedder) -> bool:
     return False
 
 
-def _is_mock_llm(llm_provider) -> bool:
+def _is_mock_llm(llm_provider: Any) -> bool:
     """检查 LLM 提供者是否为模拟/测试替身（不用于生产基准测试）。
 
     Args:
@@ -92,8 +92,8 @@ def _is_mock_llm(llm_provider) -> bool:
 
 
 def verify_benchmark_ready(
-    memory,
-    llm=None,
+    memory: Any,
+    llm: Any = None,
     verbose: bool = True,
 ) -> Tuple[bool, List[str]]:
     """验证配置是否准备好进行有意义的基准评估。
@@ -129,7 +129,7 @@ def verify_benchmark_ready(
     """
     warnings: List[str] = []
     is_ready = True
-    
+
     # Check embedder
     embedder = getattr(memory, "embedder", None)
     if _is_mock_embedder(embedder):
@@ -139,7 +139,7 @@ def verify_benchmark_ready(
             f"Embedding model is '{embedder_name}' (non-production). "
             "Use a real embedding model (e.g., Bailian, Ark) for accurate benchmark results."
         )
-    
+
     # Check LLM provider
     if llm is not None and _is_mock_llm(llm):
         is_ready = False
@@ -148,7 +148,7 @@ def verify_benchmark_ready(
             f"LLM provider is '{llm_name}' (non-production). "
             "Use a real LLM provider for accurate benchmark results."
         )
-    
+
     # Print warnings if verbose
     if verbose and warnings:
         print("\n" + "=" * 70)
@@ -160,13 +160,14 @@ def verify_benchmark_ready(
         print("  Non-production models will result in significantly lower benchmark scores")
         print("  that do NOT reflect actual system performance!")
         print("=" * 70 + "\n")
-    
+
     return is_ready, warnings
 
 
 # -----------------------------------------------------------------------------
 # 能力维度
 # -----------------------------------------------------------------------------
+
 
 class BenchmarkCapability(Enum):
     """
@@ -233,6 +234,7 @@ class EvaluationMethod(Enum):
     ROUGE: 基于 ROUGE 的评估（用于摘要）
     SEMANTIC: 基于语义相似度的评估
     """
+
     EXACT_MATCH = "exact_match"
     CONTAINS = "contains"
     FUZZY = "fuzzy"
@@ -254,6 +256,7 @@ class EvaluationConfig:
         save_traces: 是否保存检索跟踪
         verbose: 是否打印进度
     """
+
     use_llm_judge: bool = True
     judge_model: str = "gpt-4"
     judge_temperature: float = 0.0
@@ -290,6 +293,7 @@ class EvaluationMetrics:
         p50_latency_ms: 50 百分位数延迟
         p99_latency_ms: 99 百分位数延迟
     """
+
     total_instances: int = 0
     correct_instances: int = 0
     accuracy: float = 0.0
@@ -321,6 +325,7 @@ class EvaluationMetrics:
 # -----------------------------------------------------------------------------
 # 数据类
 # -----------------------------------------------------------------------------
+
 
 @dataclass
 class BenchmarkInstance:
@@ -387,7 +392,7 @@ class BenchmarkInstance:
 
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """同步 ground_truth 和 expected_answer。"""
         if self.ground_truth and not self.expected_answer:
             self.expected_answer = self.ground_truth
@@ -498,7 +503,7 @@ class BenchmarkResult:
 
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """同步别名字段。"""
         if self.prediction and not self.predicted:
             self.predicted = self.prediction
@@ -575,6 +580,7 @@ class BenchmarkResult:
 # 内存接口协议
 # -----------------------------------------------------------------------------
 
+
 class MemoryProtocol(Protocol):
     """基准期望的内存接口协议。"""
 
@@ -598,6 +604,7 @@ class MemoryProtocol(Protocol):
 # -----------------------------------------------------------------------------
 # 抽象适配器
 # -----------------------------------------------------------------------------
+
 
 class BenchmarkAdapter(ABC):
     """
@@ -623,7 +630,7 @@ class BenchmarkAdapter(ABC):
                 ...
     """
 
-    def __init__(self, llm_provider=None, seed: int = 0):
+    def __init__(self, llm_provider: Any = None, seed: int = 0) -> None:
         """初始化适配器。
 
         Args:
@@ -725,6 +732,7 @@ class BenchmarkAdapter(ABC):
 
         # 按 task_type 分组以获得分解
         from collections import defaultdict
+
         by_type: Dict[str, List[BenchmarkResult]] = defaultdict(list)
         for r in results:
             by_type[r.task_type].append(r)
@@ -737,8 +745,12 @@ class BenchmarkAdapter(ABC):
 
                 metrics[f"{task_type}_total"] = float(type_total)
                 metrics[f"{task_type}_correct"] = float(type_correct)
-                metrics[f"{task_type}_accuracy"] = type_correct / type_total if type_total > 0 else 0.0
-                metrics[f"{task_type}_avg_score"] = float(np.mean(type_scores)) if type_scores else 0.0
+                metrics[f"{task_type}_accuracy"] = (
+                    type_correct / type_total if type_total > 0 else 0.0
+                )
+                metrics[f"{task_type}_avg_score"] = (
+                    float(np.mean(type_scores)) if type_scores else 0.0
+                )
 
         return metrics
 
@@ -791,6 +803,7 @@ class BenchmarkAdapter(ABC):
 # -----------------------------------------------------------------------------
 # 基准运行器
 # -----------------------------------------------------------------------------
+
 
 class AURORABenchmarkRunner:
     """
@@ -872,8 +885,7 @@ class AURORABenchmarkRunner:
         """
         if benchmark_name not in self.adapters:
             raise KeyError(
-                f"Unknown benchmark: {benchmark_name}. "
-                f"Available: {list(self.adapters.keys())}"
+                f"Unknown benchmark: {benchmark_name}. Available: {list(self.adapters.keys())}"
             )
 
         adapter = self.adapters[benchmark_name]
@@ -902,15 +914,17 @@ class AURORABenchmarkRunner:
             except Exception as e:
                 logger.error(f"Error evaluating instance {instance.id}: {e}")
                 # 记录失败的评估
-                results.append(BenchmarkResult(
-                    instance_id=instance.id,
-                    capability=instance.capability,
-                    predicted="",
-                    expected=instance.expected_answer,
-                    score=0.0,
-                    latency_ms=0.0,
-                    metadata={"error": str(e)},
-                ))
+                results.append(
+                    BenchmarkResult(
+                        instance_id=instance.id,
+                        capability=instance.capability,
+                        predicted="",
+                        expected=instance.expected_answer,
+                        score=0.0,
+                        latency_ms=0.0,
+                        metadata={"error": str(e)},
+                    )
+                )
 
         # 聚合结果
         metrics = adapter.aggregate_results(results)
@@ -1040,6 +1054,7 @@ class AURORABenchmarkRunner:
 # =============================================================================
 # 评估辅助函数
 # =============================================================================
+
 
 def exact_match_score(prediction: str, ground_truth: str) -> float:
     """精确字符串匹配评估（不区分大小写）。"""

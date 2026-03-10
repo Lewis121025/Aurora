@@ -27,8 +27,8 @@ def l2_normalize(v: np.ndarray, eps: float = 1e-12) -> np.ndarray:
     """
     n = float(np.linalg.norm(v))
     if n < eps:
-        return v.copy()
-    return (v / n).astype(np.float32)
+        return np.array(v, dtype=np.float32, copy=True)
+    return np.array(v / n, dtype=np.float32)
 
 
 def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:

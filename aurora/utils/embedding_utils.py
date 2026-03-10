@@ -1,4 +1,5 @@
 """Embedding 实用函数。"""
+
 from typing import Any, Optional
 
 import numpy as np
@@ -16,7 +17,7 @@ def get_embedding_from_object(obj: Any) -> Optional[np.ndarray]:
     Returns:
         作为 numpy 数组的 embedding，如果未找到则返回 None。
     """
-    for attr in ('embedding', 'centroid', 'prototype'):
+    for attr in ("embedding", "centroid", "prototype"):
         val = getattr(obj, attr, None)
         if val is not None:
             if isinstance(val, list):

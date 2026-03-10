@@ -43,12 +43,14 @@ from aurora.utils.time_utils import now_ts
 # Data Classes
 # =============================================================================
 
+
 @dataclass
 class NarrativeElement:
     """叙事重构中的单个元素。
 
     代表具有其在叙事结构中角色的内存片段。
     """
+
     plot_id: str
     role: NarrativeRole
     content: str
@@ -58,13 +60,13 @@ class NarrativeElement:
     significance: float = 0.5
 
     # 因果连接
-    causes: List[str] = field(default_factory=list)      # 导致此事件的情节ID
-    effects: List[str] = field(default_factory=list)     # 由此事件导致的情节ID
+    causes: List[str] = field(default_factory=list)  # 导致此事件的情节ID
+    effects: List[str] = field(default_factory=list)  # 由此事件导致的情节ID
 
     # 叙事注解
-    annotation: str = ""                                  # 叙事评论
-    tension_level: float = 0.0                           # 此点的张力
-    
+    annotation: str = ""  # 叙事评论
+    tension_level: float = 0.0  # 此点的张力
+
     def to_state_dict(self) -> Dict[str, Any]:
         """序列化为JSON兼容字典。"""
         return {
@@ -101,6 +103,7 @@ class NarrativeTrace:
 
     包含完整的叙事及关于重构过程的元数据。
     """
+
     query: str
     perspective: NarrativePerspective
     elements: List[NarrativeElement]
@@ -120,7 +123,7 @@ class NarrativeTrace:
 
     # 生成的叙事文本
     narrative_text: str = ""
-    
+
     def to_state_dict(self) -> Dict[str, Any]:
         """序列化为JSON兼容字典。"""
         return {
@@ -155,6 +158,7 @@ class NarrativeTrace:
 # Narrator Engine
 # =============================================================================
 
+
 class NarratorEngine:
     """用于叙事重构和故事讲述的引擎。
 
@@ -174,7 +178,7 @@ class NarratorEngine:
         perspective_beliefs: 视角有效性的Beta后验信念
         reconstruction_cache: 最近重构的缓存
     """
-    
+
     def __init__(
         self,
         metric: LowRankMetric,
@@ -195,7 +199,7 @@ class NarratorEngine:
         self.graph = graph
         self._seed = seed
         self.rng = np.random.default_rng(seed)
-        
+
         # Initialize sub-components
         self._perspective_selector = PerspectiveSelector(
             metric=metric,
@@ -211,27 +215,25 @@ class NarratorEngine:
             graph=graph,
         )
         self._turning_point_detector = TurningPointDetector(rng=self.rng)
-        
+
         # Reconstruction cache (LRU-style, limited size)
         self._reconstruction_cache: Dict[str, NarrativeTrace] = {}
         self._cache_max_size = 100
-    
+
     @property
     def perspective_beliefs(self) -> Dict[NarrativePerspective, Tuple[float, float]]:
         """Get perspective beliefs from the selector."""
         return self._perspective_selector.perspective_beliefs
-    
+
     @perspective_beliefs.setter
-    def perspective_beliefs(
-        self, value: Dict[NarrativePerspective, Tuple[float, float]]
-    ) -> None:
+    def perspective_beliefs(self, value: Dict[NarrativePerspective, Tuple[float, float]]) -> None:
         """Set perspective beliefs on the selector."""
         self._perspective_selector.perspective_beliefs = value
-    
+
     # -------------------------------------------------------------------------
     # Core API
     # -------------------------------------------------------------------------
-    
+
     def reconstruct_story(
         self,
         query: str,
@@ -265,7 +267,7 @@ class NarratorEngine:
             )
 
         # 如果未指定，自动选择视角
-        perspective_probs = {}
+        perspective_probs: Dict[str, float] = {}
         if perspective is None:
             perspective, perspective_probs = self.select_perspective(
                 query=query,
@@ -319,7 +321,7 @@ class NarratorEngine:
         self._cache_reconstruction(cache_key, trace)
 
         return trace
-    
+
     def select_perspective(
         self,
         query: str,
@@ -355,7 +357,7 @@ class NarratorEngine:
             context=context,
             query_embedding=query_embedding,
         )
-    
+
     def recover_context(
         self,
         plot: Plot,
@@ -380,7 +382,7 @@ class NarratorEngine:
             plots_dict=plots_dict,
             depth=depth,
         )
-    
+
     def identify_turning_points(
         self,
         plots: List[Plot],
@@ -406,11 +408,11 @@ class NarratorEngine:
             plots=plots,
             stories=stories,
         )
-    
+
     # -------------------------------------------------------------------------
     # Perspective-specific organization
     # -------------------------------------------------------------------------
-    
+
     def _organize_by_perspective(
         self,
         plots: List[Plot],
@@ -430,17 +432,13 @@ class NarratorEngine:
                 plots, query, query_embedding, self._compute_significance
             )
         elif perspective == NarrativePerspective.CONTRASTIVE:
-            element_dicts = self._organizer.organize_contrastive(
-                plots, self._compute_significance
-            )
+            element_dicts = self._organizer.organize_contrastive(plots, self._compute_significance)
         elif perspective == NarrativePerspective.FOCUSED:
             element_dicts = self._organizer.organize_focused(
                 plots, query, query_embedding, self._compute_significance
             )
         elif perspective == NarrativePerspective.ABSTRACTED:
-            element_dicts = self._organizer.organize_abstracted(
-                plots, self._compute_significance
-            )
+            element_dicts = self._organizer.organize_abstracted(plots, self._compute_significance)
         else:
             element_dicts = self._organizer.organize_chronological(
                 plots, self._compute_significance
@@ -461,11 +459,11 @@ class NarratorEngine:
             elements.append(element)
 
         return elements
-    
+
     # -------------------------------------------------------------------------
     # Internal helpers
     # -------------------------------------------------------------------------
-    
+
     def _assign_narrative_roles(
         self,
         elements: List[NarrativeElement],
@@ -494,7 +492,7 @@ class NarratorEngine:
                 element.role = NarrativeRole.RESOLUTION
 
         return elements
-    
+
     def _generate_narrative_text(
         self,
         elements: List[NarrativeElement],
@@ -550,7 +548,7 @@ class NarratorEngine:
                     parts.append(f"\n• {theme.name}")
 
         return "".join(parts)
-    
+
     def _compute_significance(self, plot: Plot) -> float:
         """计算情节的叙事意义。"""
         base = 0.5
@@ -602,11 +600,11 @@ class NarratorEngine:
             del self._reconstruction_cache[oldest_key]
 
         self._reconstruction_cache[key] = trace
-    
+
     # -------------------------------------------------------------------------
     # Feedback and Learning
     # -------------------------------------------------------------------------
-    
+
     def feedback_narrative(
         self,
         trace: NarrativeTrace,
@@ -619,11 +617,11 @@ class NarratorEngine:
             success: 叙事是否有帮助/成功
         """
         self._perspective_selector.feedback(trace.perspective, success)
-    
+
     # -------------------------------------------------------------------------
     # Serialization
     # -------------------------------------------------------------------------
-    
+
     def to_state_dict(self) -> Dict[str, Any]:
         """将引擎状态序列化为JSON兼容字典。"""
         return {
@@ -633,7 +631,7 @@ class NarratorEngine:
             },
             "cache_max_size": self._cache_max_size,
         }
-    
+
     @classmethod
     def from_state_dict(
         cls,
@@ -667,16 +665,16 @@ class NarratorEngine:
 
 if __name__ == "__main__":
     from aurora.lab.primitives.metric import LowRankMetric
-    
+
     # Create a simple metric
     metric = LowRankMetric(dim=96, rank=32, seed=42)
-    
+
     # Create narrator engine
     narrator = NarratorEngine(metric=metric, seed=42)
-    
+
     print("NarratorEngine created successfully.")
     print(f"Perspectives: {[p.value for p in NarrativePerspective]}")
-    
+
     # Test perspective selection (without plots)
     perspective, probs = narrator.select_perspective(
         query="如何处理记忆系统中的矛盾？",
@@ -684,11 +682,11 @@ if __name__ == "__main__":
     )
     print(f"\nSelected perspective: {perspective.value}")
     print(f"Probabilities: {probs}")
-    
+
     # Test serialization
     state = narrator.to_state_dict()
     print(f"\nState dict keys: {list(state.keys())}")
-    
+
     # Test reconstruction
     restored = NarratorEngine.from_state_dict(state, metric=metric)
     print(f"Restored engine seed: {restored._seed}")

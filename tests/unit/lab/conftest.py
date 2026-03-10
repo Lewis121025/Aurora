@@ -34,6 +34,7 @@ from aurora.utils.id_utils import det_id
 # Core Components
 # =============================================================================
 
+
 @pytest.fixture
 def metric() -> LowRankMetric:
     """Create a LowRankMetric instance with deterministic seed."""
@@ -61,6 +62,7 @@ def config() -> MemoryConfig:
 # =============================================================================
 # Sample Data Fixtures
 # =============================================================================
+
 
 @pytest.fixture
 def sample_embedding(metric: LowRankMetric) -> np.ndarray:
@@ -100,7 +102,7 @@ def sample_plots(metric: LowRankMetric) -> List[Plot]:
     """Create a list of sample Plot instances."""
     rng = np.random.default_rng(42)
     plots = []
-    
+
     texts = [
         "用户：帮我解释一下递归。助理：递归是函数调用自身的过程。",
         "用户：什么是面向对象？助理：面向对象是一种编程范式。",
@@ -108,11 +110,11 @@ def sample_plots(metric: LowRankMetric) -> List[Plot]:
         "用户：感谢你的帮助！助理：不客气，随时可以问我。",
         "用户：这段代码有问题。助理：让我来看看哪里出错了。",
     ]
-    
+
     for i, text in enumerate(texts):
         emb = rng.standard_normal(64).astype(np.float32)
         emb = emb / np.linalg.norm(emb)
-        
+
         plot = Plot(
             id=det_id("plot", f"sample_{i}"),
             ts=now_ts() + i * 60,
@@ -121,7 +123,7 @@ def sample_plots(metric: LowRankMetric) -> List[Plot]:
             embedding=emb,
         )
         plots.append(plot)
-    
+
     return plots
 
 
@@ -155,6 +157,7 @@ def sample_theme(sample_embedding: np.ndarray) -> Theme:
 # Temporary Directory
 # =============================================================================
 
+
 @pytest.fixture
 def temp_data_dir() -> Generator[Path, None, None]:
     """Create a temporary directory for test data."""
@@ -171,6 +174,7 @@ def temp_db_path(temp_data_dir: Path) -> str:
 # =============================================================================
 # Cleanup Helpers
 # =============================================================================
+
 
 @pytest.fixture(autouse=True)
 def reset_random_state():

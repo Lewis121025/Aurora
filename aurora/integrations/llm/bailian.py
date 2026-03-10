@@ -15,7 +15,7 @@ from aurora.integrations.llm.ark import ArkLLM
 class BailianLLM(ArkLLM):
     """
     百炼 LLM 提供者实现类。
-    
+
     主要特性：
     - 兼容 OpenAI Chat Completion API 规范。
     - 默认模型设为 `qwen3.5-plus`。
@@ -32,7 +32,7 @@ class BailianLLM(ArkLLM):
     ):
         """
         初始化百炼提供者。
-        
+
         参数：
             api_key：阿里云百炼控制台获取的 API 密钥。
             model：要调用的模型标识，默认为 qwen3.5-plus。
@@ -51,7 +51,7 @@ class BailianLLM(ArkLLM):
     def _request_options(self, *, structured: bool) -> Dict[str, Any]:
         """
         生成百炼特定的请求额外参数。
-        
+
         对于百炼，我们显式禁用思维链（thinking）输出，以确保返回内容更符合系统处理逻辑。
         """
         return {"extra_body": {"enable_thinking": False}}

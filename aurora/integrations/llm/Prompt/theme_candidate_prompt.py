@@ -5,9 +5,7 @@ aurora/integrations/llm/Prompt/theme_candidate_prompt.py
 """
 
 # 系统提示词：指导 LLM 如何执行主题发现
-THEME_CANDIDATE_SYSTEM_PROMPT = (
-    "你从多个故事摘要中识别涌现出的主题。主题应该是可证伪的且有用的。"
-)
+THEME_CANDIDATE_SYSTEM_PROMPT = "你从多个故事摘要中识别涌现出的主题。主题应该是可证伪的且有用的。"
 
 # 用户提示词模板
 THEME_CANDIDATE_USER_PROMPT = """{instruction}

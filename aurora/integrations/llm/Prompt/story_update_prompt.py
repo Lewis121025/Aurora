@@ -5,9 +5,7 @@ aurora/integrations/llm/Prompt/story_update_prompt.py
 """
 
 # 系统提示词：指导 LLM 如何执行故事更新
-STORY_UPDATE_SYSTEM_PROMPT = (
-    "你根据新的情节更新故事弧摘要。请保持叙述连贯且紧凑。"
-)
+STORY_UPDATE_SYSTEM_PROMPT = "你根据新的情节更新故事弧摘要。请保持叙述连贯且紧凑。"
 
 # 用户提示词模板
 STORY_UPDATE_USER_PROMPT = """{instruction}

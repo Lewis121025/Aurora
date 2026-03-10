@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, Type, TypeVar
+from typing import Any, Dict, Iterator, List, Optional, Type, TypeVar, cast
 
 from pydantic import BaseModel
 
@@ -31,7 +31,7 @@ class ArkLLM(LLMProvider):
     - 全局 Token 消耗统计。
     - 健壮的 JSON 解析逻辑，处理 LLM 返回中的 Markdown 代码块或嵌套结构。
     """
-    
+
     def __init__(
         self,
         api_key: str,
@@ -42,7 +42,7 @@ class ArkLLM(LLMProvider):
     ):
         """
         初始化火山方舟提供者。
-        
+
         参数：
             api_key：火山引擎 API Key。
             model：要调用的模型端点 ID。
@@ -55,10 +55,10 @@ class ArkLLM(LLMProvider):
         self.base_url = base_url
         self.max_retries = max_retries
         self.timeout = timeout
-        self._client = None
+        self._client: Any | None = None
         self._total_tokens_used = 0
-        
-    def _get_client(self):
+
+    def _get_client(self) -> Any:
         """
         延迟初始化 OpenAI 客户端。
         Ark API 完全兼容 OpenAI 协议，因此可以直接使用 openai 官方 SDK。
@@ -66,15 +66,14 @@ class ArkLLM(LLMProvider):
         if self._client is None:
             try:
                 from openai import OpenAI
+
                 self._client = OpenAI(
                     api_key=self.api_key,
                     base_url=self.base_url,
-                    max_retries=0, # 禁用 SDK 默认重试，使用我们自定义的退避逻辑
+                    max_retries=0,  # 禁用 SDK 默认重试，使用我们自定义的退避逻辑
                 )
             except ImportError:
-                raise ImportError(
-                    "请安装 openai 包: pip install openai"
-                )
+                raise ImportError("请安装 openai 包: pip install openai")
         return self._client
 
     def _request_options(self, *, structured: bool) -> Dict[str, Any]:
@@ -84,7 +83,7 @@ class ArkLLM(LLMProvider):
     def _json_max_tokens(self, schema: Type[T]) -> int:
         """为结构化 JSON 输出提供保守的 Token 上限。"""
         return 512
-    
+
     def _build_json_schema(self, schema: Type[T]) -> Dict[str, Any]:
         """将 Pydantic 模型转换为 OpenAI 规范的 JSON Schema 响应格式。"""
         json_schema = schema.model_json_schema()
@@ -93,10 +92,18 @@ class ArkLLM(LLMProvider):
             "json_schema": {
                 "name": schema.__name__,
                 "schema": json_schema,
-                "strict": True, # 开启严格模式
-            }
+                "strict": True,  # 开启严格模式
+            },
         }
-    
+
+    @staticmethod
+    def _response_text(content: Any) -> str:
+        if isinstance(content, str):
+            return content
+        if content is None:
+            return ""
+        return str(content)
+
     def complete(
         self,
         prompt: str,
@@ -114,12 +121,12 @@ class ArkLLM(LLMProvider):
         执行带有指数退避（Exponential Backoff）的同步阻塞调用。
         """
         client = self._get_client()
-        
+
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        
+
         last_error = None
         attempt_limit = self.max_retries if max_retries is None else max(1, int(max_retries))
         for attempt in range(attempt_limit):
@@ -134,21 +141,21 @@ class ArkLLM(LLMProvider):
                 kwargs.update(self._request_options(structured=False))
                 if stop:
                     kwargs["stop"] = stop
-                
+
                 response = client.chat.completions.create(**kwargs)
 
                 # 统计 Token 使用量
-                if hasattr(response, 'usage') and response.usage:
+                if hasattr(response, "usage") and response.usage:
                     self._total_tokens_used += response.usage.total_tokens
-                
-                return response.choices[0].message.content
-                
+
+                return self._response_text(response.choices[0].message.content)
+
             except Exception as e:
                 last_error = e
                 logger.info(f"第 {attempt + 1}/{attempt_limit} 次尝试失败: {e}")
                 if attempt < attempt_limit - 1:
                     # 指数退避策略
-                    sleep_time = (2 ** attempt) * 0.5
+                    sleep_time = (2**attempt) * 0.5
                     time.sleep(sleep_time)
 
         raise RuntimeError(f"所有 {attempt_limit} 次重试均失败。最后一次错误为: {last_error}")
@@ -164,7 +171,7 @@ class ArkLLM(LLMProvider):
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         max_retries: Optional[int] = None,
-    ):
+    ) -> Iterator[str]:
         """流式文本生成。通过迭代器逐块返回生成的字符串。"""
         client = self._get_client()
 
@@ -176,7 +183,7 @@ class ArkLLM(LLMProvider):
         last_error = None
         attempt_limit = self.max_retries if max_retries is None else max(1, int(max_retries))
         for attempt in range(attempt_limit):
-            emitted = False # 记录是否已经开始输出，若已输出则不重试
+            emitted = False  # 记录是否已经开始输出，若已输出则不重试
             try:
                 kwargs = {
                     "model": self.model,
@@ -198,7 +205,7 @@ class ArkLLM(LLMProvider):
                         content = getattr(delta, "content", None)
                         if isinstance(content, str):
                             piece = content
-                        elif isinstance(content, list): # 处理某些特殊格式的 chunk
+                        elif isinstance(content, list):  # 处理某些特殊格式的 chunk
                             parts = []
                             for item in content:
                                 text = getattr(item, "text", None)
@@ -216,10 +223,12 @@ class ArkLLM(LLMProvider):
                     # 如果已经输出了部分内容，通常不建议在中间重试，因为会造成输出截断或重复
                     break
                 if attempt < attempt_limit - 1:
-                    sleep_time = (2 ** attempt) * 0.5
+                    sleep_time = (2**attempt) * 0.5
                     time.sleep(sleep_time)
 
-        raise RuntimeError(f"流式交互所有 {attempt_limit} 次重试均失败。最后一次错误为: {last_error}")
+        raise RuntimeError(
+            f"流式交互所有 {attempt_limit} 次重试均失败。最后一次错误为: {last_error}"
+        )
 
     def complete_json(
         self,
@@ -245,7 +254,7 @@ class ArkLLM(LLMProvider):
             {"role": "system", "content": f"{system}\n\n只返回符合给定 Schema 的 JSON 数据。"},
             {"role": "user", "content": user},
         ]
-        
+
         last_error = None
         attempt_limit = self.max_retries if max_retries is None else max(1, int(max_retries))
         for attempt in range(attempt_limit):
@@ -261,28 +270,30 @@ class ArkLLM(LLMProvider):
                         **self._request_options(structured=True),
                     }
                 )
-                
+
                 content = response.choices[0].message.content
 
                 # Token 统计
-                if hasattr(response, 'usage') and response.usage:
+                if hasattr(response, "usage") and response.usage:
                     self._total_tokens_used += response.usage.total_tokens
 
                 # 解析响应中的 JSON 内容（可能带有冗余文本或 Markdown 标记）
                 data = self._parse_json_response(content, schema)
-                
+
                 # 执行 Pydantic 校验
                 return schema.model_validate(data)
-                
+
             except Exception as e:
                 last_error = e
                 logger.info(f"JSON 提取第 {attempt + 1}/{attempt_limit} 次尝试失败: {e}")
                 if attempt < attempt_limit - 1:
-                    sleep_time = (2 ** attempt) * 0.5
+                    sleep_time = (2**attempt) * 0.5
                     time.sleep(sleep_time)
 
-        raise RuntimeError(f"结构化 JSON 生成所有 {attempt_limit} 次重试均失败。最后一次错误为: {last_error}")
-    
+        raise RuntimeError(
+            f"结构化 JSON 生成所有 {attempt_limit} 次重试均失败。最后一次错误为: {last_error}"
+        )
+
     def _parse_json_response(self, content: str, schema: Type[T]) -> Dict[str, Any]:
         """
         从 LLM 的响应字符串中提取 JSON 内容的多重兜底策略。
@@ -296,23 +307,27 @@ class ArkLLM(LLMProvider):
             schema_name = schema.__name__
             if isinstance(data, dict):
                 if schema_name in data:
-                    return data[schema_name]
+                    nested = data[schema_name]
+                    if isinstance(nested, dict):
+                        return cast(Dict[str, Any], nested)
                 # 检查忽略大小写的匹配
                 for key in list(data.keys()):
                     if key.lower() == schema_name.lower():
-                        return data[key]
+                        nested = data[key]
+                        if isinstance(nested, dict):
+                            return cast(Dict[str, Any], nested)
                     # 处理 LLM 偶尔返回单键字典（键名不匹配但内容正确）的情况
                     if len(data) == 1 and isinstance(data[key], dict):
                         inner = data[key]
                         required = schema.model_json_schema().get("required", [])
                         if any(r in inner for r in required):
-                            return inner
-                return data
+                            return cast(Dict[str, Any], inner)
+                return cast(Dict[str, Any], data)
         except json.JSONDecodeError:
             pass
 
         # 策略 2：正则提取 Markdown 代码块中的内容
-        match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+        match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
         if match:
             try:
                 data = json.loads(match.group(1))
@@ -321,7 +336,7 @@ class ArkLLM(LLMProvider):
                 pass
 
         # 策略 3：模糊匹配第一个 '{' 到最后一个 '}'
-        match = re.search(r'\{[\s\S]*\}', content)
+        match = re.search(r"\{[\s\S]*\}", content)
         if match:
             try:
                 data = json.loads(match.group(0))
@@ -330,19 +345,21 @@ class ArkLLM(LLMProvider):
                 pass
 
         raise ValueError(f"无法从模型响应中提取有效的 JSON: {content[:300]}")
-    
+
     def _unwrap_if_needed(self, data: Dict[str, Any], schema: Type[T]) -> Dict[str, Any]:
         """如果数据被 Schema 类名嵌套包装，则将其解包。"""
-        if not isinstance(data, dict):
-            return data
         schema_name = schema.__name__
         if schema_name in data:
-            return data[schema_name]
+            nested = data[schema_name]
+            if isinstance(nested, dict):
+                return cast(Dict[str, Any], nested)
         for key in list(data.keys()):
             if key.lower() == schema_name.lower():
-                return data[key]
+                nested = data[key]
+                if isinstance(nested, dict):
+                    return cast(Dict[str, Any], nested)
         return data
-    
+
     def complete_text(
         self,
         *,
@@ -356,7 +373,7 @@ class ArkLLM(LLMProvider):
         快速文本补全便捷方法。适用于自由形式的叙事、摘要生成。
         """
         client = self._get_client()
-        
+
         response = client.chat.completions.create(
             model=self.model,
             messages=[
@@ -368,11 +385,11 @@ class ArkLLM(LLMProvider):
             timeout=timeout_s,
             **self._request_options(structured=False),
         )
-        
-        if hasattr(response, 'usage') and response.usage:
+
+        if hasattr(response, "usage") and response.usage:
             self._total_tokens_used += response.usage.total_tokens
 
-        return response.choices[0].message.content
+        return self._response_text(response.choices[0].message.content)
 
     @property
     def total_tokens_used(self) -> int:

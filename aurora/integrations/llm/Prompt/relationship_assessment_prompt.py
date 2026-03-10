@@ -5,9 +5,7 @@ aurora/integrations/llm/Prompt/relationship_assessment_prompt.py
 """
 
 # 系统提示词：指导 LLM 如何执行关系评估
-RELATIONSHIP_ASSESSMENT_SYSTEM_PROMPT = (
-    "你根据交互评估代理与用户之间关系的质量。"
-)
+RELATIONSHIP_ASSESSMENT_SYSTEM_PROMPT = "你根据交互评估代理与用户之间关系的质量。"
 
 # 用户提示词模板
 RELATIONSHIP_ASSESSMENT_USER_PROMPT = """{instruction}

@@ -1,4 +1,3 @@
-
 """
 AURORA Generative Soul Memory
 =============================
@@ -59,6 +58,7 @@ import numpy as np
 # ============================================================================
 # Utilities
 # ============================================================================
+
 
 def now_ts() -> float:
     return time.time()
@@ -126,7 +126,9 @@ def tokenize_loose(text: str) -> List[str]:
     return [w for w in words if len(w.strip()) > 0]
 
 
-def weighted_choice(items: Sequence[Any], weights: Sequence[float], rng: np.random.Generator) -> Any:
+def weighted_choice(
+    items: Sequence[Any], weights: Sequence[float], rng: np.random.Generator
+) -> Any:
     if not items:
         raise ValueError("weighted_choice on empty items")
     ws = np.array([max(0.0, float(w)) for w in weights], dtype=np.float64)
@@ -141,6 +143,7 @@ def weighted_choice(items: Sequence[Any], weights: Sequence[float], rng: np.rand
 # ============================================================================
 # Embedding
 # ============================================================================
+
 
 class HashEmbedding:
     """
@@ -229,8 +232,14 @@ class AxisSpec:
     negative_anchor: Optional[np.ndarray] = None
 
     def compile(self, embedder: HashEmbedding) -> None:
-        pos_text = " ".join([self.name, self.positive_pole, self.description, *self.positive_examples]) or self.positive_pole
-        neg_text = " ".join([self.name, self.negative_pole, self.description, *self.negative_examples]) or self.negative_pole
+        pos_text = (
+            " ".join([self.name, self.positive_pole, self.description, *self.positive_examples])
+            or self.positive_pole
+        )
+        neg_text = (
+            " ".join([self.name, self.negative_pole, self.description, *self.negative_examples])
+            or self.negative_pole
+        )
         self.positive_anchor = embedder.encode(pos_text)
         self.negative_anchor = embedder.encode(neg_text)
         self.direction = l2_normalize(self.positive_anchor - self.negative_anchor)
@@ -294,16 +303,18 @@ class PsychologicalSchema:
         built: List[AxisSpec] = []
         if persona_axes:
             for item in persona_axes:
-                built.append(AxisSpec(
-                    name=str(item.get("name")),
-                    positive_pole=str(item.get("positive_pole", item.get("positive", "more"))),
-                    negative_pole=str(item.get("negative_pole", item.get("negative", "less"))),
-                    description=str(item.get("description", "")),
-                    level="persona",
-                    positive_examples=tuple(item.get("positive_examples", []) or []),
-                    negative_examples=tuple(item.get("negative_examples", []) or []),
-                    weight=float(item.get("weight", 1.0)),
-                ))
+                built.append(
+                    AxisSpec(
+                        name=str(item.get("name")),
+                        positive_pole=str(item.get("positive_pole", item.get("positive", "more"))),
+                        negative_pole=str(item.get("negative_pole", item.get("negative", "less"))),
+                        description=str(item.get("description", "")),
+                        level="persona",
+                        positive_examples=tuple(item.get("positive_examples", []) or []),
+                        negative_examples=tuple(item.get("negative_examples", []) or []),
+                        weight=float(item.get("weight", 1.0)),
+                    )
+                )
         else:
             built.extend(_persona_axes_from_profile_text(profile_text))
 
@@ -361,13 +372,15 @@ def _persona_axes_from_profile_text(profile_text: str) -> List[AxisSpec]:
                 if name in seen:
                     continue
                 seen.add(name)
-                axes.append(AxisSpec(
-                    name=name,
-                    positive_pole=pos,
-                    negative_pole=neg,
-                    description=f"Persona dimension derived from profile fragment: {chunk}",
-                    level="persona",
-                ))
+                axes.append(
+                    AxisSpec(
+                        name=name,
+                        positive_pole=pos,
+                        negative_pole=neg,
+                        description=f"Persona dimension derived from profile fragment: {chunk}",
+                        level="persona",
+                    )
+                )
                 continue
 
             words = tokenize_loose(chunk)
@@ -379,14 +392,16 @@ def _persona_axes_from_profile_text(profile_text: str) -> List[AxisSpec]:
             if name in seen:
                 continue
             seen.add(name)
-            axes.append(AxisSpec(
-                name=name,
-                positive_pole=head,
-                negative_pole=neg,
-                description=f"Persona dimension derived from profile fragment: {chunk}",
-                level="persona",
-                positive_examples=tuple(words[:4]),
-            ))
+            axes.append(
+                AxisSpec(
+                    name=name,
+                    positive_pole=head,
+                    negative_pole=neg,
+                    description=f"Persona dimension derived from profile fragment: {chunk}",
+                    level="persona",
+                    positive_examples=tuple(words[:4]),
+                )
+            )
 
     return axes
 
@@ -395,9 +410,10 @@ def _persona_axes_from_profile_text(profile_text: str) -> List[AxisSpec]:
 # Event frames & narrative providers
 # ============================================================================
 
+
 @dataclass
 class EventFrame:
-    axis_evidence: Dict[str, float] = field(default_factory=dict)   # signed [-1, 1]
+    axis_evidence: Dict[str, float] = field(default_factory=dict)  # signed [-1, 1]
     valence: float = 0.0
     arousal: float = 0.0
     care: float = 0.0
@@ -412,10 +428,10 @@ class EventFrame:
 
     def evidence_strength(self) -> float:
         return (
-            0.45 * mean_abs(self.axis_evidence.values()) +
-            0.20 * abs(self.valence) +
-            0.20 * self.arousal +
-            0.15 * self.self_relevance
+            0.45 * mean_abs(self.axis_evidence.values())
+            + 0.20 * abs(self.valence)
+            + 0.20 * self.arousal
+            + 0.15 * self.self_relevance
         )
 
 
@@ -426,8 +442,7 @@ class MeaningProvider(Protocol):
         embedding: np.ndarray,
         schema: PsychologicalSchema,
         recent_tags: Optional[Sequence[str]] = None,
-    ) -> EventFrame:
-        ...
+    ) -> EventFrame: ...
 
 
 class NarrativeProvider(Protocol):
@@ -436,8 +451,7 @@ class NarrativeProvider(Protocol):
         state: "IdentityState",
         schema: PsychologicalSchema,
         recent_texts: Sequence[str],
-    ) -> str:
-        ...
+    ) -> str: ...
 
     def compose_repair(
         self,
@@ -448,8 +462,7 @@ class NarrativeProvider(Protocol):
         salient_axes: Sequence[str],
         plot: "Plot",
         schema: PsychologicalSchema,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     def compose_dream(
         self,
@@ -457,16 +470,14 @@ class NarrativeProvider(Protocol):
         fragments: Sequence["LatentFragment"],
         state: "IdentityState",
         schema: PsychologicalSchema,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     def label_mode(
         self,
         prototype_axes: Dict[str, float],
         schema: PsychologicalSchema,
         support: int,
-    ) -> str:
-        ...
+    ) -> str: ...
 
 
 class HeuristicMeaningProvider:
@@ -475,30 +486,123 @@ class HeuristicMeaningProvider:
     It is more generic than fixed-regex trait extraction because the axes themselves
     are dynamic and compiled from profile / discovered schema.
     """
+
     CARE_WORDS = {
-        "care", "support", "listen", "comfort", "hug", "gentle", "warm", "陪", "安慰", "理解", "照顾", "拥抱", "温柔", "支持", "倾听",
+        "care",
+        "support",
+        "listen",
+        "comfort",
+        "hug",
+        "gentle",
+        "warm",
+        "陪",
+        "安慰",
+        "理解",
+        "照顾",
+        "拥抱",
+        "温柔",
+        "支持",
+        "倾听",
     }
     THREAT_WORDS = {
-        "attack", "betray", "lie", "control", "reject", "ignore", "hurt", "abandon", "manipulate",
-        "攻击", "背叛", "欺骗", "控制", "拒绝", "不理", "伤害", "抛弃", "利用",
+        "attack",
+        "betray",
+        "lie",
+        "control",
+        "reject",
+        "ignore",
+        "hurt",
+        "abandon",
+        "manipulate",
+        "攻击",
+        "背叛",
+        "欺骗",
+        "控制",
+        "拒绝",
+        "不理",
+        "伤害",
+        "抛弃",
+        "利用",
     }
     SHAME_WORDS = {
-        "shame", "embarrass", "humiliate", "worthless", "失败", "羞耻", "丢脸", "没用", "糟糕",
+        "shame",
+        "embarrass",
+        "humiliate",
+        "worthless",
+        "失败",
+        "羞耻",
+        "丢脸",
+        "没用",
+        "糟糕",
     }
     AGENCY_WORDS = {
-        "choose", "decide", "build", "refuse", "set boundary", "speak up", "行动", "选择", "决定", "建立", "拒绝", "边界", "表达",
+        "choose",
+        "decide",
+        "build",
+        "refuse",
+        "set boundary",
+        "speak up",
+        "行动",
+        "选择",
+        "决定",
+        "建立",
+        "拒绝",
+        "边界",
+        "表达",
     }
     CONTROL_WORDS = {
-        "control", "force", "must", "can't", "manipulate", "管", "强迫", "必须", "不许", "操控",
+        "control",
+        "force",
+        "must",
+        "can't",
+        "manipulate",
+        "管",
+        "强迫",
+        "必须",
+        "不许",
+        "操控",
     }
     ABANDON_WORDS = {
-        "leave", "left", "distance", "ghost", "cold", "离开", "冷淡", "失联", "消失", "疏远",
+        "leave",
+        "left",
+        "distance",
+        "ghost",
+        "cold",
+        "离开",
+        "冷淡",
+        "失联",
+        "消失",
+        "疏远",
     }
     POSITIVE_WORDS = {
-        "safe", "trust", "good", "happy", "gentle", "kind", "safe", "可靠", "安心", "喜欢", "愉快", "幸福", "温暖",
+        "safe",
+        "trust",
+        "good",
+        "happy",
+        "gentle",
+        "kind",
+        "safe",
+        "可靠",
+        "安心",
+        "喜欢",
+        "愉快",
+        "幸福",
+        "温暖",
     }
     NEGATIVE_WORDS = {
-        "bad", "pain", "fear", "cry", "angry", "hurt", "awful", "害怕", "痛", "哭", "生气", "难过", "糟糕",
+        "bad",
+        "pain",
+        "fear",
+        "cry",
+        "angry",
+        "hurt",
+        "awful",
+        "害怕",
+        "痛",
+        "哭",
+        "生气",
+        "难过",
+        "糟糕",
     }
 
     def extract(
@@ -534,8 +638,23 @@ class HeuristicMeaningProvider:
             self_relevance += 0.15
         self_relevance = clamp01(self_relevance)
 
-        tags = self._make_tags(text, axis_evidence, care, threat, shame, agency_signal, control, abandonment, recent_tags)
-        novelty = clamp01(0.15 + 0.55 * len([k for k, v in axis_evidence.items() if abs(v) > 0.25]) / max(len(axis_evidence), 1))
+        tags = self._make_tags(
+            text,
+            axis_evidence,
+            care,
+            threat,
+            shame,
+            agency_signal,
+            control,
+            abandonment,
+            recent_tags,
+        )
+        novelty = clamp01(
+            0.15
+            + 0.55
+            * len([k for k, v in axis_evidence.items() if abs(v) > 0.25])
+            / max(len(axis_evidence), 1)
+        )
         novelty = clamp01(novelty + 0.12 * max(0, len(set(tags)) - 3))
 
         return EventFrame(
@@ -620,9 +739,27 @@ class CombinatorialNarrator:
     ]
     DEFENSE_VERBS = ["挡住", "收紧", "后退", "把门关小一点", "把自己藏好一点"]
     REFRAME_VERBS = ["换个角度看", "重新命名", "改写解释", "把痛感翻译成含义", "让碎片重新排序"]
-    REVISE_VERBS = ["承认改变", "移动自我边界", "修订旧版本的自己", "把旧叙事拆开重写", "接受自己已经不同"]
-    DIFFERENTIATE_VERBS = ["立起边界", "把主动权拿回来", "把伤口改造成规则", "停止无条件让渡", "学会带着清醒靠近"]
-    INTEGRATE_VERBS = ["把矛盾容纳进来", "允许柔软和边界并存", "把旧伤与新证据放在同一张桌子上", "让自己更完整", "把裂缝缝合成纹理"]
+    REVISE_VERBS = [
+        "承认改变",
+        "移动自我边界",
+        "修订旧版本的自己",
+        "把旧叙事拆开重写",
+        "接受自己已经不同",
+    ]
+    DIFFERENTIATE_VERBS = [
+        "立起边界",
+        "把主动权拿回来",
+        "把伤口改造成规则",
+        "停止无条件让渡",
+        "学会带着清醒靠近",
+    ]
+    INTEGRATE_VERBS = [
+        "把矛盾容纳进来",
+        "允许柔软和边界并存",
+        "把旧伤与新证据放在同一张桌子上",
+        "让自己更完整",
+        "把裂缝缝合成纹理",
+    ]
 
     DREAM_OPENERS = [
         "梦里，时间被轻轻折了一下。",
@@ -705,11 +842,11 @@ class CombinatorialNarrator:
         elif operator == "integration":
             body = f"{tag_phrase} 在梦里被缝成同一块布，她第一次同时看见疼痛和意义。"
         elif operator == "fear_rehearsal":
-            body = f"她预演最坏的版本：如果一切再次失控，自己还能怎样留下主动权。"
+            body = "她预演最坏的版本：如果一切再次失控，自己还能怎样留下主动权。"
         elif operator == "wish_rehearsal":
-            body = f"潜意识偷偷试了一次更温柔的路线，像是在预演一种尚未发生但可能成立的靠近。"
+            body = "潜意识偷偷试了一次更温柔的路线，像是在预演一种尚未发生但可能成立的靠近。"
         else:
-            body = f"那些碎片围着她转，直到它们在某个位置忽然彼此解释了起来。"
+            body = "那些碎片围着她转，直到它们在某个位置忽然彼此解释了起来。"
         return f"{opener} {body}"
 
     def label_mode(
@@ -736,6 +873,7 @@ class CombinatorialNarrator:
 # ============================================================================
 # Memory primitives
 # ============================================================================
+
 
 @dataclass
 class Plot:
@@ -909,7 +1047,9 @@ class VectorIndex:
         idx = self.ids.index(node_id)
         self.vecs[idx] = vec.astype(np.float32)
 
-    def search(self, q: np.ndarray, k: int = 10, kind: Optional[str] = None) -> List[Tuple[str, float]]:
+    def search(
+        self, q: np.ndarray, k: int = 10, kind: Optional[str] = None
+    ) -> List[Tuple[str, float]]:
         hits: List[Tuple[str, float]] = []
         for node_id, kd, vec in zip(self.ids, self.kinds, self.vecs):
             if kind is not None and kd != kind:
@@ -922,6 +1062,7 @@ class VectorIndex:
 # ============================================================================
 # Online statistics
 # ============================================================================
+
 
 class OnlineKDE:
     def __init__(self, dim: int, reservoir: int = 1024, bandwidth: float = 0.85, seed: int = 0):
@@ -944,7 +1085,7 @@ class OnlineKDE:
         if not self.samples:
             return -2.0
         vals = []
-        h2 = self.bandwidth ** 2
+        h2 = self.bandwidth**2
         for s in self.samples[: min(len(self.samples), 256)]:
             d2 = float(np.sum((x - s) ** 2))
             vals.append(-0.5 * d2 / max(h2, 1e-6))
@@ -996,6 +1137,7 @@ class ThompsonEncodeGate:
     A tiny stochastic encode gate.
     Not persona-specific; it decides whether storing a plot is worth the cost.
     """
+
     def __init__(self, seed: int = 0):
         self.rng = np.random.default_rng(seed)
         self.a: Dict[str, float] = {
@@ -1042,6 +1184,7 @@ class ThompsonEncodeGate:
 # Story / Theme assignment
 # ============================================================================
 
+
 class CRPAssigner:
     def __init__(self, alpha: float = 1.0, seed: int = 0):
         self.alpha = alpha
@@ -1087,7 +1230,9 @@ class StoryModel:
         ll_source = 0.0
         if story.source_counts:
             total_s = sum(story.source_counts.values())
-            ll_source = math.log(story.source_counts.get(plot.source, 0) + 1.0) - math.log(total_s + len(story.source_counts) + 1e-12)
+            ll_source = math.log(story.source_counts.get(plot.source, 0) + 1.0) - math.log(
+                total_s + len(story.source_counts) + 1e-12
+            )
 
         ll_tag = 0.0
         tag_total = sum(story.tag_counts.values())
@@ -1114,6 +1259,7 @@ class ThemeModel:
 # Retrieval
 # ============================================================================
 
+
 @dataclass
 class RetrievalTrace:
     query_text: str
@@ -1136,12 +1282,22 @@ class FieldRetriever:
         if kind == "plot":
             return payload.embedding
         if kind == "story":
-            return payload.centroid if payload.centroid is not None else np.zeros(self.vindex.dim, dtype=np.float32)
+            return (
+                payload.centroid
+                if payload.centroid is not None
+                else np.zeros(self.vindex.dim, dtype=np.float32)
+            )
         if kind == "theme":
-            return payload.prototype if payload.prototype is not None else np.zeros(self.vindex.dim, dtype=np.float32)
+            return (
+                payload.prototype
+                if payload.prototype is not None
+                else np.zeros(self.vindex.dim, dtype=np.float32)
+            )
         raise ValueError(kind)
 
-    def attractor_trace(self, q: np.ndarray, steps: int = 3, k: int = 12) -> Tuple[np.ndarray, List[str]]:
+    def attractor_trace(
+        self, q: np.ndarray, steps: int = 3, k: int = 12
+    ) -> Tuple[np.ndarray, List[str]]:
         cur = q.astype(np.float32)
         anchors: List[str] = []
         for _ in range(steps):
@@ -1167,7 +1323,9 @@ class FieldRetriever:
             cur = l2_normalize(acc)
         return cur, anchors
 
-    def diffuse(self, anchor_ids: Sequence[str], alpha: float = 0.85, k: int = 10) -> List[Tuple[str, float]]:
+    def diffuse(
+        self, anchor_ids: Sequence[str], alpha: float = 0.85, k: int = 10
+    ) -> List[Tuple[str, float]]:
         if not anchor_ids:
             return []
         nodes = set(anchor_ids)
@@ -1234,6 +1392,7 @@ class FieldRetriever:
 # Identity / dissonance / dynamic modes
 # ============================================================================
 
+
 @dataclass
 class DissonanceReport:
     axis_conflicts: Dict[str, float]
@@ -1289,7 +1448,9 @@ class IdentityState:
         coherence = (self.axis_state.get("coherence", 0.0) + 1.0) / 2.0
         regulation = (self.axis_state.get("regulation", 0.0) + 1.0) / 2.0
         vigilance = (self.axis_state.get("vigilance", 0.0) + 1.0) / 2.0
-        return clamp01(0.35 * openness + 0.35 * coherence + 0.20 * regulation + 0.10 * (1.0 - vigilance))
+        return clamp01(
+            0.35 * openness + 0.35 * coherence + 0.20 * regulation + 0.10 * (1.0 - vigilance)
+        )
 
     def rigidity(self) -> float:
         openness = (self.axis_state.get("exploration", 0.0) + 1.0) / 2.0
@@ -1298,10 +1459,14 @@ class IdentityState:
         return clamp01(0.45 * vigilance + 0.35 * (1.0 - openness) + 0.20 * (1.0 - regulation))
 
     def narrative_pressure(self) -> float:
-        return float(self.active_energy + 0.85 * self.repressed_energy + 1.20 * self.contradiction_ema)
+        return float(
+            self.active_energy + 0.85 * self.repressed_energy + 1.20 * self.contradiction_ema
+        )
 
     def axis_vector(self, ordered_names: Sequence[str]) -> np.ndarray:
-        return np.array([self.axis_state.get(name, 0.0) for name in ordered_names], dtype=np.float32)
+        return np.array(
+            [self.axis_state.get(name, 0.0) for name in ordered_names], dtype=np.float32
+        )
 
 
 @dataclass
@@ -1335,6 +1500,7 @@ class LatentFragment:
 # ============================================================================
 # Subconscious / dreams
 # ============================================================================
+
 
 class SubconsciousField:
     def __init__(self, reservoir: int = 256, seed: int = 0):
@@ -1433,9 +1599,19 @@ class SubconsciousField:
             if "regulation" in blended:
                 blended["regulation"] = clamp(blended["regulation"] + 0.10)
 
-        care = max(0.0, np.mean([0.25 + 0.25 * max(0.0, f.axis_evidence.get("affiliation", 0.0)) for f in frags]))
-        threat = max(0.0, np.mean([0.25 + 0.25 * max(0.0, f.axis_evidence.get("vigilance", 0.0)) for f in frags]))
-        valence = clamp(np.mean([sum(f.axis_evidence.values()) / max(len(f.axis_evidence), 1) for f in frags]))
+        care = max(
+            0.0,
+            np.mean(
+                [0.25 + 0.25 * max(0.0, f.axis_evidence.get("affiliation", 0.0)) for f in frags]
+            ),
+        )
+        threat = max(
+            0.0,
+            np.mean([0.25 + 0.25 * max(0.0, f.axis_evidence.get("vigilance", 0.0)) for f in frags]),
+        )
+        valence = clamp(
+            np.mean([sum(f.axis_evidence.values()) / max(len(f.axis_evidence), 1) for f in frags])
+        )
         arousal = clamp01(0.30 + 0.25 * np.mean([f.unresolved for f in frags]))
 
         tags: List[str] = ["dream", op]
@@ -1458,16 +1634,19 @@ class SubconsciousField:
             self_relevance=0.85,
             tags=tuple(tags[:12]),
         )
-        resonance = np.mean([
-            cosine_sim(state.self_vector, frag.embedding) * (0.5 + frag.unresolved)
-            for frag in frags
-        ])
+        resonance = np.mean(
+            [
+                cosine_sim(state.self_vector, frag.embedding) * (0.5 + frag.unresolved)
+                for frag in frags
+            ]
+        )
         return text, dream_frame, float(resonance)
 
 
 # ============================================================================
 # Schema evolution
 # ============================================================================
+
 
 class SchemaEvolver:
     def __init__(self, seed: int = 0):
@@ -1485,9 +1664,13 @@ class SchemaEvolver:
                 continue
             if tag in existing_names:
                 continue
-            self.unresolved_tag_counts[tag] = self.unresolved_tag_counts.get(tag, 0.0) + 0.25 + 0.25 * tension
+            self.unresolved_tag_counts[tag] = (
+                self.unresolved_tag_counts.get(tag, 0.0) + 0.25 + 0.25 * tension
+            )
 
-    def maybe_expand(self, schema: PsychologicalSchema, embedder: HashEmbedding) -> Optional[AxisSpec]:
+    def maybe_expand(
+        self, schema: PsychologicalSchema, embedder: HashEmbedding
+    ) -> Optional[AxisSpec]:
         if not self.unresolved_tag_counts:
             return None
         tag, score = max(self.unresolved_tag_counts.items(), key=lambda kv: kv[1])
@@ -1513,6 +1696,7 @@ class SchemaEvolver:
 # Main engine configuration
 # ============================================================================
 
+
 @dataclass
 class GenerativeSoulConfig:
     dim: int = 384
@@ -1533,6 +1717,7 @@ class GenerativeSoulConfig:
 # Main engine
 # ============================================================================
 
+
 class AuroraGenerativeSoulMemory:
     """
     Public API:
@@ -1548,6 +1733,7 @@ class AuroraGenerativeSoulMemory:
     - replace persona-specific hardcoding with dynamic schema + dynamic modes
     - keep load-bearing invariants
     """
+
     def __init__(
         self,
         cfg: GenerativeSoulConfig = GenerativeSoulConfig(),
@@ -1648,7 +1834,9 @@ class AuroraGenerativeSoulMemory:
         self.modes[mode_id] = mode
         self.identity.current_mode_id = mode_id
         self.identity.current_mode_label = label
-        self.identity.summary = self.narrator.compose_summary(self.identity, self.schema, self.recent_texts)
+        self.identity.summary = self.narrator.compose_summary(
+            self.identity, self.schema, self.recent_texts
+        )
         self.identity.narrative_log.append(f"初始化模式：{label}")
 
     # ----------------------------------------------------------------------
@@ -1700,21 +1888,25 @@ class AuroraGenerativeSoulMemory:
             axis_conflicts[name] = max(0.0, -current * ev)
             axis_alignments[name] = max(0.0, current * ev)
 
-        semantic_conflict = max(0.0, -cosine_sim(self.identity.self_vector, embedding)) * frame.self_relevance
-        affective_load = (
-            0.30 * frame.arousal +
-            0.20 * max(0.0, -frame.valence) +
-            0.18 * frame.threat +
-            0.12 * frame.shame +
-            0.10 * frame.control +
-            0.10 * frame.abandonment
+        semantic_conflict = (
+            max(0.0, -cosine_sim(self.identity.self_vector, embedding)) * frame.self_relevance
         )
-        narrative_incongruity = mean_abs(axis_conflicts.values()) * (0.55 + 0.45 * frame.self_relevance)
+        affective_load = (
+            0.30 * frame.arousal
+            + 0.20 * max(0.0, -frame.valence)
+            + 0.18 * frame.threat
+            + 0.12 * frame.shame
+            + 0.10 * frame.control
+            + 0.10 * frame.abandonment
+        )
+        narrative_incongruity = mean_abs(axis_conflicts.values()) * (
+            0.55 + 0.45 * frame.self_relevance
+        )
         total = (
-            0.36 * mean_abs(axis_conflicts.values()) +
-            0.20 * semantic_conflict +
-            0.28 * affective_load +
-            0.16 * narrative_incongruity
+            0.36 * mean_abs(axis_conflicts.values())
+            + 0.20 * semantic_conflict
+            + 0.28 * affective_load
+            + 0.16 * narrative_incongruity
         )
         return DissonanceReport(
             axis_conflicts=axis_conflicts,
@@ -1731,7 +1923,9 @@ class AuroraGenerativeSoulMemory:
         # large scalar conflicts before narrative reconstruction can start.
         plasticity = self.identity.plasticity()
         rigidity = self.identity.rigidity()
-        base = 0.42 + 0.14 * rigidity - 0.10 * plasticity + 0.03 * min(self.identity.repair_count, 6)
+        base = (
+            0.42 + 0.14 * rigidity - 0.10 * plasticity + 0.03 * min(self.identity.repair_count, 6)
+        )
         return max(0.26, base)
 
     def _top_conflict_axes(self, dissonance: DissonanceReport, topn: int = 3) -> List[str]:
@@ -1764,22 +1958,31 @@ class AuroraGenerativeSoulMemory:
                 elif name == "regulation":
                     base += 0.16 * (plot.frame.arousal + plot.frame.shame)
                 fallback_scores[name] = base
-            salient_axes = [k for k, v in sorted(fallback_scores.items(), key=lambda kv: kv[1], reverse=True)[:4] if v > 0.08]
+            salient_axes = [
+                k
+                for k, v in sorted(fallback_scores.items(), key=lambda kv: kv[1], reverse=True)[:4]
+                if v > 0.08
+            ]
             if not salient_axes:
                 return []
 
         axis_order = self._axis_names()
-        current_vec = state.self_vector
         dream_support = 0.0
         for name in axis_order:
             intuition = state.intuition_axes.get(name, 0.0)
             dream_support += intuition * plot.frame.axis_evidence.get(name, 0.0)
         dream_support /= max(len(axis_order), 1)
 
-        repeated_conflict = np.mean([
-            self._reality_fit_for_axis(name, plot.frame.axis_evidence.get(name, 0.0))
-            for name in salient_axes
-        ]) if salient_axes else 0.0
+        repeated_conflict = (
+            np.mean(
+                [
+                    self._reality_fit_for_axis(name, plot.frame.axis_evidence.get(name, 0.0))
+                    for name in salient_axes
+                ]
+            )
+            if salient_axes
+            else 0.0
+        )
 
         def base_copy() -> Dict[str, float]:
             return {k: float(v) for k, v in state.axis_state.items()}
@@ -1801,7 +2004,9 @@ class AuroraGenerativeSoulMemory:
                 elif mode == "differentiate":
                     axes[name] = clamp(cur + 0.10 * ev * 0.5)
                 else:  # integrate
-                    axes[name] = clamp(cur + 0.16 * ev * (0.35 + repeated_conflict + max(0.0, dream_support)))
+                    axes[name] = clamp(
+                        cur + 0.16 * ev * (0.35 + repeated_conflict + max(0.0, dream_support))
+                    )
 
             # universal regulatory moves
             rel_threat = plot.frame.threat + 0.7 * plot.frame.control + 0.6 * plot.frame.abandonment
@@ -1826,35 +2031,52 @@ class AuroraGenerativeSoulMemory:
             else:  # integrate
                 axes["coherence"] = clamp(axes.get("coherence", 0.0) + 0.16)
                 axes["regulation"] = clamp(axes.get("regulation", 0.0) + 0.12)
-                axes["exploration"] = clamp(axes.get("exploration", 0.0) + 0.08 * max(care, repeated_conflict))
+                axes["exploration"] = clamp(
+                    axes.get("exploration", 0.0) + 0.08 * max(care, repeated_conflict)
+                )
                 axes["agency"] = clamp(axes.get("agency", 0.0) + 0.06 * agency)
-                axes["affiliation"] = clamp(axes.get("affiliation", 0.0) + 0.08 * care - 0.04 * rel_threat)
+                axes["affiliation"] = clamp(
+                    axes.get("affiliation", 0.0) + 0.08 * care - 0.04 * rel_threat
+                )
 
             new_vec = self._compose_self_vector(axes)
             return axes, new_vec
 
-        def score(mode: str, axes: Dict[str, float], new_vec: np.ndarray, active_after: float, repressed_after: float) -> RepairCandidate:
+        def score(
+            mode: str,
+            axes: Dict[str, float],
+            new_vec: np.ndarray,
+            active_after: float,
+            repressed_after: float,
+        ) -> RepairCandidate:
             drift = 1.0 - cosine_sim(state.self_vector, new_vec)
-            coherence_gain = max(0.0, axes.get("coherence", 0.0) - state.axis_state.get("coherence", 0.0))
+            coherence_gain = max(
+                0.0, axes.get("coherence", 0.0) - state.axis_state.get("coherence", 0.0)
+            )
             current_pressure = state.narrative_pressure()
             new_contradiction_ema = moving_average(state.contradiction_ema, dissonance.total, 0.20)
-            projected_pressure = active_after + 0.85 * repressed_after + 1.20 * new_contradiction_ema
+            projected_pressure = (
+                active_after + 0.85 * repressed_after + 1.20 * new_contradiction_ema
+            )
             pressure_relief = max(0.0, current_pressure - projected_pressure)
 
-            reality = np.mean([
-                self._reality_fit_for_axis(name, axes.get(name, 0.0))
-                for name in salient_axes
-            ]) if salient_axes else 0.5
+            reality = (
+                np.mean(
+                    [self._reality_fit_for_axis(name, axes.get(name, 0.0)) for name in salient_axes]
+                )
+                if salient_axes
+                else 0.5
+            )
 
             # Penalize unconstrained drift unless repeated evidence supports it.
             continuity_penalty = drift * (0.85 - 0.45 * repeated_conflict)
 
             utility = (
-                0.36 * pressure_relief +
-                0.22 * coherence_gain +
-                0.18 * reality +
-                0.10 * max(0.0, dream_support) -
-                0.16 * continuity_penalty
+                0.36 * pressure_relief
+                + 0.22 * coherence_gain
+                + 0.18 * reality
+                + 0.10 * max(0.0, dream_support)
+                - 0.16 * continuity_penalty
             )
 
             if mode == "preserve":
@@ -1864,9 +2086,15 @@ class AuroraGenerativeSoulMemory:
             elif mode == "revise":
                 utility += 0.16 * repeated_conflict + 0.08 * plot.evidence_weight
             elif mode == "differentiate":
-                utility += 0.14 * (plot.frame.threat + plot.frame.control + plot.frame.agency_signal)
+                utility += 0.14 * (
+                    plot.frame.threat + plot.frame.control + plot.frame.agency_signal
+                )
             else:  # integrate
-                utility += 0.12 * state.plasticity() + 0.12 * max(0.0, dream_support) + 0.06 * plot.frame.care
+                utility += (
+                    0.12 * state.plasticity()
+                    + 0.12 * max(0.0, dream_support)
+                    + 0.06 * plot.frame.care
+                )
 
             temp_state = copy.deepcopy(state)
             temp_state.axis_state = axes
@@ -1900,53 +2128,63 @@ class AuroraGenerativeSoulMemory:
 
         # preserve
         axes, new_vec = shift_axes("preserve")
-        cands.append(score(
-            "preserve",
-            axes,
-            new_vec,
-            active_after=state.active_energy - 0.28 * dissonance.total,
-            repressed_after=state.repressed_energy + 0.52 * dissonance.total,
-        ))
+        cands.append(
+            score(
+                "preserve",
+                axes,
+                new_vec,
+                active_after=state.active_energy - 0.28 * dissonance.total,
+                repressed_after=state.repressed_energy + 0.52 * dissonance.total,
+            )
+        )
 
         # reframe
         axes, new_vec = shift_axes("reframe")
-        cands.append(score(
-            "reframe",
-            axes,
-            new_vec,
-            active_after=state.active_energy - 0.48 * dissonance.total,
-            repressed_after=state.repressed_energy + 0.16 * dissonance.total,
-        ))
+        cands.append(
+            score(
+                "reframe",
+                axes,
+                new_vec,
+                active_after=state.active_energy - 0.48 * dissonance.total,
+                repressed_after=state.repressed_energy + 0.16 * dissonance.total,
+            )
+        )
 
         # revise
         axes, new_vec = shift_axes("revise")
-        cands.append(score(
-            "revise",
-            axes,
-            new_vec,
-            active_after=state.active_energy - 0.72 * dissonance.total,
-            repressed_after=state.repressed_energy + 0.06 * dissonance.total,
-        ))
+        cands.append(
+            score(
+                "revise",
+                axes,
+                new_vec,
+                active_after=state.active_energy - 0.72 * dissonance.total,
+                repressed_after=state.repressed_energy + 0.06 * dissonance.total,
+            )
+        )
 
         # differentiate
         axes, new_vec = shift_axes("differentiate")
-        cands.append(score(
-            "differentiate",
-            axes,
-            new_vec,
-            active_after=state.active_energy - 0.60 * dissonance.total,
-            repressed_after=state.repressed_energy + 0.12 * dissonance.total,
-        ))
+        cands.append(
+            score(
+                "differentiate",
+                axes,
+                new_vec,
+                active_after=state.active_energy - 0.60 * dissonance.total,
+                repressed_after=state.repressed_energy + 0.12 * dissonance.total,
+            )
+        )
 
         # integrate
         axes, new_vec = shift_axes("integrate")
-        cands.append(score(
-            "integrate",
-            axes,
-            new_vec,
-            active_after=state.active_energy - 0.82 * dissonance.total,
-            repressed_after=max(0.0, state.repressed_energy - 0.10 * dissonance.total),
-        ))
+        cands.append(
+            score(
+                "integrate",
+                axes,
+                new_vec,
+                active_after=state.active_energy - 0.82 * dissonance.total,
+                repressed_after=max(0.0, state.repressed_energy - 0.10 * dissonance.total),
+            )
+        )
 
         return cands
 
@@ -1984,7 +2222,10 @@ class AuroraGenerativeSoulMemory:
         if not cands:
             self.identity.repressed_energy += 0.15 * dissonance.total
             return
-        probs = softmax([c.utility for c in cands], temperature=max(0.35, 0.95 - 0.40 * self.identity.plasticity()))
+        probs = softmax(
+            [c.utility for c in cands],
+            temperature=max(0.35, 0.95 - 0.40 * self.identity.plasticity()),
+        )
         idx = int(self.rng.choice(np.arange(len(cands)), p=np.array(probs, dtype=np.float64)))
         self._apply_repair(cands[idx], plot)
 
@@ -2000,8 +2241,12 @@ class AuroraGenerativeSoulMemory:
             return None
 
         pressure = self.identity.narrative_pressure()
-        cur_mode = self.modes.get(self.identity.current_mode_id) if self.identity.current_mode_id else None
-        current_score = cur_mode.score(self.identity.self_vector, self.identity.axis_state) if cur_mode else 0.0
+        cur_mode = (
+            self.modes.get(self.identity.current_mode_id) if self.identity.current_mode_id else None
+        )
+        current_score = (
+            cur_mode.score(self.identity.self_vector, self.identity.axis_state) if cur_mode else 0.0
+        )
 
         best_mode: Optional[IdentityMode] = cur_mode
         best_score = current_score
@@ -2013,11 +2258,13 @@ class AuroraGenerativeSoulMemory:
                 best_mode = mode
 
         # New mode emergence condition
-        drift_from_current = 1.0 - (cur_mode.score(self.identity.self_vector, self.identity.axis_state) if cur_mode else 0.0)
+        drift_from_current = 1.0 - (
+            cur_mode.score(self.identity.self_vector, self.identity.axis_state) if cur_mode else 0.0
+        )
         create_new = (
-            pressure > 0.95 and
-            drift_from_current > self.cfg.mode_new_threshold and
-            (best_mode is cur_mode or best_score < 0.76)
+            pressure > 0.95
+            and drift_from_current > self.cfg.mode_new_threshold
+            and (best_mode is cur_mode or best_score < 0.76)
         )
 
         if create_new:
@@ -2041,9 +2288,13 @@ class AuroraGenerativeSoulMemory:
             return None
         if cur_mode is not None and best_mode.id == cur_mode.id:
             # reinforce prototype
-            cur_mode.prototype = l2_normalize(0.92 * cur_mode.prototype + 0.08 * self.identity.self_vector)
+            cur_mode.prototype = l2_normalize(
+                0.92 * cur_mode.prototype + 0.08 * self.identity.self_vector
+            )
             for k, v in self.identity.axis_state.items():
-                cur_mode.axis_prototype[k] = moving_average(cur_mode.axis_prototype.get(k, 0.0), v, 0.08)
+                cur_mode.axis_prototype[k] = moving_average(
+                    cur_mode.axis_prototype.get(k, 0.0), v, 0.08
+                )
             cur_mode.support += 1
             cur_mode.updated_ts = now_ts()
             return None
@@ -2216,11 +2467,11 @@ class AuroraGenerativeSoulMemory:
             redundancy = max(sim for _, sim in hits)
 
         tension = (
-            0.38 * dissonance.total +
-            0.25 * surprise +
-            0.18 * frame.arousal +
-            0.10 * frame.self_relevance +
-            0.09 * max(0.0, 1.0 - redundancy)
+            0.38 * dissonance.total
+            + 0.25 * surprise
+            + 0.18 * frame.arousal
+            + 0.10 * frame.self_relevance
+            + 0.09 * max(0.0, 1.0 - redundancy)
         ) * evidence_weight
 
         plot = Plot(
@@ -2254,12 +2505,14 @@ class AuroraGenerativeSoulMemory:
 
         # Update state dynamics even for skipped storage if it is a wake event
         self.identity.active_energy += (
-            0.38 * dissonance.total +
-            0.26 * frame.arousal +
-            0.16 * max(0.0, -frame.valence) +
-            0.10 * frame.threat
+            0.38 * dissonance.total
+            + 0.26 * frame.arousal
+            + 0.16 * max(0.0, -frame.valence)
+            + 0.10 * frame.threat
         )
-        self.identity.contradiction_ema = moving_average(self.identity.contradiction_ema, dissonance.total, 0.24)
+        self.identity.contradiction_ema = moving_average(
+            self.identity.contradiction_ema, dissonance.total, 0.24
+        )
         if source == "wake":
             self._update_wake_axis_stats(frame)
             self._maybe_reconstruct(plot, dissonance)
@@ -2268,11 +2521,15 @@ class AuroraGenerativeSoulMemory:
             new_axis = self.schema_evolver.maybe_expand(self.schema, self.embedder)
             if new_axis is not None:
                 self._axis_names()  # refresh caches
-                self.identity.narrative_log.append(f"新维度涌现：{new_axis.name} ({new_axis.positive_pole} ↔ {new_axis.negative_pole})")
+                self.identity.narrative_log.append(
+                    f"新维度涌现：{new_axis.name} ({new_axis.positive_pole} ↔ {new_axis.negative_pole})"
+                )
             self._promote_dream_intuitions()
             self._maybe_mode_transition(plot)
 
-        self.identity.summary = self.narrator.compose_summary(self.identity, self.schema, self.recent_texts)
+        self.identity.summary = self.narrator.compose_summary(
+            self.identity, self.schema, self.recent_texts
+        )
         self.recent_texts.append(text)
         if len(self.recent_texts) > self.cfg.max_recent_texts:
             self.recent_texts.pop(0)
@@ -2306,7 +2563,7 @@ class AuroraGenerativeSoulMemory:
             if abs(ev) < 0.06:
                 continue
             rate = 0.015 if (axis and axis.level == "persona") else 0.025
-            rate *= (0.55 + 0.45 * frame.self_relevance)
+            rate *= 0.55 + 0.45 * frame.self_relevance
             self.identity.axis_state[name] = moving_average(
                 self.identity.axis_state.get(name, 0.0),
                 ev,
@@ -2316,20 +2573,16 @@ class AuroraGenerativeSoulMemory:
 
         # affective regulation channels respond weakly to raw signals
         self.identity.axis_state["regulation"] = clamp(
-            self.identity.axis_state.get("regulation", 0.0) +
-            0.03 * frame.care -
-            0.04 * frame.arousal -
-            0.03 * frame.threat
+            self.identity.axis_state.get("regulation", 0.0)
+            + 0.03 * frame.care
+            - 0.04 * frame.arousal
+            - 0.03 * frame.threat
         )
         self.identity.axis_state["vigilance"] = clamp(
-            self.identity.axis_state.get("vigilance", 0.0) +
-            0.03 * frame.threat -
-            0.02 * frame.care
+            self.identity.axis_state.get("vigilance", 0.0) + 0.03 * frame.threat - 0.02 * frame.care
         )
         self.identity.axis_state["coherence"] = clamp(
-            self.identity.axis_state.get("coherence", 0.0) -
-            0.02 * frame.shame +
-            0.01 * frame.care
+            self.identity.axis_state.get("coherence", 0.0) - 0.02 * frame.shame + 0.01 * frame.care
         )
         changed = True
         if changed:
@@ -2366,7 +2619,9 @@ class AuroraGenerativeSoulMemory:
             strength = abs(bias) * corroboration
             p = sigmoid(3.0 * (strength - 0.35))
             if self.rng.random() < p:
-                self.identity.axis_state[name] = clamp(self.identity.axis_state.get(name, 0.0) + 0.05 * bias)
+                self.identity.axis_state[name] = clamp(
+                    self.identity.axis_state.get(name, 0.0) + 0.05 * bias
+                )
         self.identity.self_vector = self._compose_self_vector(self.identity.axis_state)
 
     def dream(self, n: int = 2) -> List[Plot]:
@@ -2375,7 +2630,9 @@ class AuroraGenerativeSoulMemory:
             frags = self.subconscious.sample(n=int(self.rng.integers(1, 4)))
             if not frags:
                 continue
-            text, frame, resonance = self.subconscious.synthesize(frags, self.identity, self.schema, self.narrator)
+            text, frame, resonance = self.subconscious.synthesize(
+                frags, self.identity, self.schema, self.narrator
+            )
             plot = self.ingest(
                 text=text,
                 actors=("self",),
@@ -2389,7 +2646,9 @@ class AuroraGenerativeSoulMemory:
             dream_plots.append(plot)
         if dream_plots:
             self._promote_dream_intuitions()
-            self.identity.summary = self.narrator.compose_summary(self.identity, self.schema, self.recent_texts)
+            self.identity.summary = self.narrator.compose_summary(
+                self.identity, self.schema, self.recent_texts
+            )
         return dream_plots
 
     def evolve(self, dreams: int = 2) -> List[Plot]:
@@ -2437,11 +2696,21 @@ class AuroraGenerativeSoulMemory:
 
         # Update graph edges around the chosen node.
         if chosen_id in self.graph.g:
-            for nbr in list(self.graph.g.predecessors(chosen_id)) + list(self.graph.g.successors(chosen_id)):
-                belief = self.graph.edge_belief(nbr, chosen_id) if self.graph.g.has_edge(nbr, chosen_id) else None
+            for nbr in list(self.graph.g.predecessors(chosen_id)) + list(
+                self.graph.g.successors(chosen_id)
+            ):
+                belief = (
+                    self.graph.edge_belief(nbr, chosen_id)
+                    if self.graph.g.has_edge(nbr, chosen_id)
+                    else None
+                )
                 if belief is not None:
                     belief.update(success)
-                belief2 = self.graph.edge_belief(chosen_id, nbr) if self.graph.g.has_edge(chosen_id, nbr) else None
+                belief2 = (
+                    self.graph.edge_belief(chosen_id, nbr)
+                    if self.graph.g.has_edge(chosen_id, nbr)
+                    else None
+                )
                 if belief2 is not None:
                     belief2.update(success)
 
@@ -2451,8 +2720,13 @@ class AuroraGenerativeSoulMemory:
 
     def snapshot_identity(self) -> Dict[str, Any]:
         ordered_axes = self._axis_names()
-        axes = {name: round(float(self.identity.axis_state.get(name, 0.0)), 4) for name in ordered_axes}
-        intuition = {name: round(float(self.identity.intuition_axes.get(name, 0.0)), 4) for name in ordered_axes}
+        axes = {
+            name: round(float(self.identity.axis_state.get(name, 0.0)), 4) for name in ordered_axes
+        }
+        intuition = {
+            name: round(float(self.identity.intuition_axes.get(name, 0.0)), 4)
+            for name in ordered_axes
+        }
         modes = {}
         for mid, mode in self.modes.items():
             modes[mid] = {
@@ -2499,7 +2773,10 @@ class AuroraGenerativeSoulMemory:
 # Helper presentation
 # ============================================================================
 
-def _top_axes_description(axis_state: Dict[str, float], schema: PsychologicalSchema, topn: int = 4) -> str:
+
+def _top_axes_description(
+    axis_state: Dict[str, float], schema: PsychologicalSchema, topn: int = 4
+) -> str:
     items = sorted(axis_state.items(), key=lambda kv: abs(kv[1]), reverse=True)
     phrases = []
     for name, val in items[:topn]:
@@ -2509,6 +2786,7 @@ def _top_axes_description(axis_state: Dict[str, float], schema: PsychologicalSch
         pole = ax.positive_pole if val >= 0 else ax.negative_pole
         phrases.append(f"{pole}({val:+.2f})")
     return "、".join(phrases) if phrases else "尚未成形"
+
 
 def _axes_to_phrase(axis_names: Sequence[str], schema: PsychologicalSchema) -> str:
     names = []
@@ -2525,10 +2803,13 @@ def _axes_to_phrase(axis_names: Sequence[str], schema: PsychologicalSchema) -> s
 # Demo
 # ============================================================================
 
+
 def _demo_relational_arc() -> None:
     print("=" * 88)
     print("DEMO 1 — relational hurt -> repair -> dreams -> emergent mode")
-    cfg = GenerativeSoulConfig(profile_text="敏感、想靠近、又害怕失去；受伤后会变得警觉，但也渴望理解")
+    cfg = GenerativeSoulConfig(
+        profile_text="敏感、想靠近、又害怕失去；受伤后会变得警觉，但也渴望理解"
+    )
     mem = AuroraGenerativeSoulMemory(cfg=cfg, seed=7)
 
     events = [
@@ -2540,7 +2821,9 @@ def _demo_relational_arc() -> None:
     ]
     for ev in events:
         p = mem.ingest(ev, actors=("other", "self"), source="wake")
-        print(f"ingest: {p.text[:34]} | tension={p.tension:.3f} contradiction={p.contradiction:.3f}")
+        print(
+            f"ingest: {p.text[:34]} | tension={p.tension:.3f} contradiction={p.contradiction:.3f}"
+        )
 
     dreams = mem.evolve(dreams=3)
     for d in dreams:

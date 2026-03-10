@@ -1,7 +1,6 @@
 """Thompson Bernoulli Gate bandit 的测试。"""
 
 import numpy as np
-import pytest
 
 from aurora.lab.primitives.bandit import ThompsonBernoulliGate
 

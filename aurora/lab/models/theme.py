@@ -67,13 +67,13 @@ class Theme:
     prototype: Optional[np.ndarray] = None
 
     # === 身份维度（新 - 核心范式转变） ===
-    identity_dimension: str = ""                                    # 例如，"作为解释者的我"
+    identity_dimension: str = ""  # 例如，"作为解释者的我"
     supporting_relationships: List[str] = field(default_factory=list)  # 关系实体 ID
-    strength: float = 0.5                                           # 证据有多强 [0, 1]
+    strength: float = 0.5  # 证据有多强 [0, 1]
 
     # === 功能矛盾管理 ===
-    tensions_with: List[str] = field(default_factory=list)          # 有张力的主题 ID
-    harmonizes_with: List[str] = field(default_factory=list)        # 互补的主题 ID
+    tensions_with: List[str] = field(default_factory=list)  # 有张力的主题 ID
+    harmonizes_with: List[str] = field(default_factory=list)  # 互补的主题 ID
 
     # 作为 Beta 后验的认识论置信度（来自应用的证据）
     a: float = 1.0
@@ -82,8 +82,13 @@ class Theme:
     name: str = ""
     description: str = ""
     theme_type: Literal[
-        "pattern", "lesson", "preference", "causality", "capability", "limitation",
-        "identity"  # 身份维度类型
+        "pattern",
+        "lesson",
+        "preference",
+        "causality",
+        "capability",
+        "limitation",
+        "identity",  # 身份维度类型
     ] = "pattern"
 
     def confidence(self) -> float:

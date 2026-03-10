@@ -9,11 +9,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from aurora.soul.query import (
-    QUESTION_STOP_WORDS,
-    SINGLE_SESSION_USER_MAX_CONTEXT,
-    USER_ROLE_PRIORITY_BOOST,
-)
+from aurora.soul.query import QueryAnalyzer, QueryType, SINGLE_SESSION_USER_MAX_CONTEXT
 
 
 # 定义针对不同场景的 QA 提示词模板
@@ -33,7 +29,6 @@ QA_PROMPT_TEMPLATES: Dict[str, str] = {
 问题：{question}
 
 答案（如果信息有变动，必须使用最新的数值）：""",
-
     # 场景：涉及时间顺序、先后关系的推理
     "temporal-reasoning": """基于以下对话历史，回答关于时间点或先后顺序的问题。
 注意“第一次”、“最后”、“之前”、“之后”、“最早”、“最近”、“当时”等关键词。
@@ -44,7 +39,6 @@ QA_PROMPT_TEMPLATES: Dict[str, str] = {
 问题：{question}
 
 答案（请明确说明时间或顺序）：""",
-
     # 场景：跨越多个会话（Session）的信息聚合与统计
     "multi-session": """基于下面来自多个会话的对话历史，通过聚合所有会话的信息来回答问题。
 
@@ -76,7 +70,6 @@ QA_PROMPT_TEMPLATES: Dict[str, str] = {
 3. 聚合后的最终答案是什么？
 
 答案（请具体、完整，包含找到的所有项）：""",
-
     # 场景：单次会话中的通用助手信息提取
     "single-session-assistant": """基于以下对话历史，简洁地回答问题。
 侧重于提取所请求的具体信息。
@@ -87,7 +80,6 @@ QA_PROMPT_TEMPLATES: Dict[str, str] = {
 问题：{question}
 
 答案（请保持简短、具体且符合事实）：""",
-
     # 场景：单次会话中关于“用户陈述的事实”提取
     "single-session-user": """基于以下对话历史，回答关于用户（USER）所陈述事实的问题。
 
@@ -109,7 +101,6 @@ QA_PROMPT_TEMPLATES: Dict[str, str] = {
 3. 提取用户提到的准确数值或答案。
 
 答案（仅从用户的陈述中提取事实，请保持简练准确）：""",
-
     # 场景：识别和描述用户的偏好
     "single-session-preference": """基于以下对话历史，描述用户的偏好。
 
@@ -123,5 +114,127 @@ QA_PROMPT_TEMPLATES: Dict[str, str] = {
 答案（描述用户的偏好模式）：""",
 }
 
-# (后续代码包含 build_qa_prompt 等函数，这里仅展示模板翻译示例)
-# 为了节省篇幅，其余辅助函数的中文注释将以类似方式补全。
+QUESTION_TYPE_ALIASES: dict[str, str] = {
+    "knowledge-update": "knowledge-update",
+    "knowledge_update": "knowledge-update",
+    "update": "knowledge-update",
+    "temporal": "temporal-reasoning",
+    "temporal-reasoning": "temporal-reasoning",
+    "temporal_reasoning": "temporal-reasoning",
+    "timeline": "temporal-reasoning",
+    "multi": "multi-session",
+    "multi-hop": "multi-session",
+    "multi_hop": "multi-session",
+    "multi-session": "multi-session",
+    "multi_session": "multi-session",
+    "single-session-assistant": "single-session-assistant",
+    "single_session_assistant": "single-session-assistant",
+    "assistant": "single-session-assistant",
+    "single-session-user": "single-session-user",
+    "single_session_user": "single-session-user",
+    "user": "single-session-user",
+    "user-fact": "single-session-user",
+    "user_fact": "single-session-user",
+    "single-session-preference": "single-session-preference",
+    "single_session_preference": "single-session-preference",
+    "preference": "single-session-preference",
+}
+
+PREFERENCE_KEYWORDS = {
+    "喜欢",
+    "偏好",
+    "爱吃",
+    "最爱",
+    "热衷",
+    "preference",
+    "prefer",
+    "favorite",
+    "favourite",
+    "likes",
+    "like to",
+}
+
+KNOWLEDGE_UPDATE_KEYWORDS = {
+    "现在",
+    "目前",
+    "最新",
+    "最近",
+    "更新",
+    "changed",
+    "current",
+    "currently",
+    "latest",
+    "most recent",
+    "updated",
+    "now",
+}
+
+_QUERY_ANALYZER = QueryAnalyzer()
+
+
+def _normalize_question_type_hint(question_type_hint: Optional[str]) -> Optional[str]:
+    if question_type_hint is None:
+        return None
+
+    normalized = question_type_hint.strip().lower()
+    return QUESTION_TYPE_ALIASES.get(
+        normalized, normalized if normalized in QA_PROMPT_TEMPLATES else None
+    )
+
+
+def _truncate_context(context: str, *, max_context_length: int, question_type: str) -> str:
+    if max_context_length <= 0 or len(context) <= max_context_length:
+        return context
+
+    omitted_marker = "\n\n...[context truncated]...\n\n"
+    remaining = max_context_length - len(omitted_marker)
+    if remaining <= 0:
+        return context[-max_context_length:]
+
+    if question_type in {"knowledge-update", "temporal-reasoning"}:
+        return omitted_marker.strip() + context[-remaining:]
+
+    head_len = remaining // 2
+    tail_len = remaining - head_len
+    return f"{context[:head_len]}{omitted_marker}{context[-tail_len:]}"
+
+
+def detect_question_type(question: str) -> str:
+    """根据问题内容选择最合适的 QA 提示词模板。"""
+    question_lower = question.lower()
+
+    if any(keyword in question_lower for keyword in KNOWLEDGE_UPDATE_KEYWORDS):
+        return "knowledge-update"
+    if any(keyword in question_lower for keyword in PREFERENCE_KEYWORDS):
+        return "single-session-preference"
+
+    query_type = _QUERY_ANALYZER.classify(question)
+    if query_type is QueryType.TEMPORAL:
+        return "temporal-reasoning"
+    if query_type is QueryType.MULTI_HOP:
+        return "multi-session"
+    if query_type is QueryType.USER_FACT:
+        return "single-session-user"
+    return "single-session-assistant"
+
+
+def build_qa_prompt(
+    *,
+    question: str,
+    context: str,
+    question_type_hint: Optional[str] = None,
+    max_context_length: int = SINGLE_SESSION_USER_MAX_CONTEXT,
+) -> str:
+    """构建适用于问答抽取的最终 prompt。"""
+    question_type = _normalize_question_type_hint(question_type_hint) or detect_question_type(
+        question
+    )
+    template = QA_PROMPT_TEMPLATES.get(
+        question_type, QA_PROMPT_TEMPLATES["single-session-assistant"]
+    )
+    rendered_context = _truncate_context(
+        context,
+        max_context_length=max_context_length,
+        question_type=question_type,
+    )
+    return template.format(context=rendered_context, question=question)

@@ -16,6 +16,7 @@ import numpy as np
 DEFAULT_COLD_START_SURPRISE = 8.0
 DENSITY_MIN_SAMPLES = 5
 
+
 class OnlineKDE:
     """嵌入空间中的核密度估计器。
 

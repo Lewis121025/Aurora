@@ -33,9 +33,11 @@ logger = logging.getLogger(__name__)
 # 工具定义
 # =============================================================================
 
+
 @dataclass
 class ToolDefinition:
     """MCP 工具的定义。"""
+
     name: str
     description: str
     parameters: Dict[str, Any]
@@ -134,9 +136,11 @@ AURORA_TOOLS = [
 # 资源定义
 # =============================================================================
 
+
 @dataclass
 class ResourceDefinition:
     """MCP 资源的定义。"""
+
     uri: str
     name: str
     description: str
@@ -160,6 +164,7 @@ AURORA_RESOURCES = [
 # =============================================================================
 # MCP Server Implementation
 # =============================================================================
+
 
 class AuroraMCPServer:
     """Aurora 内存系统的 MCP 服务器。
@@ -252,7 +257,7 @@ class AuroraMCPServer:
         except Exception as e:
             logger.exception(f"Resource read failed: {uri}")
             return {"error": str(e)}
-    
+
     # -------------------------------------------------------------------------
     # 工具处理程序
     # -------------------------------------------------------------------------
@@ -311,12 +316,14 @@ class AuroraMCPServer:
         for hit in result.hits:
             if kinds_filter and hit.kind not in kinds_filter:
                 continue
-            hits.append({
-                "id": hit.id,
-                "kind": hit.kind,
-                "score": hit.score,
-                "snippet": hit.snippet,
-            })
+            hits.append(
+                {
+                    "id": hit.id,
+                    "kind": hit.kind,
+                    "score": hit.score,
+                    "snippet": hit.snippet,
+                }
+            )
 
         return {
             "query": query,
@@ -328,6 +335,7 @@ class AuroraMCPServer:
         self,
     ) -> Dict[str, Any]:
         """处理 get_identity 工具调用。"""
+
         def _sync_identity():
             return self.runtime.get_identity()
 
@@ -339,6 +347,7 @@ class AuroraMCPServer:
         args: Dict[str, Any],
     ) -> Dict[str, Any]:
         """处理 provide_feedback 工具调用。"""
+
         def _sync_feedback():
             self.runtime.feedback(
                 query_text=args["query"],
@@ -403,7 +412,9 @@ class AuroraMCPServer:
         writer_transport, writer_protocol = await asyncio.get_event_loop().connect_write_pipe(
             asyncio.Protocol, sys.stdout
         )
-        writer = asyncio.StreamWriter(writer_transport, writer_protocol, reader, asyncio.get_event_loop())
+        writer = asyncio.StreamWriter(
+            writer_transport, writer_protocol, reader, asyncio.get_event_loop()
+        )
 
         try:
             while True:
@@ -418,7 +429,7 @@ class AuroraMCPServer:
                     await writer.drain()
                 except json.JSONDecodeError:
                     continue
-        except Exception as e:
+        except Exception:
             logger.exception("MCP server error")
 
     async def _handle_jsonrpc(self, request: Dict[str, Any]) -> Dict[str, Any]:

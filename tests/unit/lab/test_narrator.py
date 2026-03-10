@@ -9,13 +9,13 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import List
 
 import numpy as np
 import pytest
 
 from aurora.lab.primitives.metric import LowRankMetric
-from aurora.lab.models.plot import IdentityImpact, Plot, RelationalContext
+from aurora.lab.models.plot import IdentityImpact, Plot
 from aurora.lab.narrator.context import ContextRecovery, TurningPointDetector
 from aurora.lab.narrator.perspective import (
     NarrativePerspective,
@@ -68,9 +68,7 @@ def perspective_organizer(
 
 
 @pytest.fixture
-def context_recovery(
-    narrator_metric: LowRankMetric, rng: np.random.Generator
-) -> ContextRecovery:
+def context_recovery(narrator_metric: LowRankMetric, rng: np.random.Generator) -> ContextRecovery:
     """创建ContextRecovery实例。"""
     return ContextRecovery(metric=narrator_metric, rng=rng)
 
@@ -362,9 +360,7 @@ class TestPerspectiveSelector:
         assert p1 == p2
         assert probs1 == probs2
 
-    def test_feedback_increases_alpha(
-        self, perspective_selector: PerspectiveSelector
-    ):
+    def test_feedback_increases_alpha(self, perspective_selector: PerspectiveSelector):
         """测试正反馈增加alpha。"""
         perspective = NarrativePerspective.CHRONOLOGICAL
         a_before, b_before = perspective_selector.perspective_beliefs[perspective]
@@ -375,9 +371,7 @@ class TestPerspectiveSelector:
         assert a_after == a_before + 1.0
         assert b_after == b_before
 
-    def test_feedback_increases_beta(
-        self, perspective_selector: PerspectiveSelector
-    ):
+    def test_feedback_increases_beta(self, perspective_selector: PerspectiveSelector):
         """测试负反馈增加beta。"""
         perspective = NarrativePerspective.CONTRASTIVE
         a_before, b_before = perspective_selector.perspective_beliefs[perspective]
@@ -491,10 +485,7 @@ class TestContextRecovery:
     ):
         """测试具有故事连接的上下文恢复。"""
         story_id = det_id("story", "test_story")
-        plots = [
-            make_plot(idx=i, rng=rng, ts_offset=i * 60, story_id=story_id)
-            for i in range(3)
-        ]
+        plots = [make_plot(idx=i, rng=rng, ts_offset=i * 60, story_id=story_id) for i in range(3)]
         plots_dict = {p.id: p for p in plots}
 
         target = plots[1]
@@ -524,8 +515,7 @@ class TestContextRecovery:
         # Create plots with a tension peak
         tensions = [0.2, 0.4, 0.9, 0.5, 0.3]  # Peak at index 2
         plots = [
-            make_plot(idx=i, rng=rng, ts_offset=i * 60, tension=t)
-            for i, t in enumerate(tensions)
+            make_plot(idx=i, rng=rng, ts_offset=i * 60, tension=t) for i, t in enumerate(tensions)
         ]
 
         turning_points = context_recovery.identify_turning_points(plots)
@@ -544,24 +534,18 @@ class TestContextRecovery:
 class TestTurningPointDetector:
     """TurningPointDetector类的测试。"""
 
-    def test_detect_from_elements_empty(
-        self, turning_point_detector: TurningPointDetector
-    ):
+    def test_detect_from_elements_empty(self, turning_point_detector: TurningPointDetector):
         """测试使用空元素的检测。"""
         turning_points = turning_point_detector.detect_from_elements([])
         assert turning_points == []
 
-    def test_detect_from_elements_single(
-        self, turning_point_detector: TurningPointDetector
-    ):
+    def test_detect_from_elements_single(self, turning_point_detector: TurningPointDetector):
         """测试使用单个元素的检测。"""
         elements = [{"plot_id": "p1", "tension_level": 0.5}]
         turning_points = turning_point_detector.detect_from_elements(elements)
         assert turning_points == []  # Need at least 2 for comparison
 
-    def test_detect_from_elements_with_variance(
-        self, turning_point_detector: TurningPointDetector
-    ):
+    def test_detect_from_elements_with_variance(self, turning_point_detector: TurningPointDetector):
         """测试具有不同张力水平的检测。"""
         elements = [
             {"plot_id": f"p{i}", "tension_level": t}
@@ -674,7 +658,7 @@ class TestNarratorIntegration:
         )
 
         # Step 3: Identify turning points
-        turning_points = narrator_engine.identify_turning_points(
+        narrator_engine.identify_turning_points(
             plots=sample_plots_for_narrator,
         )
 

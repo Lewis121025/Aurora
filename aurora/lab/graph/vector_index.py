@@ -51,7 +51,9 @@ class VectorIndex:
         self.vecs.pop(i)
         self.kinds.pop(i)
 
-    def search(self, q: np.ndarray, k: int = 10, kind: Optional[str] = None) -> List[Tuple[str, float]]:
+    def search(
+        self, q: np.ndarray, k: int = 10, kind: Optional[str] = None
+    ) -> List[Tuple[str, float]]:
         """搜索最相似的向量。
 
         参数:

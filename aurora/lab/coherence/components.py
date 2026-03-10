@@ -78,10 +78,7 @@ class BeliefNetwork:
         self,
         iterations: int = BELIEF_PROPAGATION_ITERATIONS,
     ) -> Dict[str, float]:
-        probabilities = {
-            node_id: state.prior
-            for node_id, state in self.beliefs.items()
-        }
+        probabilities = {node_id: state.prior for node_id, state in self.beliefs.items()}
 
         for _ in range(iterations):
             new_probabilities: Dict[str, float] = {}
@@ -291,9 +288,7 @@ class CoherenceScorer:
             and (now_ts() - story.updated_ts) > UNFINISHED_STORY_HOURS * 3600
         ]
         orphan_plots = [
-            plot.id
-            for plot in plots.values()
-            if plot.story_id is None and plot.status == "active"
+            plot.id for plot in plots.values() if plot.story_id is None and plot.status == "active"
         ]
 
         weights = [
@@ -334,7 +329,9 @@ class CoherenceScorer:
                     break
 
                 total_pairs += 1
-                probability, explanation = self.detector.detect_contradiction(first_plot, second_plot)
+                probability, explanation = self.detector.detect_contradiction(
+                    first_plot, second_plot
+                )
                 contradiction_sum += probability
                 if probability > 0.6:
                     conflicts.append(
@@ -425,7 +422,9 @@ class CoherenceScorer:
         for idx, first_theme in enumerate(theme_list):
             for second_theme in theme_list[idx + 1 :]:
                 total_pairs += 1
-                probability, explanation = self.detector.detect_contradiction(first_theme, second_theme)
+                probability, explanation = self.detector.detect_contradiction(
+                    first_theme, second_theme
+                )
                 if probability <= 0.5:
                     continue
 

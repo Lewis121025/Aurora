@@ -1,7 +1,6 @@
 """LowRankMetric 学习的测试。"""
 
 import numpy as np
-import pytest
 
 from aurora.lab.primitives.metric import LowRankMetric
 

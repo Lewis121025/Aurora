@@ -17,6 +17,7 @@ from aurora.utils.math_utils import sigmoid
 
 MIN_STORE_PROB = 0.6
 
+
 class ThompsonBernoulliGate:
     """具有Thompson采样的随机编码策略。
 

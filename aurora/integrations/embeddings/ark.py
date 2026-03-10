@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import List, Optional, Sequence
+from typing import Any, List, Optional, Sequence
 
 import numpy as np
 
@@ -28,7 +28,7 @@ class ArkEmbedding(EmbeddingProvider):
     - 自动重试和指数退避
     - MRL（Matryoshka 表示学习）维度支持
     """
-    
+
     def __init__(
         self,
         api_key: str,
@@ -43,29 +43,29 @@ class ArkEmbedding(EmbeddingProvider):
         self.max_retries = max_retries
         self.dimension = dimension
         self.use_cache = use_cache
-        self._client = None
-        self._cache = {} if use_cache else None
+        self._client: Any | None = None
+        self._cache: dict[str, list[float]] | None = {} if use_cache else None
         self._cache_size = cache_size
         self._total_requests = 0
         self._cache_hits = 0
-        
-    def _get_client(self):
+
+    def _get_client(self) -> Any:
         """Ark 客户端的延迟初始化。"""
         if self._client is None:
             try:
                 from volcenginesdkarkruntime import Ark
+
                 self._client = Ark(api_key=self.api_key)
             except ImportError:
-                raise ImportError(
-                    "请安装 volcengine SDK：pip install 'volcengine-python-sdk[ark]'"
-                )
+                raise ImportError("请安装 volcengine SDK：pip install 'volcengine-python-sdk[ark]'")
         return self._client
-    
+
     def _cache_key(self, text: str) -> str:
         """从文本生成缓存键。"""
         import hashlib
+
         return hashlib.sha256(text.encode()).hexdigest()[:32]
-    
+
     def _get_from_cache(self, text: str) -> Optional[List[float]]:
         """如果可用，从缓存获取嵌入。"""
         if not self.use_cache or self._cache is None:
@@ -75,7 +75,7 @@ class ArkEmbedding(EmbeddingProvider):
             self._cache_hits += 1
             return self._cache[key]
         return None
-    
+
     def _add_to_cache(self, text: str, embedding: List[float]) -> None:
         """将嵌入添加到缓存。"""
         if not self.use_cache or self._cache is None:
@@ -83,12 +83,12 @@ class ArkEmbedding(EmbeddingProvider):
         # 类似 LRU 的驱逐：当满时移除最旧的条目
         if len(self._cache) >= self._cache_size:
             # 移除前 10% 的条目
-            keys_to_remove = list(self._cache.keys())[:self._cache_size // 10]
+            keys_to_remove = list(self._cache.keys())[: self._cache_size // 10]
             for key in keys_to_remove:
                 del self._cache[key]
         key = self._cache_key(text)
         self._cache[key] = embedding
-    
+
     def embed(self, text: str) -> np.ndarray:
         """为单个文本生成嵌入。
 
@@ -117,7 +117,7 @@ class ArkEmbedding(EmbeddingProvider):
 
                 # 获取嵌入并截断到指定维度
                 full_embedding = response.data[0].embedding
-                embedding = np.array(full_embedding[:self.dimension], dtype=np.float32)
+                embedding = np.array(full_embedding[: self.dimension], dtype=np.float32)
                 norm = np.linalg.norm(embedding)
                 if norm > 0:
                     embedding = embedding / norm
@@ -126,16 +126,18 @@ class ArkEmbedding(EmbeddingProvider):
                 self._add_to_cache(text, embedding.tolist())
 
                 return embedding
-                
+
             except Exception as e:
                 last_error = e
                 logger.warning(f"Embedding attempt {attempt + 1}/{self.max_retries} failed: {e}")
                 if attempt < self.max_retries - 1:
-                    sleep_time = (2 ** attempt) * 0.3
+                    sleep_time = (2**attempt) * 0.3
                     time.sleep(sleep_time)
-        
-        raise RuntimeError(f"All {self.max_retries} embedding attempts failed. Last error: {last_error}")
-    
+
+        raise RuntimeError(
+            f"All {self.max_retries} embedding attempts failed. Last error: {last_error}"
+        )
+
     def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
         """为多个文本高效生成嵌入。
 
@@ -158,7 +160,7 @@ class ArkEmbedding(EmbeddingProvider):
         for i, text in enumerate(texts):
             cached = self._get_from_cache(text)
             if cached is not None:
-                results[i] = cached
+                results[i] = np.array(cached, dtype=np.float32)
             else:
                 texts_to_embed.append(text)
                 indices_to_embed.append(i)
@@ -187,7 +189,7 @@ class ArkEmbedding(EmbeddingProvider):
                         for j, data in enumerate(response.data):
                             idx = batch_indices[j]
                             full_embedding = data.embedding
-                            embedding = np.array(full_embedding[:self.dimension], dtype=np.float32)
+                            embedding = np.array(full_embedding[: self.dimension], dtype=np.float32)
                             norm = np.linalg.norm(embedding)
                             if norm > 0:
                                 embedding = embedding / norm
@@ -201,7 +203,7 @@ class ArkEmbedding(EmbeddingProvider):
                         last_error = e
                         logger.warning(f"批处理嵌入尝试 {attempt + 1}/{self.max_retries} 失败：{e}")
                         if attempt < self.max_retries - 1:
-                            sleep_time = (2 ** attempt) * 0.3
+                            sleep_time = (2**attempt) * 0.3
                             time.sleep(sleep_time)
                 else:
                     # 所有重试都失败，回退到单个嵌入
@@ -215,22 +217,25 @@ class ArkEmbedding(EmbeddingProvider):
                             # 作为最后手段返回零向量
                             results[idx] = np.zeros(self.dimension, dtype=np.float32)
 
-        return results
-    
+        return [
+            embedding if embedding is not None else np.zeros(self.dimension, dtype=np.float32)
+            for embedding in results
+        ]
+
     def embed_numpy(self, text: str) -> np.ndarray:
         """生成 numpy 数组形式的嵌入。
 
         便于 AURORA 的内部向量操作。
         """
         return self.embed(text)
-    
+
     def embed_batch_numpy(self, texts: Sequence[str]) -> np.ndarray:
         """生成批量嵌入作为 numpy 数组。"""
         embeddings = self.embed_batch(texts)
         return np.stack(embeddings) if embeddings else np.array([], dtype=np.float32)
-    
+
     @property
-    def stats(self) -> dict:
+    def stats(self) -> dict[str, float | int]:
         """返回缓存和请求统计信息。"""
         return {
             "total_requests": self._total_requests,
@@ -238,7 +243,7 @@ class ArkEmbedding(EmbeddingProvider):
             "cache_size": len(self._cache) if self._cache else 0,
             "cache_hit_rate": self._cache_hits / max(1, self._total_requests + self._cache_hits),
         }
-    
+
     def clear_cache(self) -> None:
         """清除嵌入缓存。"""
         if self._cache is not None:

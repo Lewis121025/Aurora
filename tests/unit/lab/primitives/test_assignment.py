@@ -2,7 +2,6 @@
 
 import math
 import numpy as np
-import pytest
 
 from aurora.lab.primitives.assignment import CRPAssigner, StoryModel, ThemeModel
 from aurora.lab.primitives.metric import LowRankMetric
@@ -160,16 +159,12 @@ class TestStoryModel:
         # Close plot
         close_emb = story.centroid + 0.01 * np.random.randn(32).astype(np.float32)
         close_plot = Plot(
-            id="close", ts=now_ts(), text="close",
-            actors=("user",), embedding=close_emb
+            id="close", ts=now_ts(), text="close", actors=("user",), embedding=close_emb
         )
 
         # Far plot
         far_emb = story.centroid + 10 * np.random.randn(32).astype(np.float32)
-        far_plot = Plot(
-            id="far", ts=now_ts(), text="far",
-            actors=("user",), embedding=far_emb
-        )
+        far_plot = Plot(id="far", ts=now_ts(), text="far", actors=("user",), embedding=far_emb)
 
         ll_close = model.loglik(close_plot, story)
         ll_far = model.loglik(far_plot, story)

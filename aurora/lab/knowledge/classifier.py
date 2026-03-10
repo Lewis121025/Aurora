@@ -64,7 +64,12 @@ class KnowledgeClassifier:
             matched_patterns[knowledge_type].extend(patterns)
 
         subject, predicate = None, None
-        for knowledge_type, (score, patterns, matched_subject, matched_predicate) in self._match_patterns(text).items():
+        for knowledge_type, (
+            score,
+            patterns,
+            matched_subject,
+            matched_predicate,
+        ) in self._match_patterns(text).items():
             scores[knowledge_type] += score
             matched_patterns[knowledge_type].extend(patterns)
             subject = subject or matched_subject
@@ -109,10 +114,7 @@ class KnowledgeClassifier:
         self,
         text: str,
     ) -> Dict[KnowledgeType, Tuple[float, List[str], Optional[str], Optional[str]]]:
-        results = {
-            knowledge_type: (0.0, [], None, None)
-            for knowledge_type in KnowledgeType
-        }
+        results = {knowledge_type: (0.0, [], None, None) for knowledge_type in KnowledgeType}
 
         for rule in PATTERN_RULES:
             for pattern in rule.patterns:
@@ -227,7 +229,11 @@ class KnowledgeClassifier:
                 knowledge_type_a=knowledge_type,
                 knowledge_type_b=knowledge_type,
                 requires_human_review=True,
-                recommended_actions=["需要验证哪个是正确的", "标记旧的为可能错误", "考虑信息来源可靠性"],
+                recommended_actions=[
+                    "需要验证哪个是正确的",
+                    "标记旧的为可能错误",
+                    "考虑信息来源可靠性",
+                ],
             )
         if knowledge_type == KnowledgeType.IDENTITY_TRAIT:
             return ConflictAnalysis(
@@ -237,7 +243,11 @@ class KnowledgeClassifier:
                 knowledge_type_a=knowledge_type,
                 knowledge_type_b=knowledge_type,
                 is_complementary=True,
-                recommended_actions=["保留两个特质", "分析它们是否在不同情境下有效", "标记为多面性身份"],
+                recommended_actions=[
+                    "保留两个特质",
+                    "分析它们是否在不同情境下有效",
+                    "标记为多面性身份",
+                ],
             )
         if knowledge_type == KnowledgeType.IDENTITY_VALUE:
             return ConflictAnalysis(
@@ -246,7 +256,11 @@ class KnowledgeClassifier:
                 confidence=0.85,
                 knowledge_type_a=knowledge_type,
                 knowledge_type_b=knowledge_type,
-                recommended_actions=["保留所有价值观", "分析它们之间的关系", "识别潜在的价值观冲突"],
+                recommended_actions=[
+                    "保留所有价值观",
+                    "分析它们之间的关系",
+                    "识别潜在的价值观冲突",
+                ],
             )
         if knowledge_type == KnowledgeType.PREFERENCE:
             return ConflictAnalysis(
@@ -298,7 +312,11 @@ class KnowledgeClassifier:
             confidence=0.65,
             knowledge_type_a=type_a,
             knowledge_type_b=type_b,
-            recommended_actions=["保留两条知识", f"优先参考{higher_type.value}类型", "分析它们之间的关系"],
+            recommended_actions=[
+                "保留两条知识",
+                f"优先参考{higher_type.value}类型",
+                "分析它们之间的关系",
+            ],
         )
 
     def are_complementary_traits(

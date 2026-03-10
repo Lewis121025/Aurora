@@ -5,9 +5,7 @@ aurora/integrations/llm/Prompt/causal_chain_prompt.py
 """
 
 # 系统提示词：指导 LLM 如何执行因果链提取
-CAUSAL_CHAIN_SYSTEM_PROMPT = (
-    "你从事件序列中提取因果链。请识别根本原因、中间影响和最终结果。"
-)
+CAUSAL_CHAIN_SYSTEM_PROMPT = "你从事件序列中提取因果链。请识别根本原因、中间影响和最终结果。"
 
 # 用户提示词模板
 CAUSAL_CHAIN_USER_PROMPT = """{instruction}

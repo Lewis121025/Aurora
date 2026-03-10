@@ -26,6 +26,7 @@ from aurora.utils.time_utils import now_ts
 # 关系轨迹数据结构
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class RelationshipMoment:
     """
@@ -33,10 +34,11 @@ class RelationshipMoment:
 
     捕捉关系在特定时间点的演变方式。
     """
-    ts: float                   # 时间戳
-    event_summary: str          # 发生事件的简要总结
-    trust_level: float          # 此时刻的信任水平 [0, 1]
-    my_role: str                # 我在此时刻的角色
+
+    ts: float  # 时间戳
+    event_summary: str  # 发生事件的简要总结
+    trust_level: float  # 此时刻的信任水平 [0, 1]
+    my_role: str  # 我在此时刻的角色
     quality_delta: float = 0.0  # 关系质量的变化
 
     def to_state_dict(self) -> Dict[str, Any]:
@@ -74,6 +76,7 @@ class RelationshipMoment:
 # ─────────────────────────────────────────────────────────────────────────────
 # StoryArc 模型
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @dataclass
 class StoryArc:
@@ -129,24 +132,24 @@ class StoryArc:
     plot_ids: List[str] = field(default_factory=list)
 
     # === 关系中心字段（新 - 主要组织维度） ===
-    relationship_with: Optional[str] = None         # 实体 ID（组织的主键）
-    relationship_type: str = "user"                 # "user"、"system"、"concept"
+    relationship_with: Optional[str] = None  # 实体 ID（组织的主键）
+    relationship_type: str = "user"  # "user"、"system"、"concept"
     relationship_arc: List[RelationshipMoment] = field(default_factory=list)
-    my_identity_in_this_relationship: str = ""      # "我在这段关系中是谁"
+    my_identity_in_this_relationship: str = ""  # "我在这段关系中是谁"
     lessons_from_relationship: List[str] = field(default_factory=list)
-    relationship_health: float = 0.5                # 当前关系质量 [0, 1]
+    relationship_health: float = 0.5  # 当前关系质量 [0, 1]
 
     # === 叙事结构 ===
-    setup: Optional[str] = None                     # 开端 - 故事的起始情境
+    setup: Optional[str] = None  # 开端 - 故事的起始情境
     rising_action: List[str] = field(default_factory=list)  # 发展 - 情节推进
-    climax: Optional[str] = None                    # 高潮 - 张力最高点
+    climax: Optional[str] = None  # 高潮 - 张力最高点
     falling_action: List[str] = field(default_factory=list)  # 收尾
-    resolution: Optional[str] = None                # 结局 - 最终解决
+    resolution: Optional[str] = None  # 结局 - 最终解决
 
     # === 叙事元素 ===
-    central_conflict: Optional[str] = None          # 核心冲突
+    central_conflict: Optional[str] = None  # 核心冲突
     turning_points: List[Tuple[float, str]] = field(default_factory=list)  # 转折点 (时间戳, 描述)
-    moral: Optional[str] = None                     # 寓意 - 从故事中提取的意义
+    moral: Optional[str] = None  # 寓意 - 从故事中提取的意义
 
     # 在线生成参数（为兼容性保留）
     centroid: Optional[np.ndarray] = None
@@ -242,7 +245,7 @@ class StoryArc:
         trust_level: float,
         my_role: str,
         quality_delta: float = 0.0,
-        ts: Optional[float] = None
+        ts: Optional[float] = None,
     ) -> None:
         """向关系轨迹添加一个时刻。"""
         moment = RelationshipMoment(
@@ -255,9 +258,9 @@ class StoryArc:
         self.relationship_arc.append(moment)
 
         # 根据质量增量更新关系健康度
-        self.relationship_health = max(0.0, min(1.0,
-            self.relationship_health + quality_delta * 0.1
-        ))
+        self.relationship_health = max(
+            0.0, min(1.0, self.relationship_health + quality_delta * 0.1)
+        )
 
     def get_trust_trend(self, window: int = 10) -> float:
         """
@@ -274,8 +277,8 @@ class StoryArc:
             return 0.0
 
         # 简单线性趋势
-        first_half = recent[:len(recent)//2]
-        second_half = recent[len(recent)//2:]
+        first_half = recent[: len(recent) // 2]
+        second_half = recent[len(recent) // 2 :]
 
         avg_first = sum(m.trust_level for m in first_half) / len(first_half)
         avg_second = sum(m.trust_level for m in second_half) / len(second_half)
@@ -302,6 +305,7 @@ class StoryArc:
         role_counts = Counter(roles)
         max_count = role_counts.most_common(1)[0][1] if role_counts else 0
         return max_count / len(roles)
+
     # ─────────────────────────────────────────────────────────────────────────
     # 时间方法（时间作为一等公民）
     # ─────────────────────────────────────────────────────────────────────────
@@ -332,7 +336,7 @@ class StoryArc:
         for pid in self.plot_ids:
             plot = plots_dict.get(pid)
             if plot is not None:
-                ts = getattr(plot, 'ts', None)
+                ts = getattr(plot, "ts", None)
                 if ts is not None:
                     timestamps.append(ts)
 
@@ -342,9 +346,7 @@ class StoryArc:
         return (min(timestamps), max(timestamps))
 
     def get_temporal_narrative(
-        self,
-        plots_dict: Optional[Dict[str, Any]] = None,
-        locale: str = "zh"
+        self, plots_dict: Optional[Dict[str, Any]] = None, locale: str = "zh"
     ) -> str:
         """生成此故事的时间叙事摘要。
 
@@ -369,7 +371,6 @@ class StoryArc:
 
         # 转换为 datetime
         start_dt = datetime.datetime.fromtimestamp(start_ts)
-        end_dt = datetime.datetime.fromtimestamp(end_ts)
 
         # 计算持续时间
         duration_days = (end_ts - start_ts) / (24 * 3600)
@@ -378,7 +379,6 @@ class StoryArc:
         # 格式化日期
         if locale == "zh":
             start_str = start_dt.strftime("%Y年%m月%d日")
-            end_str = end_dt.strftime("%Y年%m月%d日")
 
             # 构建叙事
             parts = []
@@ -391,7 +391,7 @@ class StoryArc:
             parts.append(f"从{start_str}开始")
 
             if duration_days < 1:
-                parts.append(f"在同一天内")
+                parts.append("在同一天内")
             elif duration_days < 7:
                 parts.append(f"历经{int(duration_days)}天")
             elif duration_days < 30:
@@ -426,7 +426,6 @@ class StoryArc:
 
         else:  # 英文
             start_str = start_dt.strftime("%B %d, %Y")
-            end_str = end_dt.strftime("%B %d, %Y")
 
             parts = []
 
@@ -512,7 +511,9 @@ class StoryArc:
 
         # 关系身份
         if self.my_identity_in_this_relationship:
-            parts.append(f"在与 {self.relationship_with} 的关系中，我是{self.my_identity_in_this_relationship}。")
+            parts.append(
+                f"在与 {self.relationship_with} 的关系中，我是{self.my_identity_in_this_relationship}。"
+            )
 
         # 信任和健康度
         trust = self.get_current_trust()
@@ -617,7 +618,9 @@ class StoryArc:
         # 按时间戳排序
         self.turning_points.sort(key=lambda x: x[0])
 
-    def get_narrative_phase(self) -> Literal["setup", "rising", "climax", "falling", "resolution", "unknown"]:
+    def get_narrative_phase(
+        self,
+    ) -> Literal["setup", "rising", "climax", "falling", "resolution", "unknown"]:
         """
         根据故事结构确定当前叙事阶段。
 
@@ -769,9 +772,9 @@ class StoryArc:
 
         # 解析转折点 - 将列表转换回元组以保持类型一致性
         raw_turning_points = d.get("turning_points", [])
-        turning_points: List[Tuple[float, str]] = [
-            (float(tp[0]), str(tp[1])) for tp in raw_turning_points
-        ] if raw_turning_points else []
+        turning_points: List[Tuple[float, str]] = (
+            [(float(tp[0]), str(tp[1])) for tp in raw_turning_points] if raw_turning_points else []
+        )
 
         return cls(
             id=d["id"],

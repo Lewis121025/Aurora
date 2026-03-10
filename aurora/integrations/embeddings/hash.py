@@ -14,7 +14,7 @@ AURORA 哈希嵌入
 
 from __future__ import annotations
 
-from typing import List
+from typing import List, Sequence
 
 import numpy as np
 
@@ -44,6 +44,6 @@ class HashEmbedding(EmbeddingProvider):
         v = rng.normal(size=self.dim).astype(np.float32)
         return l2_normalize(v)
 
-    def embed_batch(self, texts: List[str]) -> List[np.ndarray]:
+    def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
         """嵌入多个文本。"""
         return [self.embed(t) for t in texts]

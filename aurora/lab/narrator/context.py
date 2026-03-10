@@ -17,7 +17,7 @@
 from __future__ import annotations
 
 import math
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -32,6 +32,7 @@ from aurora.lab.graph.memory_graph import MemoryGraph
 from aurora.lab.models.plot import Plot
 from aurora.lab.models.story import StoryArc
 from aurora.utils.math_utils import sigmoid
+
 
 class ContextRecovery:
     """处理上下文恢复和因果链追踪。
@@ -48,7 +49,7 @@ class ContextRecovery:
         rng: 用于可重现性的随机数生成器
         graph: 用于显式因果链接的可选内存图
     """
-    
+
     def __init__(
         self,
         metric: LowRankMetric,
@@ -65,7 +66,7 @@ class ContextRecovery:
         self.metric: LowRankMetric = metric
         self.rng: np.random.Generator = rng
         self.graph: Optional[MemoryGraph] = graph
-    
+
     def recover_context(
         self,
         plot: Plot,
@@ -86,14 +87,14 @@ class ContextRecovery:
             形成因果上下文的情节列表（按相关性排序）
         """
         context_plots: List[Tuple[Plot, float]] = []  # (plot, relevance_score)
-        visited: set = {plot.id}
+        visited: set[str] = {plot.id}
 
         # BFS with probabilistic pruning
         queue: List[Tuple[str, int, float]] = [(plot.id, 0, 1.0)]  # (id, depth, path_strength)
-        
+
         while queue and len(context_plots) < MAX_CAUSAL_CHAIN_LENGTH:
             current_id, current_depth, path_strength = queue.pop(0)
-            
+
             if current_depth >= depth:
                 continue
 
@@ -102,9 +103,7 @@ class ContextRecovery:
                 continue
 
             # 查找连接的情节
-            connected = self._find_connected_plots(
-                current_plot, plots_dict, visited
-            )
+            connected = self._find_connected_plots(current_plot, plots_dict, visited)
 
             for connected_plot, connection_strength in connected:
                 if connected_plot.id in visited:
@@ -123,7 +122,7 @@ class ContextRecovery:
         # 按相关性排序并返回仅情节
         context_plots.sort(key=lambda x: x[1], reverse=True)
         return [p for p, _ in context_plots]
-    
+
     def identify_turning_points(
         self,
         plots: List[Plot],
@@ -187,12 +186,12 @@ class ContextRecovery:
                     turning_points.append(plot)
 
         return turning_points
-    
+
     def _find_connected_plots(
         self,
         plot: Plot,
         plots_dict: Dict[str, Plot],
-        visited: set,
+        visited: set[str],
     ) -> List[Tuple[Plot, float]]:
         """查找与给定情节连接的情节。
 
@@ -235,6 +234,7 @@ class ContextRecovery:
         connected.sort(key=lambda x: x[1], reverse=True)
         return connected[:5]  # 限制前5个
 
+
 class TurningPointDetector:
     """用于叙事中转折点的专用检测器。
 
@@ -248,7 +248,7 @@ class TurningPointDetector:
             rng: 随机数生成器
         """
         self.rng = rng
-    
+
     def detect_from_elements(
         self,
         elements: List[Dict[str, Any]],
@@ -263,22 +263,22 @@ class TurningPointDetector:
         """
         if len(elements) < 2:
             return []
-        
+
         turning_points = []
         tensions = [e.get("tension_level", 0.0) for e in elements]
-        
+
         if not tensions or all(t == 0 for t in tensions):
             return []
-        
+
         mean_t = np.mean(tensions)
         std_t = np.std(tensions) + 1e-6
-        
+
         for element in elements:
             tension = element.get("tension_level", 0.0)
             z = (tension - mean_t) / std_t
             p_turn = sigmoid(z - 0.5)
-            
+
             if self.rng.random() < p_turn:
                 turning_points.append(element)
-        
+
         return turning_points

@@ -95,7 +95,9 @@ class InterventionEngine:
         while not nx.is_directed_acyclic_graph(dag):
             try:
                 cycle = nx.find_cycle(dag)
-                weakest_edge = min(cycle, key=lambda edge: dag.edges[edge[0], edge[1]].get("weight", 0))
+                weakest_edge = min(
+                    cycle, key=lambda edge: dag.edges[edge[0], edge[1]].get("weight", 0)
+                )
                 dag.remove_edge(weakest_edge[0], weakest_edge[1])
             except nx.NetworkXNoCycle:
                 break

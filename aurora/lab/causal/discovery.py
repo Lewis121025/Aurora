@@ -64,8 +64,7 @@ class CausalDiscovery:
         context: List[Plot],
     ) -> float:
         target_history = [
-            plot for plot in context
-            if plot.ts < target.ts and plot.story_id == target.story_id
+            plot for plot in context if plot.ts < target.ts and plot.story_id == target.story_id
         ]
         if not target_history or source.ts >= target.ts:
             return 0.0
@@ -113,8 +112,7 @@ class CausalDiscovery:
         if not context:
             return 0.0
         similar_count = sum(
-            1 for candidate in context
-            if self.metric.sim(plot.embedding, candidate.embedding) > 0.5
+            1 for candidate in context if self.metric.sim(plot.embedding, candidate.embedding) > 0.5
         )
         return math.log1p(similar_count)
 
@@ -127,7 +125,8 @@ class CausalDiscovery:
         log_odds_confound = 0.0
         earlier_ts = min(first.ts, second.ts)
         potential_confounders = [
-            plot for plot in context
+            plot
+            for plot in context
             if plot.ts < earlier_ts and plot.id not in (first.id, second.id)
         ]
 

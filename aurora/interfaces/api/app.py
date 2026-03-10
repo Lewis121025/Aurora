@@ -103,7 +103,9 @@ def respond(req: RespondRequest) -> ChatTurnResponse:
             identity=_identity_response(identity.to_state_dict()),
             narrative_summary=_summary_response(summary.to_state_dict()),
             retrieval_hits=result.memory_context.retrieval_hits,
-            evidence_refs=[EvidenceRef(**ref.__dict__) for ref in result.memory_context.evidence_refs],
+            evidence_refs=[
+                EvidenceRef(**ref.__dict__) for ref in result.memory_context.evidence_refs
+            ],
         ),
         rendered_memory_brief=result.rendered_memory_brief,
         system_prompt=result.system_prompt,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import List, Sequence, Union
+from typing import List, Sequence
 
 import numpy as np
 
@@ -12,7 +12,7 @@ class EmbeddingProvider(ABC):
     所有嵌入提供者应返回 numpy 数组，以与
     内存系统的向量操作兼容。
     """
-    
+
     @abstractmethod
     def embed(self, text: str) -> np.ndarray:
         """为单个文本生成嵌入。
