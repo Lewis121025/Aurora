@@ -200,8 +200,6 @@ print(f"Temporal QA: {eval_metrics.metrics_by_type.get('temporal_accuracy', 0):.
 | `latency_p99` | 99 百分位延迟 |
 | `throughput` | 每秒处理数 |
 
----
-
 ## 自定义评测
 
 ### 实现自定义适配器

@@ -63,7 +63,7 @@ def test_cli_stats_closes_runtime(monkeypatch, capsys):
                 "plot_count": 1,
                 "story_count": 0,
                 "theme_count": 0,
-                "architecture_mode": "shadow",
+                "architecture_mode": "graph_first",
                 "current_mode": "steady",
                 "pressure": 0.1,
                 "dream_count": 0,
@@ -82,7 +82,7 @@ def test_cli_stats_closes_runtime(monkeypatch, capsys):
     cli.main(["stats"])
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["architecture_mode"] == "shadow"
+    assert payload["architecture_mode"] == "graph_first"
     assert observed["closed"] == 1
 
 
@@ -98,7 +98,7 @@ def test_cli_evolve_reports_counts_and_closes_runtime(monkeypatch, capsys):
                 "plot_count": 2,
                 "story_count": 0,
                 "theme_count": 0,
-                "architecture_mode": "shadow",
+                "architecture_mode": "graph_first",
                 "current_mode": "steady",
                 "pressure": 0.2,
                 "dream_count": 1,

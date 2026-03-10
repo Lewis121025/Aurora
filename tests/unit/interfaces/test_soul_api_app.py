@@ -36,7 +36,7 @@ def test_v4_identity_and_respond_endpoints(monkeypatch, tmp_path) -> None:
         stats_resp = client.get("/v4/stats")
         assert stats_resp.status_code == 200
         stats_payload = stats_resp.json()
-        assert stats_payload["architecture_mode"] == "shadow"
+        assert stats_payload["architecture_mode"] == "graph_first"
         assert "graph_metrics" in stats_payload
         assert "background_evolver" in stats_payload
 

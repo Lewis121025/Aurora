@@ -235,7 +235,7 @@ def test_runtime_stats_expose_architecture_mode_and_graph_metrics(tmp_path: Path
 
     stats = runtime.get_stats()
 
-    assert stats["architecture_mode"] == "shadow"
+    assert stats["architecture_mode"] == "graph_first"
     assert isinstance(stats["graph_metrics"], dict)
     assert isinstance(stats["background_evolver"], dict)
 

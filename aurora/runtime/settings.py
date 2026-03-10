@@ -36,19 +36,12 @@ class AuroraSettings(BaseSettings):
 
     evolve_every_seconds: float = 3600.0  # 后台演化周期
     background_evolver_enabled: bool = True
-    architecture_mode: Literal["legacy", "shadow", "graph_first"] = "shadow"
 
     # --- 灵魂引擎核心参数 ---
     dim: int = 1024  # 向量维度（需与 Embedding 模型匹配）
     metric_rank: int = 64  # 度量学习矩阵的秩
     max_plots: int = 5000  # 长期记忆最大存储条数
     kde_reservoir: int = 4096  # 惊讶度计算的蓄水池大小
-    story_alpha: float = 1.0  # CRP 故事聚类参数
-    theme_alpha: float = 0.6  # CRP 主题聚类参数
-    subconscious_reservoir: int = 1024  # 潜意识碎片池大小
-    mode_refractory_steps: int = 4  # 模式切换的冷却步数
-    mode_new_threshold: float = 0.52  # 发现新模式的失调阈值
-    encode_min_events_before_gating: int = 6  # 开启门控前的最少事件数
     max_recent_texts: int = 12  # 最近交互上下文保留条数
     axis_merge_every_events: int = 50  # 轴合并检查频率
     persona_axis_budget: int = 24  # 允许存在的人设轴最大数量

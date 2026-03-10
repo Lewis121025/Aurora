@@ -5,16 +5,156 @@ import os
 from dataclasses import dataclass
 from typing import Any, List, Optional, Sequence
 
-from rich import box
-from rich.align import Align
-from rich.console import Group
-from rich.panel import Panel
-from rich.text import Text
-from textual import on, work
-from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Input, Static, Tab, Tabs
+try:
+    from rich import box
+    from rich.align import Align
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.text import Text
+    from textual import on, work
+    from textual.app import App, ComposeResult
+    from textual.binding import Binding
+    from textual.containers import Horizontal, Vertical, VerticalScroll
+    from textual.widgets import Input, Static, Tab, Tabs
+
+    TERMINAL_UI_DEPS_AVAILABLE = True
+except ModuleNotFoundError:
+    TERMINAL_UI_DEPS_AVAILABLE = False
+
+    class _Box:
+        ROUNDED = "rounded"
+
+    box = _Box()
+
+    class Align:
+        @staticmethod
+        def right(renderable):
+            return renderable
+
+        @staticmethod
+        def center(renderable):
+            return renderable
+
+        @staticmethod
+        def left(renderable):
+            return renderable
+
+    class Group(tuple):
+        def __new__(cls, *items):
+            return super().__new__(cls, items)
+
+    class Panel:
+        @staticmethod
+        def fit(renderable, **_: Any):
+            return renderable
+
+    class Text:
+        def __init__(self, text: str = "", *, style: str | None = None) -> None:
+            self._parts = [text]
+            self.style = style
+            self.no_wrap = False
+
+        def append(self, text: str, *, style: str | None = None) -> None:
+            self._parts.append(text)
+
+        def __str__(self) -> str:
+            return "".join(self._parts)
+
+    def on(*_args: Any, **_kwargs: Any):
+        def decorator(func):
+            return func
+
+        return decorator
+
+    def work(*_args: Any, **_kwargs: Any):
+        def decorator(func):
+            return func
+
+        return decorator
+
+    class App:
+        CSS = ""
+        BINDINGS: list[object] = []
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def __class_getitem__(cls, _item: object):
+            return cls
+
+        def run(self) -> None:
+            raise RuntimeError(
+                "Aurora terminal UI requires optional dependencies 'rich' and 'textual'."
+            )
+
+        def query_one(self, *_args: Any, **_kwargs: Any):
+            return _WidgetStub()
+
+    ComposeResult = object
+
+    class Binding:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+    class _WidgetStub:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def update(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def remove_children(self) -> None:
+            pass
+
+        def mount(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def scroll_end(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def focus(self) -> None:
+            pass
+
+        def remove_class(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def add_class(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def remove(self) -> None:
+            pass
+
+    class Horizontal(_WidgetStub):
+        pass
+
+    class Vertical(_WidgetStub):
+        pass
+
+    class VerticalScroll(_WidgetStub):
+        pass
+
+    class Input(_WidgetStub):
+        class Submitted:
+            def __init__(self, value: str = "", input: object | None = None) -> None:
+                self.value = value
+                self.input = input or _WidgetStub()
+
+    class Static(_WidgetStub):
+        pass
+
+    class Tab(_WidgetStub):
+        pass
+
+    class Tabs(_WidgetStub):
+        class TabActivated:
+            def __init__(self, tab: object | None = None) -> None:
+                self.tab = tab or _WidgetStub()
 
 from aurora.runtime.results import (
     ChatStreamEvent,
@@ -414,13 +554,12 @@ def build_stats_status_block(stats: dict[str, Any]) -> str:
             f"轮次 {background.get('cycles', 0)}"
         )
     if graph_metrics:
-        shadow = graph_metrics.get("shadow", {})
-        if shadow:
+        authoritative = graph_metrics.get("authoritative", {})
+        if authoritative:
             lines.append(
-                "Shadow 视图："
-                f"plot {shadow.get('plot_count', 0)} | "
-                f"story {shadow.get('story_count', 0)} | "
-                f"theme {shadow.get('theme_count', 0)}"
+                "图视图："
+                f"edge v{authoritative.get('graph_edge_version', 0)} | "
+                f"{'fresh' if authoritative.get('view_fresh') else 'stale'}"
             )
     return _section("统计面板", lines)
 

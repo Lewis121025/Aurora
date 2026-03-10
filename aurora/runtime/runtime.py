@@ -754,7 +754,7 @@ class AuroraRuntime:
                 "repair_count": self.mem.identity.repair_count,
                 "active_energy": self.mem.identity.active_energy,
                 "repressed_energy": self.mem.identity.repressed_energy,
-                "graph_metrics": dict(self.mem.shadow_metrics),
+                "graph_metrics": dict(self.mem.graph_metrics),
                 "background_evolver": dict(self._background_telemetry),
             }
 
