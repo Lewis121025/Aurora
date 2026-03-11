@@ -19,6 +19,7 @@ from aurora.integrations.llm.Prompt.generative_soul_prompt import (
     GEN_SOUL_MODE_LABEL_SYSTEM_PROMPT,
     GEN_SOUL_PERSONA_AXIS_SYSTEM_PROMPT,
     GEN_SOUL_REPAIR_SYSTEM_PROMPT,
+    GEN_SOUL_SEMANTIC_PROJECTION_SYSTEM_PROMPT,
     GEN_SOUL_SUMMARY_SYSTEM_PROMPT,
     build_gen_soul_axis_merge_user_prompt,
     build_gen_soul_dream_user_prompt,
@@ -26,6 +27,7 @@ from aurora.integrations.llm.Prompt.generative_soul_prompt import (
     build_gen_soul_mode_label_user_prompt,
     build_gen_soul_persona_axis_user_prompt,
     build_gen_soul_repair_user_prompt,
+    build_gen_soul_semantic_projection_user_prompt,
     build_gen_soul_summary_user_prompt,
 )
 from aurora.integrations.llm.provider import LLMProvider
@@ -52,7 +54,6 @@ from aurora.soul.models import (
     clamp,
     clamp01,
     heuristic_persona_axes,
-    messages_have_image_parts,
     messages_text_only,
     messages_to_text,
     normalize_text,
@@ -73,6 +74,38 @@ def _semantic_fallback(messages: Sequence[Message]) -> str:
     if semantic_text:
         return semantic_text
     return messages_to_text(messages, include_image_uris=True)
+
+
+def _image_part_count(messages: Sequence[Message]) -> int:
+    return sum(1 for message in messages for part in message.parts if getattr(part, "type", "") == "image")
+
+
+def _salient_axis_names(state: IdentityState, *, limit: int = 4) -> List[str]:
+    return [
+        name
+        for name, _ in sorted(state.axis_state.items(), key=lambda item: abs(item[1]), reverse=True)[
+            :limit
+        ]
+    ]
+
+
+def _bootstrap_mode_label(
+    prototype_axes: Dict[str, float],
+    schema: PsychologicalSchema,
+    support: int,
+) -> str:
+    items = sorted(prototype_axes.items(), key=lambda item: abs(item[1]), reverse=True)
+    words: List[str] = []
+    for name, value in items[:2]:
+        axis = schema.all_axes().get(name)
+        if axis is None:
+            continue
+        words.append(axis.positive_pole if value >= 0 else axis.negative_pole)
+    if not words:
+        return f"mode_{support}"
+    if len(words) == 1:
+        return f"{words[0]} mode"
+    return f"{words[0]} / {words[1]} mode"
 
 
 class MeaningProvider(Protocol):
@@ -165,7 +198,7 @@ class NarrativeProvider(Protocol):
 
 
 class HeuristicMeaningProvider:
-    """基于规则和词库的启发式意义提取器，通常作为 LLM 方案的快速回退（Fallback）"""
+    """基于规则和词库的启发式意义提取器。"""
 
     # 预定义的认知词库，用于快速判断基础倾向
     CARE_WORDS = {
@@ -314,7 +347,7 @@ class HeuristicMeaningProvider:
 
         # 核心：计算新输入在现有每一个心理轴上的投影得分
         axis_evidence = {
-            name: axis.score(embedding, text) for name, axis in schema.all_axes().items()
+            name: axis.score(embedding, semantic_text) for name, axis in schema.all_axes().items()
         }
 
         # 计算各个基础维度的命中得分
@@ -443,12 +476,10 @@ class LLMMeaningProvider:
         self,
         llm: LLMProvider,
         *,
-        fallback: Optional[MeaningProvider] = None,
         timeout_s: float = 12.0,
         max_retries: int = 1,
     ) -> None:
         self._llm = llm
-        self._fallback = fallback or HeuristicMeaningProvider()
         self._timeout_s = timeout_s
         self._max_retries = max_retries
 
@@ -456,49 +487,56 @@ class LLMMeaningProvider:
         """利用 LLM 智能发现人设维度"""
         if not profile_text.strip():
             return []
-        try:
-            payload = self._llm.complete_json(
-                messages=_text_prompt_messages(
-                    system=GEN_SOUL_PERSONA_AXIS_SYSTEM_PROMPT,
-                    user=build_gen_soul_persona_axis_user_prompt(profile_text=profile_text),
-                ),
-                schema=PersonaAxisPayload,
-                temperature=0.1,
-                timeout_s=self._timeout_s,
-                metadata={"operation": "persona_axis_extraction"},
-                max_retries=self._max_retries,
-            )
-        except Exception:
-            return self._fallback.extract_persona_axes(profile_text)
+        payload = self._llm.complete_json(
+            messages=_text_prompt_messages(
+                system=GEN_SOUL_PERSONA_AXIS_SYSTEM_PROMPT,
+                user=build_gen_soul_persona_axis_user_prompt(profile_text=profile_text),
+            ),
+            schema=PersonaAxisPayload,
+            temperature=0.1,
+            timeout_s=self._timeout_s,
+            metadata={"operation": "persona_axis_extraction"},
+            max_retries=self._max_retries,
+        )
         return [axis.model_dump() for axis in payload.axes]
 
     def bootstrap_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
-        return self._fallback.extract_persona_axes(profile_text)
+        return heuristic_persona_axes(profile_text)
 
     def project(self, messages: Sequence[Message]) -> str:
-        fallback_text = self._fallback.project(messages)
-        if not messages_have_image_parts(messages):
-            return fallback_text
-        try:
-            payload = self._llm.complete_json(
-                messages=(
-                    Message(role="system", parts=(TextPart(text="将上面的图文输入整理成紧凑、可检索的语义文本。保留角色、动作、情绪、地点、时间与图像中的关键对象。"),)),
-                    *messages,
-                    Message(
-                        role="user",
-                        parts=(TextPart(text="返回 SemanticProjectionPayload JSON。"),),
+        semantic_text = _semantic_fallback(messages)
+        image_part_count = _image_part_count(messages)
+        if image_part_count == 0:
+            return semantic_text
+        payload = self._llm.complete_json(
+            messages=(
+                Message(
+                    role="system",
+                    parts=(TextPart(text=GEN_SOUL_SEMANTIC_PROJECTION_SYSTEM_PROMPT),),
+                ),
+                *messages,
+                Message(
+                    role="user",
+                    parts=(
+                        TextPart(
+                            text=build_gen_soul_semantic_projection_user_prompt(
+                                message_count=len(messages),
+                                image_part_count=image_part_count,
+                            )
+                        ),
                     ),
                 ),
-                schema=SemanticProjectionPayload,
-                temperature=0.1,
-                timeout_s=self._timeout_s,
-                metadata={"operation": "semantic_projection_v6"},
-                max_retries=self._max_retries,
-            )
-        except Exception:
-            return fallback_text
+            ),
+            schema=SemanticProjectionPayload,
+            temperature=0.1,
+            timeout_s=self._timeout_s,
+            metadata={"operation": "semantic_projection_v6"},
+            max_retries=self._max_retries,
+        )
         projected = normalize_text(payload.semantic_text)
-        return projected or fallback_text
+        if not projected:
+            raise ValueError("Semantic projection returned empty semantic_text")
+        return projected
 
     def extract(
         self,
@@ -509,32 +547,32 @@ class LLMMeaningProvider:
     ) -> MeaningExtraction:
         """深度语义提取：将文本映射到指定的动态 Schema 轴上"""
         semantic_text = self.project(messages)
-        try:
-            payload = self._llm.complete_json(
-                messages=(
-                    Message(role="system", parts=(TextPart(text=GEN_SOUL_MEANING_SYSTEM_PROMPT),)),
-                    *messages,
-                    Message(
-                        role="user",
-                        parts=(
-                            TextPart(
-                                text=build_gen_soul_meaning_user_prompt(
-                                    text=semantic_text,
-                                    axis_names=schema.ordered_axis_names(),
-                                    recent_tags=recent_tags,
-                                )
-                            ),
+        image_part_count = _image_part_count(messages)
+        payload = self._llm.complete_json(
+            messages=(
+                Message(role="system", parts=(TextPart(text=GEN_SOUL_MEANING_SYSTEM_PROMPT),)),
+                *messages,
+                Message(
+                    role="user",
+                    parts=(
+                        TextPart(
+                            text=build_gen_soul_meaning_user_prompt(
+                                text=semantic_text,
+                                axis_names=schema.ordered_axis_names(),
+                                recent_tags=recent_tags,
+                                message_count=len(messages),
+                                image_part_count=image_part_count,
+                            )
                         ),
                     ),
                 ),
-                schema=MeaningFramePayloadV4,
-                temperature=0.1,
-                timeout_s=self._timeout_s,
-                metadata={"operation": "meaning_extraction_v4"},
-                max_retries=self._max_retries,
-            )
-        except Exception:
-            return self._fallback.extract(messages, embedding, schema, recent_tags=recent_tags)
+            ),
+            schema=MeaningFramePayloadV4,
+            temperature=0.1,
+            timeout_s=self._timeout_s,
+            metadata={"operation": "meaning_extraction_v6"},
+            max_retries=self._max_retries,
+        )
 
         # 整理轴得分，确保符合当前的 Schema
         axis_evidence = {
@@ -565,7 +603,7 @@ class LLMMeaningProvider:
 
 
 class CombinatorialNarrativeProvider:
-    """基于规则组合的叙事生成器，作为 LLM 的快速回退方案"""
+    """基于规则组合的叙事生成器。"""
 
     # 预定义的文学开场白和叙事短语
     OPENINGS = [
@@ -669,18 +707,7 @@ class CombinatorialNarrativeProvider:
         support: int,
     ) -> str:
         """为发现的模式生成人类可理解的标签"""
-        items = sorted(prototype_axes.items(), key=lambda item: abs(item[1]), reverse=True)
-        words: List[str] = []
-        for name, value in items[:2]:
-            axis = schema.all_axes().get(name)
-            if axis is None:
-                continue
-            words.append(axis.positive_pole if value >= 0 else axis.negative_pole)
-        if not words:
-            return f"mode_{support}"
-        if len(words) == 1:
-            return f"{words[0]} mode"
-        return f"{words[0]} / {words[1]} mode"
+        return _bootstrap_mode_label(prototype_axes, schema, support)
 
     def bootstrap_mode_label(
         self,
@@ -720,12 +747,10 @@ class LLMNarrativeProvider:
         self,
         llm: LLMProvider,
         *,
-        fallback: Optional[NarrativeProvider] = None,
         timeout_s: float = 12.0,
         max_retries: int = 1,
     ) -> None:
         self._llm = llm
-        self._fallback = fallback or CombinatorialNarrativeProvider()
         self._timeout_s = timeout_s
         self._max_retries = max_retries
 
@@ -736,31 +761,31 @@ class LLMNarrativeProvider:
         recent_semantic_texts: Sequence[str],
     ) -> NarrativeSummary:
         """生成带有深度解读的自我摘要"""
-        fallback = self._fallback.compose_summary(state, schema, recent_semantic_texts)
-        try:
-            payload = self._llm.complete_json(
-                messages=_text_prompt_messages(
-                    system=GEN_SOUL_SUMMARY_SYSTEM_PROMPT,
-                    user=build_gen_soul_summary_user_prompt(
-                        current_mode=state.current_mode_label,
-                        salient_axes=fallback.salient_axes,
-                        recent_semantic_texts=recent_semantic_texts,
-                        pressure=state.narrative_pressure(),
-                    ),
+        salient_axes = _salient_axis_names(state)
+        payload = self._llm.complete_json(
+            messages=_text_prompt_messages(
+                system=GEN_SOUL_SUMMARY_SYSTEM_PROMPT,
+                user=build_gen_soul_summary_user_prompt(
+                    current_mode=state.current_mode_label,
+                    salient_axes=salient_axes,
+                    recent_semantic_texts=recent_semantic_texts,
+                    pressure=state.narrative_pressure(),
                 ),
-                schema=NarrativeSummaryPayloadV4,
-                temperature=0.2,
-                timeout_s=self._timeout_s,
-                metadata={"operation": "narrative_summary_v4"},
-                max_retries=self._max_retries,
-            )
-        except Exception:
-            return fallback
+            ),
+            schema=NarrativeSummaryPayloadV4,
+            temperature=0.2,
+            timeout_s=self._timeout_s,
+            metadata={"operation": "narrative_summary_v4"},
+            max_retries=self._max_retries,
+        )
+        text = normalize_text(payload.text)
+        if not text:
+            raise ValueError("Narrative summary returned empty text")
         return NarrativeSummary(
-            text=payload.text or fallback.text,
-            current_mode=payload.current_mode or state.current_mode_label,
+            text=text,
+            current_mode=normalize_text(payload.current_mode) or state.current_mode_label,
             pressure=state.narrative_pressure(),
-            salient_axes=list(payload.salient_axes or fallback.salient_axes),
+            salient_axes=list(payload.salient_axes or salient_axes),
         )
 
     def compose_repair(
@@ -774,35 +799,26 @@ class LLMNarrativeProvider:
         schema: PsychologicalSchema,
     ) -> str:
         """生成深度的身份修复解释文案"""
-        fallback = self._fallback.compose_repair(
-            mode,
-            state_before,
-            state_after,
-            dissonance_total,
-            salient_axes,
-            plot_text,
-            schema,
-        )
-        try:
-            payload = self._llm.complete_json(
-                messages=_text_prompt_messages(
-                    system=GEN_SOUL_REPAIR_SYSTEM_PROMPT,
-                    user=build_gen_soul_repair_user_prompt(
-                        mode=mode,
-                        plot_text=plot_text,
-                        salient_axes=salient_axes,
-                        dissonance_total=dissonance_total,
-                    ),
+        payload = self._llm.complete_json(
+            messages=_text_prompt_messages(
+                system=GEN_SOUL_REPAIR_SYSTEM_PROMPT,
+                user=build_gen_soul_repair_user_prompt(
+                    mode=mode,
+                    plot_text=plot_text,
+                    salient_axes=salient_axes,
+                    dissonance_total=dissonance_total,
                 ),
-                schema=RepairNarrationPayloadV4,
-                temperature=0.2,
-                timeout_s=self._timeout_s,
-                metadata={"operation": "repair_narration_v4"},
-                max_retries=self._max_retries,
-            )
-        except Exception:
-            return fallback
-        return payload.text or fallback
+            ),
+            schema=RepairNarrationPayloadV4,
+            temperature=0.2,
+            timeout_s=self._timeout_s,
+            metadata={"operation": "repair_narration_v4"},
+            max_retries=self._max_retries,
+        )
+        text = normalize_text(payload.text)
+        if not text:
+            raise ValueError("Repair narration returned empty text")
+        return text
 
     def compose_dream(
         self,
@@ -812,24 +828,23 @@ class LLMNarrativeProvider:
         schema: PsychologicalSchema,
     ) -> str:
         """生成充满意象的梦境文本"""
-        fallback = self._fallback.compose_dream(operator, fragment_tags, state, schema)
-        try:
-            payload = self._llm.complete_json(
-                messages=_text_prompt_messages(
-                    system=GEN_SOUL_DREAM_SYSTEM_PROMPT,
-                    user=build_gen_soul_dream_user_prompt(
-                        operator=operator, fragment_tags=fragment_tags
-                    ),
+        payload = self._llm.complete_json(
+            messages=_text_prompt_messages(
+                system=GEN_SOUL_DREAM_SYSTEM_PROMPT,
+                user=build_gen_soul_dream_user_prompt(
+                    operator=operator, fragment_tags=fragment_tags
                 ),
-                schema=DreamNarrationPayloadV4,
-                temperature=0.3,
-                timeout_s=self._timeout_s,
-                metadata={"operation": "dream_narration_v4"},
-                max_retries=self._max_retries,
-            )
-        except Exception:
-            return fallback
-        return payload.text or fallback
+            ),
+            schema=DreamNarrationPayloadV4,
+            temperature=0.3,
+            timeout_s=self._timeout_s,
+            metadata={"operation": "dream_narration_v4"},
+            max_retries=self._max_retries,
+        )
+        text = normalize_text(payload.text)
+        if not text:
+            raise ValueError("Dream narration returned empty text")
+        return text
 
     def label_mode(
         self,
@@ -838,22 +853,21 @@ class LLMNarrativeProvider:
         support: int,
     ) -> str:
         """利用 LLM 为身份模式生成地道的文学化标签"""
-        fallback = self._fallback.label_mode(prototype_axes, schema, support)
-        try:
-            payload = self._llm.complete_json(
-                messages=_text_prompt_messages(
-                    system=GEN_SOUL_MODE_LABEL_SYSTEM_PROMPT,
-                    user=build_gen_soul_mode_label_user_prompt(prototype_axes=prototype_axes),
-                ),
-                schema=ModeLabelPayloadV4,
-                temperature=0.1,
-                timeout_s=self._timeout_s,
-                metadata={"operation": "mode_label_v4"},
-                max_retries=self._max_retries,
-            )
-        except Exception:
-            return fallback
-        return payload.label or fallback
+        payload = self._llm.complete_json(
+            messages=_text_prompt_messages(
+                system=GEN_SOUL_MODE_LABEL_SYSTEM_PROMPT,
+                user=build_gen_soul_mode_label_user_prompt(prototype_axes=prototype_axes),
+            ),
+            schema=ModeLabelPayloadV4,
+            temperature=0.1,
+            timeout_s=self._timeout_s,
+            metadata={"operation": "mode_label_v4"},
+            max_retries=self._max_retries,
+        )
+        label = normalize_text(payload.label)
+        if not label:
+            raise ValueError("Mode label returned empty label")
+        return label
 
     def bootstrap_mode_label(
         self,
@@ -861,7 +875,7 @@ class LLMNarrativeProvider:
         schema: PsychologicalSchema,
         support: int,
     ) -> str:
-        return self._fallback.label_mode(prototype_axes, schema, support)
+        return _bootstrap_mode_label(prototype_axes, schema, support)
 
     def judge_axis_merge(
         self,
@@ -870,27 +884,21 @@ class LLMNarrativeProvider:
         evidence_overlap: Sequence[str],
     ) -> tuple[bool, str]:
         """利用 LLM 智能判断两个心理轴是否应当合并"""
-        fallback_merge, fallback_reason = self._fallback.judge_axis_merge(
-            canonical, alias, evidence_overlap
-        )
-        try:
-            payload = self._llm.complete_json(
-                messages=_text_prompt_messages(
-                    system=GEN_SOUL_AXIS_MERGE_SYSTEM_PROMPT,
-                    user=build_gen_soul_axis_merge_user_prompt(
-                        canonical_name=canonical.name,
-                        canonical_desc=canonical.description,
-                        alias_name=alias.name,
-                        alias_desc=alias.description,
-                        evidence_overlap=evidence_overlap,
-                    ),
+        payload = self._llm.complete_json(
+            messages=_text_prompt_messages(
+                system=GEN_SOUL_AXIS_MERGE_SYSTEM_PROMPT,
+                user=build_gen_soul_axis_merge_user_prompt(
+                    canonical_name=canonical.name,
+                    canonical_desc=canonical.description,
+                    alias_name=alias.name,
+                    alias_desc=alias.description,
+                    evidence_overlap=evidence_overlap,
                 ),
-                schema=AxisMergeJudgementPayload,
-                temperature=0.1,
-                timeout_s=self._timeout_s,
-                metadata={"operation": "axis_merge_judgement_v4"},
-                max_retries=self._max_retries,
-            )
-        except Exception:
-            return fallback_merge, fallback_reason
-        return bool(payload.should_merge), payload.rationale or fallback_reason
+            ),
+            schema=AxisMergeJudgementPayload,
+            temperature=0.1,
+            timeout_s=self._timeout_s,
+            metadata={"operation": "axis_merge_judgement_v4"},
+            max_retries=self._max_retries,
+        )
+        return bool(payload.should_merge), normalize_text(payload.rationale)

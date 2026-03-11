@@ -37,7 +37,7 @@ from aurora.runtime.results import (
 )
 from aurora.runtime.settings import AuroraSettings
 from aurora.soul.engine import AuroraSoul
-from aurora.soul.models import Message, TextPart, messages_to_text, normalize_text
+from aurora.soul.models import Message, TextPart, messages_to_text
 from aurora.system.errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
@@ -292,6 +292,12 @@ class AuroraRuntime:
 
     def _apply_event_to_memory(self, event: StoredEvent) -> Tuple[Optional[str], Optional[str]]:
         payload = dict(event.payload)
+        version = str(payload.get("runtime_schema_version", ""))
+        if version != RUNTIME_SCHEMA_VERSION:
+            raise ConfigurationError(
+                f"Unsupported runtime event schema version: {version!r}. "
+                f"Supported version is {RUNTIME_SCHEMA_VERSION!r}."
+            )
         payload.setdefault("ts", event.ts)
         node_id = self.mem.apply_projected_event(
             event_type=event.event_type,
@@ -483,7 +489,6 @@ class AuroraRuntime:
     ) -> Iterator[ChatStreamEvent]:
         total_started = time.perf_counter()
         resolved_event_id = event_id or f"evt_turn_{uuid.uuid4().hex}"
-        user_display = normalize_text(messages_to_text(user_messages))
 
         yield ChatStreamEvent(kind="status", stage="retrieval", text="正在检索记忆")
         retrieval_started = time.perf_counter()
@@ -501,52 +506,23 @@ class AuroraRuntime:
 
         yield ChatStreamEvent(kind="status", stage="generation", text="正在生成回复")
         generation_started = time.perf_counter()
-        llm_error: Optional[str] = None
         reply_parts: List[str] = []
         assert self.llm is not None
-        try:
-            for chunk in self.llm.stream_complete(
-                prompt.messages,
-                temperature=0.3,
-                max_tokens=400,
-                timeout_s=self._response_llm_timeout_s(),
-                max_retries=self._response_llm_max_retries(),
-            ):
-                if not chunk:
-                    continue
-                reply_parts.append(chunk)
-                yield ChatStreamEvent(kind="reply_delta", stage="generation", text=chunk)
-            reply = "".join(reply_parts).strip()
-            if not reply:
-                llm_error = "empty_stream_response"
-                reply_message = self._build_response_fallback(
-                    memory_context=memory_context,
-                    user_text=user_display,
-                    reason=llm_error,
-                )
-                reply = normalize_text(messages_to_text((reply_message,)))
-                yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
-            else:
-                reply_message = Message(role="assistant", parts=(TextPart(text=reply),))
-        except Exception as exc:
-            llm_error = str(exc)
-            partial = "".join(reply_parts).strip()
-            if partial:
-                reply = partial
-                reply_message = Message(role="assistant", parts=(TextPart(text=reply),))
-                yield ChatStreamEvent(
-                    kind="status",
-                    stage="generation",
-                    text="流式生成中断，保留已生成内容",
-                )
-            else:
-                reply_message = self._build_response_fallback(
-                    memory_context=memory_context,
-                    user_text=user_display,
-                    reason=llm_error,
-                )
-                reply = normalize_text(messages_to_text((reply_message,)))
-                yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
+        for chunk in self.llm.stream_complete(
+            prompt.messages,
+            temperature=0.3,
+            max_tokens=400,
+            timeout_s=self._response_llm_timeout_s(),
+            max_retries=self._response_llm_max_retries(),
+        ):
+            if not chunk:
+                continue
+            reply_parts.append(chunk)
+            yield ChatStreamEvent(kind="reply_delta", stage="generation", text=chunk)
+        reply = "".join(reply_parts).strip()
+        if not reply:
+            raise ValueError("LLM returned empty stream response")
+        reply_message = Message(role="assistant", parts=(TextPart(text=reply),))
         generation_ms = (time.perf_counter() - generation_started) * 1000.0
 
         yield ChatStreamEvent(kind="status", stage="persist_accept", text="已接收，后台整合中")
@@ -576,7 +552,7 @@ class AuroraRuntime:
                     persist_ms=persist_ms,
                     total_ms=total_ms,
                 ),
-                llm_error=llm_error,
+                llm_error=None,
             ),
         )
 
@@ -603,12 +579,7 @@ class AuroraRuntime:
             rendered_memory_brief=self.response_contexts.render_memory_brief(memory_context),
         )
         generation_started = time.perf_counter()
-        llm_error: Optional[str] = None
-        reply_message = self._generate_reply(
-            prompt=prompt,
-            memory_context=memory_context,
-            user_text=normalize_text(messages_to_text(user_messages)),
-        )
+        reply_message = self._generate_reply(prompt=prompt)
         generation_ms = (time.perf_counter() - generation_started) * 1000.0
         persist_started = time.perf_counter()
         receipt = self.accept_interaction(
@@ -632,49 +603,21 @@ class AuroraRuntime:
                 persist_ms=persist_ms,
                 total_ms=total_ms,
             ),
-            llm_error=llm_error,
+            llm_error=None,
         )
 
-    def _generate_reply(self, *, prompt: Any, memory_context: Any, user_text: str) -> Message:
+    def _generate_reply(self, *, prompt: Any) -> Message:
         assert self.llm is not None
-        try:
-            return self.llm.complete(
-                prompt.messages,
-                temperature=0.3,
-                max_tokens=400,
-                timeout_s=self._response_llm_timeout_s(),
-                max_retries=self._response_llm_max_retries(),
-            )
-        except Exception as exc:
-            return self._build_response_fallback(
-                memory_context=memory_context,
-                user_text=user_text,
-                reason=str(exc),
-            )
-
-    @staticmethod
-    def _build_response_fallback(
-        *, memory_context: Any, user_text: str, reason: Optional[str] = None
-    ) -> Message:
-        prefix = "这轮语言模型调用失败了。"
-        if memory_context.narrative_summary is not None:
-            return Message(
-                role="assistant",
-                parts=(
-                    TextPart(
-                        text=prefix
-                        + f"我当前还能稳住的内部状态是：{memory_context.narrative_summary.current_mode}。"
-                    ),
-                ),
-            )
-        return Message(
-            role="assistant",
-            parts=(
-                TextPart(
-                    text=f"{prefix} 当前没有足够稳定的线索来回答。我会先接收这轮对话：{user_text[:80]}"
-                ),
-            ),
+        reply_message = self.llm.complete(
+            prompt.messages,
+            temperature=0.3,
+            max_tokens=400,
+            timeout_s=self._response_llm_timeout_s(),
+            max_retries=self._response_llm_max_retries(),
         )
+        if not messages_to_text((reply_message,)).strip():
+            raise ValueError("LLM returned an empty reply message")
+        return reply_message
 
     def get_identity(self) -> Dict[str, Any]:
         with self._lock:

@@ -37,10 +37,11 @@ from aurora.soul.models import (
     IdentityState,
     Plot,
     RetrievalTrace,
+    Summary,
+    Theme,
     l2_normalize,
-    softmax,
 )
-from aurora.utils.math_utils import cosine_sim
+from aurora.utils.math_utils import cosine_sim, softmax
 
 
 class OnlineKDE:
@@ -483,18 +484,18 @@ class FieldRetriever:
 
     def _payload_text(self, payload: Any) -> str:
         if isinstance(payload, dict):
-            for key in ("semantic_text", "text", "name", "description"):
+            for key in ("semantic_text", "name", "description", "label"):
                 value = payload.get(key)
                 if value:
                     return str(value)
             return ""
-        return str(
-            getattr(
-                payload,
-                "semantic_text",
-                getattr(payload, "text", getattr(payload, "name", getattr(payload, "description", ""))),
-            )
-        )
+        if isinstance(payload, Plot):
+            return str(payload.semantic_text)
+        if isinstance(payload, Summary):
+            return str(payload.text)
+        if isinstance(payload, Theme):
+            return str(payload.name or payload.description or payload.label)
+        return str(getattr(payload, "name", getattr(payload, "description", "")))
 
     def _payload_ts(self, payload: Any) -> float:
         if isinstance(payload, dict):

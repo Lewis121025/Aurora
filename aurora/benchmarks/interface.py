@@ -332,14 +332,14 @@ class BenchmarkInstance:
     """
     来自基准数据集的单个评估实例。
 
-    代表一个测试用例，包含上下文、查询和预期答案。
-    支持简单字符串上下文（MemoryAgentBench）和
-    对话历史格式（LOCOMO）。
+    代表一个测试用例，包含原始上下文、查询和预期答案。
+    可承载 MemoryAgentBench 的字符串上下文与
+    LOCOMO 的结构化对话历史。
 
     Attributes:
         id: 此实例的唯一标识符
         capability: 正在测试的能力维度（对于基于 task_type 的可选）
-        context: 对话历史或上下文作为字符串（用于向后兼容）
+        context: 原始基准上下文字符串
         query: 要评估的查询
         expected_answer: 预期答案（对于开放式任务可为 None）
         metadata: 其他基准特定的元数据
@@ -347,7 +347,7 @@ class BenchmarkInstance:
         # LOCOMO 风格基准的扩展字段
         task_type: 任务类型（例如 "qa"、"summarization"）
         conversation_history: 结构化对话历史
-        ground_truth: 预期答案（expected_answer 的别名）
+        ground_truth: 归一化后的参考答案字段
         reasoning_type: QA 所需的推理类型
         session_id: 会话标识符
         turn_number: 对话中的轮次号
@@ -376,7 +376,7 @@ class BenchmarkInstance:
     id: str
     query: str
 
-    # 用于与 MemoryAgentBench 风格的向后兼容
+    # 原始基准上下文字段
     capability: Optional[BenchmarkCapability] = None
     context: str = ""
     expected_answer: Optional[str] = None
@@ -452,20 +452,20 @@ class BenchmarkResult:
     单个基准实例的评估结果。
 
     包含预测答案、预期答案、计算的分数
-    和性能指标。支持 MemoryAgentBench 和 LOCOMO 格式。
+    和性能指标，可承载不同 benchmark 的统一结果结构。
 
     Attributes:
         instance_id: 评估实例的 ID
         capability: 测试的能力维度（可选）
-        predicted: 模型的预测答案（别名: prediction）
+        predicted: 模型的预测答案
         expected: 预期答案（如果可用）
         score: [0.0, 1.0] 范围内的评估分数
         latency_ms: 响应延迟（毫秒）
 
         # LOCOMO 风格基准的扩展字段
         task_type: 评估的任务类型
-        prediction: 模型的预测（predicted 的别名）
-        ground_truth: 预期答案（expected 的别名）
+        prediction: 面向部分评测器保留的预测文本镜像字段
+        ground_truth: 归一化后的参考答案字段
         is_correct: 二进制正确性标志
         tokens_used: 消耗的令牌数
         retrieval_count: 内存检索次数
@@ -485,7 +485,7 @@ class BenchmarkResult:
     score: float
     latency_ms: float = 0.0
 
-    # 用于与 MemoryAgentBench 风格的向后兼容
+    # 统一结果主字段
     capability: Optional[BenchmarkCapability] = None
     predicted: str = ""
     expected: Optional[str] = None
@@ -584,12 +584,12 @@ class BenchmarkResult:
 class MemoryProtocol(Protocol):
     """基准期望的内存接口协议。"""
 
-    def ingest(self, text: str, **kwargs: Any) -> Any:
-        """将文本摄入内存。"""
+    def ingest(self, messages: Any, **kwargs: Any) -> Any:
+        """将结构化消息摄入内存。"""
         ...
 
-    def query(self, text: str, **kwargs: Any) -> Any:
-        """查询内存以获取相关信息。"""
+    def query(self, messages: Any, **kwargs: Any) -> Any:
+        """以结构化消息查询内存。"""
         ...
 
     def evolve(self) -> None:

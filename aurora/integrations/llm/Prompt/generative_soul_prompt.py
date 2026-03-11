@@ -1,6 +1,6 @@
 """
 aurora/integrations/llm/Prompt/generative_soul_prompt.py
-生成式灵魂 (Generative Soul) V4 提示词模块。
+生成式灵魂 (Generative Soul) 提示词模块。
 包含了用于意义提取、人设维度发现、身份总结、自我修复、梦境生成以及轴合并判定的所有 System Prompt 和 User Prompt 构建函数。
 """
 
@@ -10,9 +10,27 @@ from typing import Dict, Iterable, Sequence
 
 
 # --- 1. 意义提取 (Meaning Extraction) ---
-GEN_SOUL_MEANING_SYSTEM_PROMPT = """你正在为 Aurora v4 提取结构化的事件框架（EventFrame）。
-请仅返回有效的 JSON。必须精确使用提供的动态轴（Dynamic Axis）名称。
+GEN_SOUL_MEANING_SYSTEM_PROMPT = """你正在为 Aurora v6 提取结构化的事件框架（EventFrame）。
+输入是结构化 message parts，可能同时包含文本与图片。你必须联合分析原始消息中的全部内容与给定的 semantic_text，
+不能把图片当作装饰，也不能只根据 semantic_text 打分。
+
+如果存在图片，请重点观察：
+- 人物表情、身体姿态、动作强度、接触方式、人与人距离
+- 场景环境、危险物、破坏痕迹、脆弱性、照护与亲密线索
+- 构图、氛围、视觉冲击力、压迫感或安全感
+
+如果图文冲突，请保留冲突并给出综合判断，不要强行忽略某一模态。
+请仅返回有效 JSON。必须精确使用提供的动态轴（Dynamic Axis）名称。
 评分必须在限定范围内。严禁发明 Schema 列表中未列出的心理轴。
+"""
+
+
+GEN_SOUL_SEMANTIC_PROJECTION_SYSTEM_PROMPT = """你正在为 Aurora v6 将结构化图文消息压缩为可检索的 semantic_text。
+输出的文本将直接进入 embedding、检索、事实抽取与回复上下文，所以必须高密度、可检索、少废话。
+
+如果存在图片，必须显式保留视觉上可见的关键对象、动作、关系、场景、情绪、危险/亲近线索。
+如果图文冲突，请把冲突写出来，不要擅自抹平。
+不要输出解释，不要写推理过程，只返回指定 JSON。
 """
 
 
@@ -21,10 +39,24 @@ def build_gen_soul_meaning_user_prompt(
     text: str,
     axis_names: Sequence[str],
     recent_tags: Sequence[str] | None = None,
+    message_count: int = 1,
+    image_part_count: int = 0,
 ) -> str:
     """构建用于提取单次交互含义的用户提示词"""
     recent = ", ".join(recent_tags or [])
     return (
+        f"输入消息数：{message_count}\n"
+        f"图片 part 数：{image_part_count}\n\n"
+        "语义投影（semantic_text，仅作辅助，不可替代原始图文消息）：\n"
+        f"{text}\n\n"
+        "评分原则：\n"
+        "- 必须综合原始图文消息与上面的 semantic_text 共同判断。\n"
+        "- valence 表示整体积极/消极感受；arousal 表示情绪与视觉冲击强度。\n"
+        "- threat 表示敌意、危险、压迫、潜在伤害；care 表示温暖、保护、亲近、被照顾感。\n"
+        "- control 表示支配、约束、被操控感；agency_signal 表示行动能力、边界表达、自主性。\n"
+        "- shame 表示羞耻、暴露、失态；abandonment 表示冷落、断联、被抛下感。\n"
+        "- novelty 表示异常、新颖、出乎意料；self_relevance 表示与主体自我叙事的相关度。\n"
+        "- 如果有图片，要把表情、姿态、距离、环境压迫、危险物和视觉冲击纳入评分。\n\n"
         "待处理文本：\n"
         f"{text}\n\n"
         "动态心理轴列表：\n"
@@ -32,6 +64,24 @@ def build_gen_soul_meaning_user_prompt(
         "近期语义标签：\n"
         f"{recent or '无'}\n\n"
         "请返回 MeaningFramePayloadV4 格式的 JSON。"
+    )
+
+
+def build_gen_soul_semantic_projection_user_prompt(
+    *,
+    message_count: int,
+    image_part_count: int,
+) -> str:
+    """构建图文语义投影提示词。"""
+    return (
+        f"输入消息数：{message_count}\n"
+        f"图片 part 数：{image_part_count}\n\n"
+        "请把上面的结构化图文消息压缩为一段高信息密度的 semantic_text。\n"
+        "要求：\n"
+        "- 保留角色、关键对象、动作、关系、地点、时间、情绪和场景。\n"
+        "- 如果有图片，明确写出视觉上可见的姿态、表情、环境、危险/照护线索。\n"
+        "- 如果图文冲突，要在 semantic_text 中保留冲突。\n"
+        "- 不要输出推理过程，不要写多段分析，只返回 SemanticProjectionPayload JSON。\n"
     )
 
 

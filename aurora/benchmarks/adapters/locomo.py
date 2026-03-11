@@ -1199,7 +1199,7 @@ Be concise and answer directly."""
         for story in getattr(memory, "stories", {}).values():
             plot_ids = list(getattr(story, "plot_ids", []))
             plot_texts = [
-                str(memory.plots[plot_id].text)
+                _payload_text(memory.plots[plot_id])
                 for plot_id in plot_ids
                 if hasattr(memory, "plots") and plot_id in memory.plots
             ]
@@ -1234,7 +1234,7 @@ Be concise and answer directly."""
                 reverse=True,
             )[:10]
 
-            summaries = [p.text[:200] for p in recent_plots]
+            summaries = [_payload_text(p)[:200] for p in recent_plots if _payload_text(p)]
 
         return "\n\n".join(summaries) if summaries else "No events to summarize."
 

@@ -182,7 +182,6 @@ def create_meaning_provider(
             raise ConfigurationError("LLM meaning provider requires a live LLM provider")
         return LLMMeaningProvider(
             llm,
-            fallback=HeuristicMeaningProvider(),
             timeout_s=min(settings.llm_timeout, 10.0),
             max_retries=1,
         )
@@ -198,7 +197,6 @@ def create_narrative_provider(
             raise ConfigurationError("LLM narrative provider requires a live LLM provider")
         return LLMNarrativeProvider(
             llm,
-            fallback=CombinatorialNarrativeProvider(),
             timeout_s=min(settings.llm_timeout, 10.0),
             max_retries=1,
         )

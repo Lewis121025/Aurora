@@ -83,7 +83,7 @@ CAPABILITY_MAPPING = {
     "cr": BenchmarkCapability.CONFLICT_RESOLUTION,
 }
 
-# Task type strings for compatibility with base interface
+# Canonical task type strings used by this adapter
 TASK_TYPE_AR = "accurate_retrieval"
 TASK_TYPE_TTL = "test_time_learning"
 TASK_TYPE_LRU = "long_range_understanding"

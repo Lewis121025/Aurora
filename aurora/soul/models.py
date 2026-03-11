@@ -1,9 +1,4 @@
-"""
-aurora/soul/models.py
-本模块定义了 Aurora V4 系统的核心认知数据模型。
-它包含心理轴 (Axis)、记忆情节 (Plot)、故事弧 (StoryArc)、主题 (Theme) 以及身份状态 (IdentityState) 的定义。
-所有数据结构均支持序列化 (to_state_dict) 和反序列化 (from_state_dict)。
-"""
+"""Core Aurora V6 cognitive data models."""
 
 from __future__ import annotations
 
@@ -29,8 +24,6 @@ import numpy as np
 from aurora.utils.math_utils import (
     cosine_sim,
     l2_normalize,
-    sigmoid as math_sigmoid,
-    softmax as math_softmax,
 )
 from aurora.utils.time_utils import now_ts
 
@@ -60,17 +53,6 @@ ITEM_STATUSES = {"active", "absorbed", "archived"}
 THEME_TYPES = {"pattern", "lesson", "preference", "causality", "capability", "limitation", "self"}
 MESSAGE_ROLES = {"user", "assistant", "system", "self"}
 MESSAGE_PART_TYPES = {"text", "image"}
-
-
-def sigmoid(x: float) -> float:
-    """向后兼容地导出 sigmoid。"""
-    return math_sigmoid(x)
-
-
-def softmax(logits: Sequence[float]) -> List[float]:
-    """向后兼容地导出 softmax。"""
-    return math_softmax(logits)
-
 
 def _coerce_axis_level(value: Any) -> Literal["homeostatic", "persona"]:
     level = str(value)
