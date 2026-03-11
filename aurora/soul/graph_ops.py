@@ -4,7 +4,6 @@ import math
 from dataclasses import dataclass
 from typing import Dict, List, Sequence
 
-import networkx as nx
 import numpy as np
 
 from aurora.soul.models import Plot
@@ -40,17 +39,14 @@ class GraphDreamOperator:
         samples: int,
         steps: int,
     ) -> List[DreamCandidate]:
-        walk_graph = nx.Graph()
-        for plot_id in plots.keys():
-            walk_graph.add_node(plot_id)
-        for src, dst, data in graph.g.edges(data=True):
+        adjacency: Dict[str, Dict[str, float]] = {plot_id: {} for plot_id in plots.keys()}
+        for src, dst, belief in graph.iter_edge_items(sign=1):
             if src not in plots or dst not in plots:
                 continue
-            belief = data.get("belief")
-            if belief is None or getattr(belief, "sign", 1) < 0:
-                continue
-            walk_graph.add_edge(src, dst, weight=max(1e-6, belief.pagerank_weight()))
-        if walk_graph.number_of_nodes() == 0:
+            weight = max(1e-6, belief.pagerank_weight())
+            adjacency.setdefault(src, {})[dst] = adjacency.get(src, {}).get(dst, 0.0) + weight
+            adjacency.setdefault(dst, {})[src] = adjacency.get(dst, {}).get(src, 0.0) + weight
+        if not adjacency:
             return []
 
         ordered = sorted(
@@ -67,12 +63,12 @@ class GraphDreamOperator:
             current = seed.id
             walked = [current]
             for _step in range(max(1, steps)):
-                neighbors = list(walk_graph.neighbors(current))
+                neighbors = list(adjacency.get(current, {}).keys())
                 if not neighbors:
                     break
                 weights = []
                 for neighbor in neighbors:
-                    weight = float(walk_graph[current][neighbor].get("weight", 1.0))
+                    weight = float(adjacency[current].get(neighbor, 1.0))
                     age = max(1.0, now_ts() - plots[neighbor].ts)
                     decay = 1.0 / math.log1p(age)
                     novelty = 1.0 - max(0.0, cosine_sim(plots[current].embedding, plots[neighbor].embedding))
@@ -127,33 +123,38 @@ class GraphRepairOperator:
         anchor_ids: Sequence[str],
         limit: int = 1,
     ) -> List[RepairTarget]:
-        neg = nx.Graph()
-        for src, dst, data in graph.g.edges(data=True):
-            belief = data.get("belief")
-            if belief is None or getattr(belief, "sign", 1) >= 0:
+        neg: Dict[str, set[str]] = {}
+        for src, dst, belief in graph.iter_edge_items(sign=-1):
+            if belief.sign >= 0:
                 continue
-            neg.add_edge(src, dst, weight=max(1e-6, belief.weight * belief.confidence))
+            neg.setdefault(src, set()).add(dst)
+            neg.setdefault(dst, set()).add(src)
 
         targets: List[RepairTarget] = []
         for anchor_id in anchor_ids:
             if anchor_id not in neg:
                 continue
-            for component in nx.connected_components(neg):
-                if anchor_id not in component:
+            component = set()
+            stack = [anchor_id]
+            while stack:
+                node_id = stack.pop()
+                if node_id in component:
                     continue
-                component_plot_ids = [node_id for node_id in component if node_id in plots]
-                if not component_plot_ids:
-                    continue
-                score = float(
-                    np.mean(
-                        [
-                            plots[plot_id].contradiction + 0.5 * plots[plot_id].tension
-                            for plot_id in component_plot_ids
-                        ]
-                    )
+                component.add(node_id)
+                stack.extend(neighbor for neighbor in neg.get(node_id, ()) if neighbor not in component)
+            component_plot_ids = [node_id for node_id in component if node_id in plots]
+            if not component_plot_ids:
+                continue
+            score = float(
+                np.mean(
+                    [
+                        plots[plot_id].contradiction + 0.5 * plots[plot_id].tension
+                        for plot_id in component_plot_ids
+                    ]
                 )
-                targets.append(
-                    RepairTarget(anchor_id=anchor_id, plot_ids=component_plot_ids, score=score)
-                )
+            )
+            targets.append(
+                RepairTarget(anchor_id=anchor_id, plot_ids=component_plot_ids, score=score)
+            )
         targets.sort(key=lambda item: item.score, reverse=True)
         return targets[:limit]

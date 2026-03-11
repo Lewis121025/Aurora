@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Dict, Iterable, List, Sequence
 
-import networkx as nx
+import igraph as ig
 import numpy as np
 
 from aurora.soul.models import Plot, StoryArc, Theme, l2_normalize
@@ -80,34 +80,25 @@ class GraphViewBuilder:
         )
         return stories, themes, stats
 
-    def _positive_plot_graph(self, graph: MemoryGraph, plots: Dict[str, Plot]) -> nx.Graph:
-        g = nx.Graph()
-        for plot_id in plots.keys():
-            g.add_node(plot_id)
-        for src, dst, data in graph.g.edges(data=True):
-            if src not in plots or dst not in plots:
-                continue
-            belief = data.get("belief")
-            if belief is None or getattr(belief, "sign", 1) < 0:
-                continue
-            weight = float(getattr(belief, "weight", 1.0)) * float(belief.mean())
-            if g.has_edge(src, dst):
-                g[src][dst]["weight"] += max(1e-6, weight)
-            else:
-                g.add_edge(src, dst, weight=max(1e-6, weight))
-        return g
-
-    def _louvain_communities(self, graph: nx.Graph) -> List[set[str]]:
-        if graph.number_of_nodes() == 0:
+    def _louvain_communities(
+        self,
+        *,
+        node_ids: Sequence[str],
+        weighted_edges: Sequence[tuple[str, str, float]],
+    ) -> List[set[str]]:
+        if not node_ids:
             return []
-        if graph.number_of_edges() == 0:
-            return [{str(node_id)} for node_id in graph.nodes()]
-        communities = nx.algorithms.community.louvain_communities(
-            graph,
-            weight="weight",
-            seed=self.seed,
+        if not weighted_edges:
+            return [{str(node_id)} for node_id in node_ids]
+        id_to_index = {node_id: idx for idx, node_id in enumerate(node_ids)}
+        graph = ig.Graph(
+            n=len(node_ids),
+            edges=[(id_to_index[src], id_to_index[dst]) for src, dst, _ in weighted_edges],
+            directed=False,
         )
-        return [{str(node_id) for node_id in community} for community in communities]
+        graph.es["weight"] = [float(weight) for _, _, weight in weighted_edges]
+        communities = graph.community_multilevel(weights=graph.es["weight"])
+        return [{str(node_ids[index]) for index in community} for community in communities]
 
     def _build_stories(
         self,
@@ -117,7 +108,18 @@ class GraphViewBuilder:
         previous: Dict[str, StoryArc],
         dim: int,
     ) -> Dict[str, StoryArc]:
-        communities = self._louvain_communities(self._positive_plot_graph(graph, plots))
+        edge_weights: Dict[tuple[str, str], float] = {}
+        for src, dst, belief in graph.iter_edge_items(sign=1):
+            if src not in plots or dst not in plots:
+                continue
+            key = tuple(sorted((src, dst)))
+            edge_weights[key] = edge_weights.get(key, 0.0) + max(
+                1e-6, float(belief.weight) * float(belief.mean())
+            )
+        communities = self._louvain_communities(
+            node_ids=list(plots.keys()),
+            weighted_edges=[(src, dst, weight) for (src, dst), weight in edge_weights.items()],
+        )
         story_map: Dict[str, StoryArc] = {}
         for plot in plots.values():
             plot.story_id = None
@@ -174,9 +176,7 @@ class GraphViewBuilder:
     ) -> Dict[str, Theme]:
         if not stories:
             return {}
-        graph = nx.Graph()
-        for story_id in stories.keys():
-            graph.add_node(story_id)
+        edge_weights: Dict[tuple[str, str], float] = {}
         story_items = list(stories.values())
         for idx, left in enumerate(story_items):
             if left.centroid is None:
@@ -189,8 +189,11 @@ class GraphViewBuilder:
                 shared_tags = len(left_tags & set(right.tag_counts.keys()))
                 weight = max(0.0, sim) + min(shared_tags, 3) * 0.08
                 if weight >= 0.45:
-                    graph.add_edge(left.id, right.id, weight=weight)
-        communities = self._louvain_communities(graph)
+                    edge_weights[tuple(sorted((left.id, right.id)))] = weight
+        communities = self._louvain_communities(
+            node_ids=list(stories.keys()),
+            weighted_edges=[(src, dst, weight) for (src, dst), weight in edge_weights.items()],
+        )
         theme_map: Dict[str, Theme] = {}
         for members in communities:
             member_stories = [stories[story_id] for story_id in sorted(members)]

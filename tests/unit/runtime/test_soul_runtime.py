@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -278,3 +279,139 @@ def test_runtime_rejects_old_event_schema_version(tmp_path: Path) -> None:
         runtime._apply_event_to_memory(old_event)
 
     runtime.close()
+
+
+def test_runtime_rejects_legacy_snapshot_directory(tmp_path: Path) -> None:
+    (tmp_path / "snapshots").mkdir()
+
+    with pytest.raises(ConfigurationError, match="legacy snapshots directory"):
+        AuroraRuntime(settings=_settings(tmp_path), llm=CountingLLM())
+
+
+def test_runtime_rejects_legacy_v6_runtime_db(tmp_path: Path) -> None:
+    db_path = tmp_path / "runtime.sqlite3"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute("CREATE TABLE events(seq INTEGER PRIMARY KEY, event_id TEXT)")
+        conn.execute("CREATE TABLE jobs(job_id TEXT PRIMARY KEY)")
+        conn.execute("CREATE TABLE projection_state(subject_id TEXT PRIMARY KEY, payload TEXT)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    with pytest.raises(ConfigurationError, match="legacy Aurora runtime DB"):
+        AuroraRuntime(settings=_settings(tmp_path), llm=CountingLLM())
+
+
+def test_runtime_persists_structured_derived_state_without_snapshot_files(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(settings=_settings(tmp_path), llm=CountingLLM())
+    runtime.accept_interaction(
+        event_id="evt_structured",
+        session_id="chat",
+        messages=[
+            Message(role="user", parts=(TextPart(text="请记住我偏好结构化持久化"),)),
+            Message(role="assistant", parts=(TextPart(text="我会记住这个偏好"),)),
+        ],
+    )
+    assert runtime.wait_for_idle(timeout=3.0)
+    runtime.close()
+
+    assert not (tmp_path / "snapshots").exists()
+    assert (tmp_path / "ann_index_v7" / "meta.json").exists()
+    conn = sqlite3.connect(tmp_path / "runtime.sqlite3")
+    try:
+        vector_row = conn.execute(
+            "SELECT typeof(data), length(data) FROM derived_vectors LIMIT 1"
+        ).fetchone()
+        metric_row = conn.execute(
+            "SELECT typeof(L), typeof(G) FROM derived_metric_state WHERE subject_id = 'metric'"
+        ).fetchone()
+        kde_row = conn.execute(
+            "SELECT typeof(vecs) FROM derived_kde_state WHERE subject_id = 'kde'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert vector_row is not None
+    assert vector_row[0] == "blob"
+    assert int(vector_row[1]) > 0
+    assert metric_row == ("blob", "blob")
+    assert kde_row == ("blob",)
+
+
+def test_runtime_restores_from_structured_derived_state(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    runtime = AuroraRuntime(settings=settings, llm=CountingLLM())
+    runtime.accept_interaction(
+        event_id="evt_restore",
+        session_id="chat",
+        messages=[
+            Message(role="user", parts=(TextPart(text="请记住我喜欢图文记忆"),)),
+            Message(role="assistant", parts=(TextPart(text="我会记住这个偏好"),)),
+        ],
+    )
+    assert runtime.wait_for_idle(timeout=3.0)
+    assert runtime.get_stats()["plot_count"] >= 1
+    runtime.close()
+
+    restored = AuroraRuntime(settings=settings, llm=CountingLLM())
+    try:
+        stats = restored.get_stats()
+        result = restored.query(
+            messages=[Message(role="user", parts=(TextPart(text="图文记忆"),))],
+            k=5,
+            session_id="chat",
+        )
+        assert stats["plot_count"] >= 1
+        assert any(hit.kind == "plot" for hit in result.hits)
+    finally:
+        restored.close()
+
+
+def test_runtime_incremental_projection_preserves_existing_derived_node_rows(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(settings=_settings(tmp_path), llm=CountingLLM())
+    try:
+        runtime.accept_interaction(
+            event_id="evt_first_incremental",
+            session_id="chat",
+            messages=[
+                Message(role="user", parts=(TextPart(text="请记住第一条长期记忆"),)),
+                Message(role="assistant", parts=(TextPart(text="第一条我记住了"),)),
+            ],
+        )
+        assert runtime.wait_for_idle(timeout=3.0)
+        first_plot_id = runtime.get_event_status("evt_first_incremental")["projection"]["node_id"]
+
+        conn = sqlite3.connect(tmp_path / "runtime.sqlite3")
+        try:
+            first_rowid = conn.execute(
+                "SELECT rowid FROM derived_nodes WHERE node_id = ?",
+                (first_plot_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        runtime.accept_interaction(
+            event_id="evt_second_incremental",
+            session_id="chat",
+            messages=[
+                Message(role="user", parts=(TextPart(text="再记住第二条长期记忆"),)),
+                Message(role="assistant", parts=(TextPart(text="第二条也记住了"),)),
+            ],
+        )
+        assert runtime.wait_for_idle(timeout=3.0)
+
+        conn = sqlite3.connect(tmp_path / "runtime.sqlite3")
+        try:
+            second_rowid = conn.execute(
+                "SELECT rowid FROM derived_nodes WHERE node_id = ?",
+                (first_plot_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+
+        assert first_rowid is not None
+        assert second_rowid is not None
+        assert second_rowid[0] == first_rowid[0]
+    finally:
+        runtime.close()

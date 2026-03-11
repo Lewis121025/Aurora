@@ -250,7 +250,7 @@ class TestTimeFilterIntegration:
         # 查询最早的学习
         trace = retriever.retrieve(
             query_text="最早学了什么？",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("最早学了什么？"),
             state=identity_state,
             kinds=("plot",),
             k=5,
@@ -267,7 +267,7 @@ class TestTimeFilterIntegration:
             # 对于"first"查询，最早时间戳应在结果中
             earliest_ts = min(
                 ts
-                for nid in graph.g.nodes()
+                for nid in graph.node_ids()
                 if graph.kind(nid) == "plot"
                 for ts in [retriever._payload_ts(graph.payload(nid))]
             )
@@ -280,7 +280,7 @@ class TestTimeFilterIntegration:
         # 查询最近的学习
         trace = retriever.retrieve(
             query_text="最近学了什么？",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("最近学了什么？"),
             state=identity_state,
             kinds=("plot",),
             k=5,
@@ -295,7 +295,7 @@ class TestTimeFilterIntegration:
             # 对于"last"查询，最新时间戳应在结果中
             latest_ts = max(
                 ts
-                for nid in graph.g.nodes()
+                for nid in graph.node_ids()
                 if graph.kind(nid) == "plot"
                 for ts in [retriever._payload_ts(graph.payload(nid))]
             )
@@ -308,7 +308,7 @@ class TestTimeFilterIntegration:
         # 事实查询（无时间关键词）
         trace = retriever.retrieve(
             query_text="学了什么？",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("学了什么？"),
             state=identity_state,
             kinds=("plot",),
             k=5,

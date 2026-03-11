@@ -23,6 +23,7 @@ from aurora.soul.extractors import (
     MeaningProvider,
     NarrativeProvider,
 )
+from aurora.soul.tuning import AuroraTuning
 from aurora.system.errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
@@ -35,7 +36,7 @@ def check_embedding_api_keys() -> None:
     if bailian_key or ark_key:
         return
     logger.info(
-        "No remote embedding API key found. Aurora V6 will use local/hash embedders unless you configure remote providers."
+        "No remote embedding API key found. Aurora V7 will use local/hash embedders unless you configure remote providers."
     )
 
 
@@ -150,6 +151,7 @@ def create_text_embedding_provider(
 
 def build_memory_config(settings: AuroraSettings) -> SoulConfig:
     """将 AuroraSettings 转换为 soul 引擎专用的 SoulConfig 对象。"""
+    tuning = AuroraTuning.from_json_path(settings.tuning_path)
     return SoulConfig(
         dim=settings.dim,
         metric_rank=settings.metric_rank,
@@ -170,6 +172,14 @@ def build_memory_config(settings: AuroraSettings) -> SoulConfig:
         dream_walk_steps=settings.dream_walk_steps,
         dream_walk_samples=settings.dream_walk_samples,
         dream_persist_threshold=settings.dream_persist_threshold,
+        persona_bootstrap_mode=settings.persona_bootstrap_mode,
+        ann_m=settings.ann_m,
+        ann_ef_construction=settings.ann_ef_construction,
+        ann_ef_search=settings.ann_ef_search,
+        ppr_damping=settings.ppr_damping,
+        ppr_max_iter=settings.ppr_max_iter,
+        ppr_tol=settings.ppr_tol,
+        tuning=tuning,
     )
 
 
@@ -223,6 +233,10 @@ def create_memory(*, settings: AuroraSettings, llm: Optional[LLMProvider] = None
     3. 语义提取器与叙事提供者注入。
     """
     cfg = build_memory_config(settings)
+    if cfg.persona_bootstrap_mode == "llm" and settings.meaning_provider != "llm":
+        raise ConfigurationError(
+            "persona_bootstrap_mode='llm' requires meaning_provider='llm' so persona axes are not inferred heuristically"
+        )
     event_embedder = create_content_embedding_provider(settings)
     axis_embedder = create_text_embedding_provider(settings)
     meaning_provider = create_meaning_provider(settings=settings, llm=llm)

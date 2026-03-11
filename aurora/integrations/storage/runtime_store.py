@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TypeVar, cast
 
+import numpy as np
+
 from aurora.utils.jsonx import dumps, loads
 
 RUNTIME_SYSTEM_SUBJECT_ID = "__runtime__"
@@ -67,8 +69,16 @@ class OverlayHit:
 class SQLiteRuntimeStore:
     """Single-file runtime store for events, queue, overlay search, and projection state."""
 
-    def __init__(self, path: str):
+    def __init__(
+        self,
+        path: str,
+        *,
+        runtime_schema_version: str,
+        memory_state_version: str,
+    ):
         self.path = path
+        self.runtime_schema_version = runtime_schema_version
+        self.memory_state_version = memory_state_version
         self._closed = False
         self._bootstrap()
 
@@ -85,6 +95,40 @@ class SQLiteRuntimeStore:
         conn = self._connect()
         try:
             conn.execute("PRAGMA journal_mode=WAL")
+            existing_tables = {
+                str(row["name"])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+                ).fetchall()
+            }
+            if "schema_meta" not in existing_tables and existing_tables & {
+                "events",
+                "jobs",
+                "projection_state",
+            }:
+                raise ValueError(
+                    "Detected legacy Aurora runtime DB. Aurora V7 requires a fresh data directory."
+                )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS schema_meta ("
+                "key TEXT PRIMARY KEY,"
+                "value TEXT NOT NULL"
+                ")"
+            )
+            runtime_row = conn.execute(
+                "SELECT value FROM schema_meta WHERE key = 'runtime_schema_version'"
+            ).fetchone()
+            memory_row = conn.execute(
+                "SELECT value FROM schema_meta WHERE key = 'memory_state_version'"
+            ).fetchone()
+            if runtime_row is not None and str(runtime_row["value"]) != self.runtime_schema_version:
+                raise ValueError(
+                    "Runtime DB schema version mismatch. Aurora V7 requires a fresh data directory."
+                )
+            if memory_row is not None and str(memory_row["value"]) != self.memory_state_version:
+                raise ValueError(
+                    "Derived memory schema mismatch. Aurora V7 requires a fresh data directory."
+                )
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS events ("
                 "seq INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -148,6 +192,86 @@ class SQLiteRuntimeStore:
                 ")"
             )
             conn.execute(
+                "CREATE TABLE IF NOT EXISTS derived_nodes ("
+                "node_id TEXT PRIMARY KEY,"
+                "kind TEXT NOT NULL,"
+                "state TEXT NOT NULL"
+                ")"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS derived_vectors ("
+                "node_id TEXT PRIMARY KEY,"
+                "kind TEXT NOT NULL,"
+                "dim INTEGER NOT NULL,"
+                "data BLOB NOT NULL,"
+                "FOREIGN KEY(node_id) REFERENCES derived_nodes(node_id) ON DELETE CASCADE"
+                ")"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS derived_edges ("
+                "src TEXT NOT NULL,"
+                "dst TEXT NOT NULL,"
+                "edge_type TEXT NOT NULL,"
+                "sign INTEGER NOT NULL,"
+                "weight REAL NOT NULL,"
+                "confidence REAL NOT NULL,"
+                "provenance TEXT NOT NULL,"
+                "PRIMARY KEY(src, dst)"
+                ")"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS derived_identity_state ("
+                "subject_id TEXT PRIMARY KEY,"
+                "state TEXT NOT NULL"
+                ")"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS derived_schema_state ("
+                "subject_id TEXT PRIMARY KEY,"
+                "state TEXT NOT NULL"
+                ")"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS derived_modes ("
+                "mode_id TEXT PRIMARY KEY,"
+                "state TEXT NOT NULL"
+                ")"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS derived_metric_state ("
+                "subject_id TEXT PRIMARY KEY,"
+                "dim INTEGER NOT NULL,"
+                "rank INTEGER NOT NULL,"
+                "seed INTEGER NOT NULL,"
+                "L BLOB NOT NULL,"
+                "G BLOB NOT NULL,"
+                "t INTEGER NOT NULL"
+                ")"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS derived_kde_state ("
+                "subject_id TEXT PRIMARY KEY,"
+                "dim INTEGER NOT NULL,"
+                "reservoir INTEGER NOT NULL,"
+                "k_sigma INTEGER NOT NULL,"
+                "seed INTEGER NOT NULL,"
+                "vec_count INTEGER NOT NULL,"
+                "vecs BLOB NOT NULL"
+                ")"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS derived_runtime_state ("
+                "subject_id TEXT PRIMARY KEY,"
+                "step INTEGER NOT NULL,"
+                "recent_semantic_texts TEXT NOT NULL,"
+                "anchors TEXT NOT NULL,"
+                "core_anchor_ids TEXT NOT NULL,"
+                "view_stats TEXT NOT NULL,"
+                "graph_metrics TEXT NOT NULL,"
+                "consolidator TEXT NOT NULL"
+                ")"
+            )
+            conn.execute(
                 "INSERT OR IGNORE INTO projection_state("
                 "subject_id, subject_type, status, event_seq, node_id, node_kind, error, payload, updated_ts"
                 ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -162,6 +286,14 @@ class SQLiteRuntimeStore:
                     dumps({"last_projected_seq": 0, "last_fade_ts": None, "last_evolve_ts": None}),
                     time.time(),
                 ),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)",
+                ("runtime_schema_version", self.runtime_schema_version),
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO schema_meta(key, value) VALUES (?, ?)",
+                ("memory_state_version", self.memory_state_version),
             )
         finally:
             conn.close()
@@ -444,6 +576,564 @@ class SQLiteRuntimeStore:
             return {"last_projected_seq": 0, "last_fade_ts": None, "last_evolve_ts": None}
         return self._loads_object(row["payload"])
 
+    def apply_projection_delta(
+        self,
+        *,
+        mem: Any,
+        delta: Any,
+        edge_upserts: Sequence[Tuple[str, str, Any]],
+        edge_deletes: Sequence[Tuple[str, str]],
+        last_projected_seq: int,
+        runtime_state: Dict[str, Any],
+        event_id: Optional[str] = None,
+        event_seq: Optional[int] = None,
+        node_id: Optional[str] = None,
+        node_kind: Optional[str] = None,
+    ) -> None:
+        now = time.time()
+
+        def _node_snapshot(kind: str, node_id_value: str) -> Tuple[Optional[Dict[str, Any]], Optional[np.ndarray]]:
+            if kind == "plot":
+                plot = mem.plots.get(node_id_value)
+                if plot is None:
+                    return None, None
+                state = plot.to_state_dict()
+                state.pop("messages", None)
+                state.pop("embedding", None)
+                return state, plot.embedding
+            if kind == "summary":
+                summary = mem.summaries.get(node_id_value)
+                if summary is None:
+                    return None, None
+                state = summary.to_state_dict()
+                state.pop("embedding", None)
+                return state, summary.embedding
+            if kind == "story":
+                story = mem.stories.get(node_id_value)
+                if story is None:
+                    return None, None
+                state = story.to_state_dict()
+                state.pop("centroid", None)
+                return state, story.centroid
+            if kind == "theme":
+                theme = mem.themes.get(node_id_value)
+                if theme is None:
+                    return None, None
+                state = theme.to_state_dict()
+                state.pop("prototype", None)
+                return state, theme.prototype
+            if kind == "anchor":
+                payload = mem.anchor_nodes.get(node_id_value)
+                if payload is None:
+                    return None, None
+                return (
+                    {
+                        "id": str(payload.get("id", node_id_value)),
+                        "label": str(payload.get("label", "")),
+                        "pinned": bool(payload.get("pinned", True)),
+                    },
+                    np.asarray(payload.get("embedding"), dtype=np.float32),
+                )
+            raise ValueError(f"Unsupported delta node kind: {kind}")
+
+        def _upsert_node(conn: sqlite3.Connection, *, kind: str, node_id_value: str) -> None:
+            state, vector = _node_snapshot(kind, node_id_value)
+            if state is None:
+                return
+            conn.execute(
+                "INSERT INTO derived_nodes(node_id, kind, state) VALUES (?, ?, ?) "
+                "ON CONFLICT(node_id) DO UPDATE SET kind = excluded.kind, state = excluded.state",
+                (node_id_value, kind, dumps(state)),
+            )
+            if vector is not None and vector.size > 0:
+                conn.execute(
+                    "INSERT INTO derived_vectors(node_id, kind, dim, data) VALUES (?, ?, ?, ?) "
+                    "ON CONFLICT(node_id) DO UPDATE SET kind = excluded.kind, dim = excluded.dim, data = excluded.data",
+                    (
+                        node_id_value,
+                        kind,
+                        int(vector.shape[0]),
+                        self._vector_to_blob(vector),
+                    ),
+                )
+            else:
+                conn.execute("DELETE FROM derived_vectors WHERE node_id = ?", (node_id_value,))
+
+        def _anchor_payloads() -> Dict[str, Dict[str, Any]]:
+            return {
+                anchor_id: {
+                    "id": str(payload.get("id", anchor_id)),
+                    "label": str(payload.get("label", "")),
+                    "pinned": bool(payload.get("pinned", True)),
+                }
+                for anchor_id, payload in mem.anchor_nodes.items()
+            }
+
+        def _upsert_modes(conn: sqlite3.Connection) -> None:
+            conn.execute("DELETE FROM derived_modes")
+            for mode in mem.modes.values():
+                conn.execute(
+                    "INSERT INTO derived_modes(mode_id, state) VALUES (?, ?)",
+                    (mode.id, dumps(mode.to_state_dict())),
+                )
+
+        def _upsert_metric(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT INTO derived_metric_state(subject_id, dim, rank, seed, L, G, t) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(subject_id) DO UPDATE SET dim = excluded.dim, rank = excluded.rank, "
+                "seed = excluded.seed, L = excluded.L, G = excluded.G, t = excluded.t",
+                (
+                    "metric",
+                    int(mem.metric.dim),
+                    int(mem.metric.rank),
+                    int(getattr(mem.metric, "_seed", 0)),
+                    self._matrix_to_blob(mem.metric.L),
+                    self._matrix_to_blob(mem.metric.G),
+                    int(mem.metric.t),
+                ),
+            )
+
+        def _upsert_kde(conn: sqlite3.Connection) -> None:
+            kde_matrix = (
+                np.vstack(mem.kde._vecs).astype(np.float32)
+                if getattr(mem.kde, "_vecs", None)
+                else np.zeros((0, mem.kde.dim), dtype=np.float32)
+            )
+            conn.execute(
+                "INSERT INTO derived_kde_state(subject_id, dim, reservoir, k_sigma, seed, vec_count, vecs) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(subject_id) DO UPDATE SET dim = excluded.dim, reservoir = excluded.reservoir, "
+                "k_sigma = excluded.k_sigma, seed = excluded.seed, vec_count = excluded.vec_count, vecs = excluded.vecs",
+                (
+                    "kde",
+                    int(mem.kde.dim),
+                    int(mem.kde.reservoir),
+                    int(mem.kde.k_sigma),
+                    int(getattr(mem.kde, "_seed", 0)),
+                    int(kde_matrix.shape[0]),
+                    self._matrix_to_blob(kde_matrix),
+                ),
+            )
+
+        def _upsert_runtime(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT INTO derived_runtime_state("
+                "subject_id, step, recent_semantic_texts, anchors, core_anchor_ids, view_stats, graph_metrics, consolidator"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(subject_id) DO UPDATE SET step = excluded.step, recent_semantic_texts = excluded.recent_semantic_texts, "
+                "anchors = excluded.anchors, core_anchor_ids = excluded.core_anchor_ids, view_stats = excluded.view_stats, "
+                "graph_metrics = excluded.graph_metrics, consolidator = excluded.consolidator",
+                (
+                    "runtime",
+                    int(mem.step),
+                    dumps(list(mem.recent_semantic_texts)),
+                    dumps(_anchor_payloads()),
+                    dumps(list(mem.core_anchor_ids)),
+                    dumps(mem.view_stats.to_state_dict()),
+                    dumps(dict(mem.graph_metrics)),
+                    dumps(mem.consolidator.to_state_dict()),
+                ),
+            )
+
+        def _tx(conn: sqlite3.Connection) -> None:
+            for kind, node_ids in getattr(delta, "delete_nodes", {}).items():
+                for node_id_value in node_ids:
+                    conn.execute("DELETE FROM derived_vectors WHERE node_id = ?", (node_id_value,))
+                    conn.execute("DELETE FROM derived_nodes WHERE node_id = ?", (node_id_value,))
+
+            for src, dst in edge_deletes:
+                conn.execute("DELETE FROM derived_edges WHERE src = ? AND dst = ?", (src, dst))
+
+            for kind, node_ids in getattr(delta, "upsert_nodes", {}).items():
+                for node_id_value in node_ids:
+                    _upsert_node(conn, kind=kind, node_id_value=node_id_value)
+
+            for src, dst, belief in edge_upserts:
+                conn.execute(
+                    "INSERT INTO derived_edges(src, dst, edge_type, sign, weight, confidence, provenance) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(src, dst) DO UPDATE SET edge_type = excluded.edge_type, sign = excluded.sign, "
+                    "weight = excluded.weight, confidence = excluded.confidence, provenance = excluded.provenance",
+                    (
+                        src,
+                        dst,
+                        belief.edge_type,
+                        int(belief.sign),
+                        float(belief.weight),
+                        float(belief.confidence),
+                        belief.provenance,
+                    ),
+                )
+
+            if getattr(delta, "persist_identity", False):
+                conn.execute(
+                    "INSERT INTO derived_identity_state(subject_id, state) VALUES (?, ?) "
+                    "ON CONFLICT(subject_id) DO UPDATE SET state = excluded.state",
+                    ("identity", dumps(mem.identity.to_state_dict())),
+                )
+            if getattr(delta, "persist_schema", False):
+                conn.execute(
+                    "INSERT INTO derived_schema_state(subject_id, state) VALUES (?, ?) "
+                    "ON CONFLICT(subject_id) DO UPDATE SET state = excluded.state",
+                    ("schema", dumps(mem.schema.to_state_dict())),
+                )
+            if getattr(delta, "persist_modes", False):
+                _upsert_modes(conn)
+            if getattr(delta, "persist_metric", False):
+                _upsert_metric(conn)
+            if getattr(delta, "persist_kde", False):
+                _upsert_kde(conn)
+            if getattr(delta, "persist_runtime_state", False):
+                _upsert_runtime(conn)
+
+            updated_runtime_state = dict(runtime_state)
+            updated_runtime_state["last_projected_seq"] = int(last_projected_seq)
+            conn.execute(
+                "UPDATE projection_state SET payload = ?, updated_ts = ? WHERE subject_id = ?",
+                (dumps(updated_runtime_state), now, RUNTIME_SYSTEM_SUBJECT_ID),
+            )
+            if event_id is not None:
+                conn.execute(
+                    "UPDATE projection_state SET status = ?, event_seq = ?, node_id = ?, node_kind = ?, "
+                    "error = NULL, updated_ts = ? WHERE subject_id = ?",
+                    ("projected", event_seq, node_id, node_kind, now, event_id),
+                )
+
+        self._in_tx(_tx)
+
+    def replace_derived_state(
+        self,
+        *,
+        mem: Any,
+        last_projected_seq: int,
+        runtime_state: Dict[str, Any],
+        event_id: Optional[str] = None,
+        event_seq: Optional[int] = None,
+        node_id: Optional[str] = None,
+        node_kind: Optional[str] = None,
+    ) -> None:
+        now = time.time()
+
+        def _tx(conn: sqlite3.Connection) -> None:
+            for table_name in (
+                "derived_vectors",
+                "derived_edges",
+                "derived_nodes",
+                "derived_modes",
+                "derived_identity_state",
+                "derived_schema_state",
+                "derived_metric_state",
+                "derived_kde_state",
+                "derived_runtime_state",
+            ):
+                conn.execute(f"DELETE FROM {table_name}")
+
+            def _insert_node(
+                *,
+                node_id: str,
+                kind: str,
+                state: Dict[str, Any],
+                vector: Optional[np.ndarray],
+            ) -> None:
+                conn.execute(
+                    "INSERT INTO derived_nodes(node_id, kind, state) VALUES (?, ?, ?)",
+                    (node_id, kind, dumps(state)),
+                )
+                if vector is not None and vector.size > 0:
+                    conn.execute(
+                        "INSERT INTO derived_vectors(node_id, kind, dim, data) VALUES (?, ?, ?, ?)",
+                        (
+                            node_id,
+                            kind,
+                            int(vector.shape[0]),
+                            self._vector_to_blob(vector),
+                        ),
+                    )
+
+            for plot in mem.plots.values():
+                state = plot.to_state_dict()
+                state.pop("messages", None)
+                state.pop("embedding", None)
+                _insert_node(node_id=plot.id, kind="plot", state=state, vector=plot.embedding)
+
+            for summary in mem.summaries.values():
+                state = summary.to_state_dict()
+                state.pop("embedding", None)
+                _insert_node(
+                    node_id=summary.id,
+                    kind="summary",
+                    state=state,
+                    vector=summary.embedding,
+                )
+
+            for story in mem.stories.values():
+                state = story.to_state_dict()
+                state.pop("centroid", None)
+                vector = story.centroid if story.centroid is not None else None
+                _insert_node(node_id=story.id, kind="story", state=state, vector=vector)
+
+            for theme in mem.themes.values():
+                state = theme.to_state_dict()
+                state.pop("prototype", None)
+                vector = theme.prototype if theme.prototype is not None else None
+                _insert_node(node_id=theme.id, kind="theme", state=state, vector=vector)
+
+            anchor_payloads: Dict[str, Dict[str, Any]] = {}
+            for anchor_id, payload in mem.anchor_nodes.items():
+                anchor_payloads[anchor_id] = {
+                    "id": str(payload.get("id", anchor_id)),
+                    "label": str(payload.get("label", "")),
+                    "pinned": bool(payload.get("pinned", True)),
+                }
+                vector = np.asarray(payload.get("embedding"), dtype=np.float32)
+                _insert_node(
+                    node_id=anchor_id,
+                    kind="anchor",
+                    state=anchor_payloads[anchor_id],
+                    vector=vector,
+                )
+
+            for src, dst, belief in mem.graph.iter_edge_items():
+                conn.execute(
+                    "INSERT INTO derived_edges(src, dst, edge_type, sign, weight, confidence, provenance) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        src,
+                        dst,
+                        belief.edge_type,
+                        int(belief.sign),
+                        float(belief.weight),
+                        float(belief.confidence),
+                        belief.provenance,
+                    ),
+                )
+
+            conn.execute(
+                "INSERT INTO derived_identity_state(subject_id, state) VALUES (?, ?)",
+                ("identity", dumps(mem.identity.to_state_dict())),
+            )
+            conn.execute(
+                "INSERT INTO derived_schema_state(subject_id, state) VALUES (?, ?)",
+                ("schema", dumps(mem.schema.to_state_dict())),
+            )
+            for mode in mem.modes.values():
+                conn.execute(
+                    "INSERT INTO derived_modes(mode_id, state) VALUES (?, ?)",
+                    (mode.id, dumps(mode.to_state_dict())),
+                )
+
+            conn.execute(
+                "INSERT INTO derived_metric_state(subject_id, dim, rank, seed, L, G, t) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "metric",
+                    int(mem.metric.dim),
+                    int(mem.metric.rank),
+                    int(getattr(mem.metric, "_seed", 0)),
+                    self._matrix_to_blob(mem.metric.L),
+                    self._matrix_to_blob(mem.metric.G),
+                    int(mem.metric.t),
+                ),
+            )
+
+            kde_matrix = (
+                np.vstack(mem.kde._vecs).astype(np.float32) if getattr(mem.kde, "_vecs", None) else np.zeros((0, mem.kde.dim), dtype=np.float32)
+            )
+            conn.execute(
+                "INSERT INTO derived_kde_state(subject_id, dim, reservoir, k_sigma, seed, vec_count, vecs) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "kde",
+                    int(mem.kde.dim),
+                    int(mem.kde.reservoir),
+                    int(mem.kde.k_sigma),
+                    int(getattr(mem.kde, "_seed", 0)),
+                    int(kde_matrix.shape[0]),
+                    self._matrix_to_blob(kde_matrix),
+                ),
+            )
+
+            conn.execute(
+                "INSERT INTO derived_runtime_state("
+                "subject_id, step, recent_semantic_texts, anchors, core_anchor_ids, view_stats, graph_metrics, consolidator"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    "runtime",
+                    int(mem.step),
+                    dumps(list(mem.recent_semantic_texts)),
+                    dumps(anchor_payloads),
+                    dumps(list(mem.core_anchor_ids)),
+                    dumps(mem.view_stats.to_state_dict()),
+                    dumps(dict(mem.graph_metrics)),
+                    dumps(mem.consolidator.to_state_dict()),
+                ),
+            )
+
+            updated_runtime_state = dict(runtime_state)
+            updated_runtime_state["last_projected_seq"] = int(last_projected_seq)
+            conn.execute(
+                "UPDATE projection_state SET payload = ?, updated_ts = ? WHERE subject_id = ?",
+                (dumps(updated_runtime_state), now, RUNTIME_SYSTEM_SUBJECT_ID),
+            )
+            if event_id is not None:
+                conn.execute(
+                    "UPDATE projection_state SET status = ?, event_seq = ?, node_id = ?, node_kind = ?, "
+                    "error = NULL, updated_ts = ? WHERE subject_id = ?",
+                    ("projected", event_seq, node_id, node_kind, now, event_id),
+                )
+
+        self._in_tx(_tx)
+
+    def load_derived_state(self) -> Optional[Dict[str, Any]]:
+        conn = self._connect()
+        try:
+            runtime_row = conn.execute(
+                "SELECT * FROM derived_runtime_state WHERE subject_id = 'runtime'"
+            ).fetchone()
+            if runtime_row is None:
+                return None
+            node_rows = conn.execute(
+                "SELECT n.node_id, n.kind, n.state, v.dim, v.data "
+                "FROM derived_nodes n LEFT JOIN derived_vectors v ON v.node_id = n.node_id"
+            ).fetchall()
+            edge_rows = conn.execute("SELECT * FROM derived_edges").fetchall()
+            identity_row = conn.execute(
+                "SELECT state FROM derived_identity_state WHERE subject_id = 'identity'"
+            ).fetchone()
+            schema_row = conn.execute(
+                "SELECT state FROM derived_schema_state WHERE subject_id = 'schema'"
+            ).fetchone()
+            mode_rows = conn.execute("SELECT mode_id, state FROM derived_modes").fetchall()
+            metric_row = conn.execute(
+                "SELECT * FROM derived_metric_state WHERE subject_id = 'metric'"
+            ).fetchone()
+            kde_row = conn.execute(
+                "SELECT * FROM derived_kde_state WHERE subject_id = 'kde'"
+            ).fetchone()
+        finally:
+            conn.close()
+
+        if identity_row is None or schema_row is None or metric_row is None or kde_row is None:
+            return None
+
+        plots: Dict[str, Dict[str, Any]] = {}
+        summaries: Dict[str, Dict[str, Any]] = {}
+        stories: Dict[str, Dict[str, Any]] = {}
+        themes: Dict[str, Dict[str, Any]] = {}
+        anchors: Dict[str, Dict[str, Any]] = {}
+        vindex_items: List[Dict[str, Any]] = []
+
+        for row in node_rows:
+            node_id = str(row["node_id"])
+            kind = str(row["kind"])
+            state = self._loads_object(row["state"])
+            vector = (
+                self._vector_from_blob(cast(bytes, row["data"]), int(row["dim"]))
+                if row["data"] is not None
+                else None
+            )
+            if kind == "plot":
+                if vector is not None:
+                    state["embedding"] = vector.tolist()
+                    vindex_items.append({"id": node_id, "kind": kind, "vec": vector.tolist()})
+                plots[node_id] = state
+            elif kind == "summary":
+                if vector is not None:
+                    state["embedding"] = vector.tolist()
+                    vindex_items.append({"id": node_id, "kind": kind, "vec": vector.tolist()})
+                summaries[node_id] = state
+            elif kind == "story":
+                if vector is not None:
+                    state["centroid"] = vector.tolist()
+                    vindex_items.append({"id": node_id, "kind": kind, "vec": vector.tolist()})
+                stories[node_id] = state
+            elif kind == "theme":
+                if vector is not None:
+                    state["prototype"] = vector.tolist()
+                    vindex_items.append({"id": node_id, "kind": kind, "vec": vector.tolist()})
+                themes[node_id] = state
+            elif kind == "anchor":
+                anchor_state = dict(state)
+                if vector is not None:
+                    anchor_state["embedding"] = vector.tolist()
+                anchors[node_id] = anchor_state
+
+        metric_L = self._matrix_from_blob(
+            cast(bytes, metric_row["L"]),
+            rows=int(metric_row["rank"]),
+            cols=int(metric_row["dim"]),
+        )
+        metric_G = self._matrix_from_blob(
+            cast(bytes, metric_row["G"]),
+            rows=int(metric_row["rank"]),
+            cols=int(metric_row["dim"]),
+        )
+        kde_matrix = self._matrix_from_blob(
+            cast(bytes, kde_row["vecs"]),
+            rows=int(kde_row["vec_count"]),
+            cols=int(kde_row["dim"]),
+        )
+
+        return {
+            "schema_version": self.memory_state_version,
+            "kde": {
+                "dim": int(kde_row["dim"]),
+                "reservoir": int(kde_row["reservoir"]),
+                "k_sigma": int(kde_row["k_sigma"]),
+                "seed": int(kde_row["seed"]),
+                "vecs": kde_matrix.tolist(),
+            },
+            "metric": {
+                "dim": int(metric_row["dim"]),
+                "rank": int(metric_row["rank"]),
+                "seed": int(metric_row["seed"]),
+                "L": metric_L.tolist(),
+                "G": metric_G.tolist(),
+                "t": int(metric_row["t"]),
+            },
+            "graph": {
+                "edges": [
+                    {
+                        "src": str(row["src"]),
+                        "dst": str(row["dst"]),
+                        "belief": {
+                            "edge_type": str(row["edge_type"]),
+                            "sign": int(row["sign"]),
+                            "weight": float(row["weight"]),
+                            "confidence": float(row["confidence"]),
+                            "provenance": str(row["provenance"]),
+                        },
+                    }
+                    for row in edge_rows
+                ],
+                "edge_version": len(edge_rows),
+            },
+            "vindex": {
+                "dim": int(metric_row["dim"]),
+                "items": vindex_items,
+            },
+            "plots": plots,
+            "summaries": summaries,
+            "stories": stories,
+            "themes": themes,
+            "schema": self._loads_object(schema_row["state"]),
+            "consolidator": self._loads_object(runtime_row["consolidator"]),
+            "identity": self._loads_object(identity_row["state"]),
+            "modes": {
+                str(row["mode_id"]): self._loads_object(row["state"])
+                for row in mode_rows
+            },
+            "recent_semantic_texts": cast(
+                List[str], loads(str(runtime_row["recent_semantic_texts"]))
+            ),
+            "step": int(runtime_row["step"]),
+            "anchors": cast(Dict[str, Any], loads(str(runtime_row["anchors"]))),
+            "core_anchor_ids": cast(List[str], loads(str(runtime_row["core_anchor_ids"]))),
+            "view_stats": self._loads_object(runtime_row["view_stats"]),
+            "graph_metrics": self._loads_object(runtime_row["graph_metrics"]),
+        }
+
     def claim_jobs(
         self,
         *,
@@ -687,6 +1377,25 @@ class SQLiteRuntimeStore:
         session_boost = 0.10 if query_session_id and query_session_id == event_session_id else 0.0
         pending_bonus = {"accepted": 0.25, "projecting": 0.18, "failed": 0.12}.get(status, 0.0)
         return min(1.5, text_score + 0.35 * recency + session_boost + pending_bonus)
+
+    @staticmethod
+    def _vector_to_blob(vec: np.ndarray) -> bytes:
+        return np.asarray(vec, dtype="<f4").tobytes(order="C")
+
+    @staticmethod
+    def _vector_from_blob(blob: bytes, dim: int) -> np.ndarray:
+        return np.frombuffer(blob, dtype="<f4", count=dim).astype(np.float32)
+
+    @staticmethod
+    def _matrix_to_blob(matrix: np.ndarray) -> bytes:
+        return np.asarray(matrix, dtype="<f4").tobytes(order="C")
+
+    @staticmethod
+    def _matrix_from_blob(blob: bytes, *, rows: int, cols: int) -> np.ndarray:
+        if rows == 0 or cols == 0:
+            return np.zeros((rows, cols), dtype=np.float32)
+        array = np.frombuffer(blob, dtype="<f4", count=rows * cols)
+        return array.reshape((rows, cols)).astype(np.float32)
 
     @staticmethod
     def _row_to_event(row: sqlite3.Row) -> StoredEvent:

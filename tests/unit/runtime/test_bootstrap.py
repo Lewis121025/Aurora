@@ -5,6 +5,7 @@ import pytest
 from aurora.system.errors import ConfigurationError
 from aurora.integrations.llm.bailian import BailianLLM
 from aurora.runtime.bootstrap import (
+    create_memory,
     create_content_embedding_provider,
     create_llm_provider,
     create_query_analyzer,
@@ -60,3 +61,16 @@ def test_create_query_analyzer_uses_injected_llm():
     settings = AuroraSettings(llm_provider=None)
     analyzer = create_query_analyzer(settings=settings, llm=build_test_llm())
     assert isinstance(analyzer, QueryAnalyzer)
+
+
+def test_create_memory_rejects_llm_persona_bootstrap_without_llm_meaning_provider():
+    settings = AuroraSettings(
+        llm_provider=None,
+        content_embedding_provider="hash",
+        text_embedding_provider="hash",
+        persona_bootstrap_mode="llm",
+        meaning_provider="heuristic",
+        narrative_provider="heuristic",
+    )
+    with pytest.raises(ConfigurationError, match="persona_bootstrap_mode='llm'"):
+        create_memory(settings=settings, llm=None)

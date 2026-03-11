@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import math
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple, cast
 
-import networkx as nx
+import hnswlib
 import numpy as np
 
 from aurora.soul.query import (
@@ -41,6 +42,8 @@ from aurora.soul.models import (
     Theme,
     l2_normalize,
 )
+from aurora.soul.tuning import RetrievalWeights
+from aurora.utils.jsonx import dumps, loads
 from aurora.utils.math_utils import cosine_sim, softmax
 
 
@@ -203,29 +206,56 @@ class LowRankMetric:
 
 class MemoryGraph:
     """
-    记忆图谱：存储情节、故事和主题之间的拓扑关系。
-    支持带缓存的 PageRank 计算，用于联想式记忆扩散。
+    记忆图谱：以稀疏邻接表维护节点与边，避免 networkx 带来的纯 Python 热路径开销。
     """
 
     def __init__(self) -> None:
-        self.g = nx.DiGraph()
-        # 针对 personalization 向量和参数的 PageRank 缓存
-        self._pagerank_cache: Dict[Tuple[str, float, int], Dict[str, float]] = {}
+        self._nodes: Dict[str, Dict[str, Any]] = {}
+        self._kind_index: Dict[str, set[str]] = {}
+        self._out_edges: Dict[str, Dict[str, EdgeBelief]] = {}
+        self._in_edges: Dict[str, set[str]] = {}
+        self._pagerank_cache: Dict[Tuple[int, str, float, int, float], Dict[str, float]] = {}
+        self._edge_upserts: Dict[Tuple[str, str], EdgeBelief] = {}
+        self._edge_deletes: set[Tuple[str, str]] = set()
         self._edge_version = 0
 
     def add_node(self, node_id: str, kind: str, payload: Any) -> None:
-        """添加节点"""
-        self.g.add_node(node_id, kind=kind, payload=payload)
+        """添加或更新节点。"""
+        previous = self._nodes.get(node_id)
+        if previous is not None:
+            previous_kind = str(previous["kind"])
+            if previous_kind != kind:
+                self._kind_index.get(previous_kind, set()).discard(node_id)
+        self._nodes[node_id] = {"kind": kind, "payload": payload}
+        self._kind_index.setdefault(kind, set()).add(node_id)
+        self._out_edges.setdefault(node_id, {})
+        self._in_edges.setdefault(node_id, set())
 
     def kind(self, node_id: str) -> str:
-        return str(self.g.nodes[node_id]["kind"])
+        return str(self._nodes[node_id]["kind"])
 
     def payload(self, node_id: str) -> Any:
-        return self.g.nodes[node_id]["payload"]
+        return self._nodes[node_id]["payload"]
+
+    def __contains__(self, node_id: object) -> bool:
+        return isinstance(node_id, str) and node_id in self._nodes
 
     @property
     def edge_version(self) -> int:
         return self._edge_version
+
+    def node_ids(self) -> List[str]:
+        return list(self._nodes.keys())
+
+    def clear(self) -> None:
+        for src, dst in self.iter_edges():
+            self._edge_deletes.add((src, dst))
+        self._nodes.clear()
+        self._kind_index.clear()
+        self._out_edges.clear()
+        self._in_edges.clear()
+        self._edge_version += 1
+        self.clear_pagerank_cache()
 
     def ensure_edge(
         self,
@@ -239,9 +269,12 @@ class MemoryGraph:
         provenance: str = "",
     ) -> None:
         """添加边（如果不存在），关联 EdgeBelief 进行置信度管理"""
+        if src not in self._nodes or dst not in self._nodes:
+            raise KeyError(f"Both nodes must exist before adding an edge: {src!r} -> {dst!r}")
         normalized_sign = 1 if sign >= 0 else -1
-        if self.g.has_edge(src, dst):
-            belief = cast(EdgeBelief, self.g.edges[src, dst]["belief"])
+        existing = self._out_edges.setdefault(src, {}).get(dst)
+        if existing is not None:
+            belief = existing
             changed = (
                 belief.edge_type != edge_type
                 or belief.sign != normalized_sign
@@ -257,34 +290,75 @@ class MemoryGraph:
                 belief.provenance = provenance
             if changed:
                 self._edge_version += 1
-                self._pagerank_cache.clear()
+                self.clear_pagerank_cache()
+                self._edge_upserts[(src, dst)] = belief
+                self._edge_deletes.discard((src, dst))
             return
-        self.g.add_edge(
-            src,
-            dst,
-            belief=EdgeBelief(
-                edge_type=edge_type,
-                sign=normalized_sign,
-                weight=float(weight),
-                confidence=float(confidence),
-                provenance=provenance,
-            ),
+        belief = EdgeBelief(
+            edge_type=edge_type,
+            sign=normalized_sign,
+            weight=float(weight),
+            confidence=float(confidence),
+            provenance=provenance,
         )
+        self._out_edges[src][dst] = belief
+        self._in_edges.setdefault(dst, set()).add(src)
         self._edge_version += 1
-        self._pagerank_cache.clear()
+        self.clear_pagerank_cache()
+        self._edge_upserts[(src, dst)] = belief
+        self._edge_deletes.discard((src, dst))
 
     def edge_belief(self, src: str, dst: str) -> EdgeBelief:
-        return cast(EdgeBelief, self.g.edges[src, dst]["belief"])
+        return self._out_edges[src][dst]
 
     def nodes_of_kind(self, kind: str) -> List[str]:
-        return [str(node_id) for node_id, data in self.g.nodes(data=True) if data.get("kind") == kind]
+        return list(self._kind_index.get(kind, ()))
+
+    def successors(self, node_id: str) -> List[str]:
+        return list(self._out_edges.get(node_id, {}).keys())
+
+    def predecessors(self, node_id: str) -> List[str]:
+        return list(self._in_edges.get(node_id, ()))
+
+    def has_edge(self, src: str, dst: str) -> bool:
+        return dst in self._out_edges.get(src, {})
+
+    def iter_edges(self, *, sign: Optional[int] = None) -> Iterator[Tuple[str, str]]:
+        for src, neighbors in self._out_edges.items():
+            for dst, belief in neighbors.items():
+                if sign is not None and belief.sign != sign:
+                    continue
+                yield src, dst
+
+    def iter_edge_items(
+        self,
+        *,
+        sign: Optional[int] = None,
+    ) -> Iterator[Tuple[str, str, EdgeBelief]]:
+        for src, neighbors in self._out_edges.items():
+            for dst, belief in neighbors.items():
+                if sign is not None and belief.sign != sign:
+                    continue
+                yield src, dst, belief
 
     def remove_node(self, node_id: str) -> None:
-        if node_id not in self.g:
+        if node_id not in self._nodes:
             return
-        self.g.remove_node(node_id)
+        kind = self.kind(node_id)
+        self._kind_index.get(kind, set()).discard(node_id)
+        for predecessor in list(self._in_edges.get(node_id, ())):
+            self._edge_upserts.pop((predecessor, node_id), None)
+            self._edge_deletes.add((predecessor, node_id))
+            self._out_edges.get(predecessor, {}).pop(node_id, None)
+        for successor in list(self._out_edges.get(node_id, {}).keys()):
+            self._edge_upserts.pop((node_id, successor), None)
+            self._edge_deletes.add((node_id, successor))
+            self._in_edges.get(successor, set()).discard(node_id)
+        self._out_edges.pop(node_id, None)
+        self._in_edges.pop(node_id, None)
+        self._nodes.pop(node_id, None)
         self._edge_version += 1
-        self._pagerank_cache.clear()
+        self.clear_pagerank_cache()
 
     def _hash_personalization(self, personalization: Dict[str, float]) -> str:
         """为个性化向量生成哈希，用于缓存查找"""
@@ -296,9 +370,16 @@ class MemoryGraph:
         personalization: Dict[str, float],
         damping: float,
         max_iter: int,
+        tol: float,
     ) -> Optional[Dict[str, float]]:
         """获取缓存的 PR 结果"""
-        key = (self._hash_personalization(personalization), float(damping), int(max_iter))
+        key = (
+            self._edge_version,
+            self._hash_personalization(personalization),
+            float(damping),
+            int(max_iter),
+            float(tol),
+        )
         return self._pagerank_cache.get(key)
 
     def set_cached_pagerank(
@@ -306,17 +387,43 @@ class MemoryGraph:
         personalization: Dict[str, float],
         damping: float,
         max_iter: int,
+        tol: float,
         result: Dict[str, float],
     ) -> None:
         """存入缓存"""
-        key = (self._hash_personalization(personalization), float(damping), int(max_iter))
+        key = (
+            self._edge_version,
+            self._hash_personalization(personalization),
+            float(damping),
+            int(max_iter),
+            float(tol),
+        )
         self._pagerank_cache[key] = dict(result)
+
+    def clear_pagerank_cache(self) -> None:
+        self._pagerank_cache.clear()
+
+    def clear_edge_delta(self) -> None:
+        self._edge_upserts.clear()
+        self._edge_deletes.clear()
+
+    def mark_edge_dirty(self, src: str, dst: str) -> None:
+        if self.has_edge(src, dst):
+            self._edge_upserts[(src, dst)] = self.edge_belief(src, dst)
+            self._edge_deletes.discard((src, dst))
+
+    def consume_edge_delta(
+        self,
+    ) -> Tuple[List[Tuple[str, str, EdgeBelief]], List[Tuple[str, str]]]:
+        upserts = [(src, dst, belief) for (src, dst), belief in self._edge_upserts.items()]
+        deletes = list(self._edge_deletes)
+        self.clear_edge_delta()
+        return upserts, deletes
 
     def to_state_dict(self) -> Dict[str, Any]:
         """序列化边关系"""
         edges = []
-        for src, dst, data in self.g.edges(data=True):
-            belief: EdgeBelief = data["belief"]
+        for src, dst, belief in self.iter_edge_items():
             edges.append(
                 {
                     "src": src,
@@ -334,59 +441,261 @@ class MemoryGraph:
         for item in state.get("edges", []):
             src = str(item["src"])
             dst = str(item["dst"])
-            if src not in self.g or dst not in self.g:
+            if src not in self or dst not in self:
                 continue
-            self.g.add_edge(src, dst, belief=EdgeBelief.from_state_dict(item["belief"]))
-        self._edge_version = int(state.get("edge_version", self.g.number_of_edges()))
+            belief = EdgeBelief.from_state_dict(item["belief"])
+            self.ensure_edge(
+                src,
+                dst,
+                belief.edge_type,
+                sign=belief.sign,
+                weight=belief.weight,
+                confidence=belief.confidence,
+                provenance=belief.provenance,
+            )
+        self._edge_version = int(state.get("edge_version", len(list(self.iter_edges()))))
+        self.clear_edge_delta()
+
+
+@dataclass
+class _KindAnnIndex:
+    kind: str
+    index: hnswlib.Index
+    label_to_id: Dict[int, str]
+    id_to_label: Dict[str, int]
+    next_label: int = 0
 
 
 class VectorIndex:
     """
-    轻量级线性向量索引，支持按类型过滤。
+    HNSW 向量索引，按 kind 独立建索引以保持现有检索语义。
     """
 
-    def __init__(self, dim: int):
+    def __init__(
+        self,
+        dim: int,
+        *,
+        m: int = 32,
+        ef_construction: int = 200,
+        ef_search: int = 128,
+    ):
         self.dim = dim
-        self.ids: List[str] = []
-        self.vecs: List[np.ndarray] = []
-        self.kinds: List[str] = []
+        self.m = int(m)
+        self.ef_construction = int(ef_construction)
+        self.ef_search = int(ef_search)
+        self._vectors: Dict[str, np.ndarray] = {}
+        self._kinds: Dict[str, str] = {}
+        self._indices: Dict[str, _KindAnnIndex] = {}
+
+    def _build_index(self, kind: str, *, capacity: int) -> _KindAnnIndex:
+        index = hnswlib.Index(space="cosine", dim=self.dim)
+        index.init_index(
+            max_elements=max(16, int(capacity)),
+            ef_construction=self.ef_construction,
+            M=self.m,
+            allow_replace_deleted=True,
+        )
+        index.set_ef(self.ef_search)
+        return _KindAnnIndex(
+            kind=kind,
+            index=index,
+            label_to_id={},
+            id_to_label={},
+            next_label=0,
+        )
+
+    def _ensure_kind_index(self, kind: str, *, extra_capacity: int = 1) -> _KindAnnIndex:
+        state = self._indices.get(kind)
+        if state is None:
+            state = self._build_index(kind, capacity=extra_capacity)
+            self._indices[kind] = state
+            return state
+        current_capacity = int(state.index.get_max_elements())
+        # HNSW labels are monotonically allocated. After repeated delete/re-add
+        # cycles we must reserve against the next label, not just active items.
+        required = max(len(state.id_to_label), state.next_label) + extra_capacity
+        if required > current_capacity:
+            state.index.resize_index(max(required, current_capacity * 2))
+        return state
 
     def add(self, item_id: str, vec: np.ndarray, kind: str) -> None:
         """添加向量"""
         vector = vec.astype(np.float32)
         if vector.shape != (self.dim,):
             raise ValueError(f"vector dim mismatch: {vector.shape} vs {(self.dim,)}")
-        self.ids.append(item_id)
-        self.vecs.append(vector)
-        self.kinds.append(kind)
+        if item_id in self._vectors:
+            self.remove(item_id)
+        state = self._ensure_kind_index(kind)
+        label = state.next_label
+        state.next_label += 1
+        state.index.add_items(vector.reshape(1, -1), np.asarray([label], dtype=np.int64))
+        state.label_to_id[label] = item_id
+        state.id_to_label[item_id] = label
+        self._vectors[item_id] = vector
+        self._kinds[item_id] = kind
 
     def remove(self, item_id: str) -> None:
         """删除向量"""
-        if item_id not in self.ids:
+        kind = self._kinds.pop(item_id, None)
+        if kind is None:
             return
-        idx = self.ids.index(item_id)
-        self.ids.pop(idx)
-        self.vecs.pop(idx)
-        self.kinds.pop(idx)
+        state = self._indices.get(kind)
+        label = None if state is None else state.id_to_label.pop(item_id, None)
+        self._vectors.pop(item_id, None)
+        if state is not None and label is not None:
+            state.label_to_id.pop(label, None)
+            state.index.mark_deleted(label)
 
     def get_vector(self, item_id: str) -> Optional[np.ndarray]:
-        if item_id not in self.ids:
-            return None
-        idx = self.ids.index(item_id)
-        return self.vecs[idx]
+        return self._vectors.get(item_id)
+
+    def clear(self) -> None:
+        self._vectors.clear()
+        self._kinds.clear()
+        self._indices.clear()
+
+    def rebuild_indices(self, *, kinds: Optional[Sequence[str]] = None) -> None:
+        target_kinds = (
+            sorted({kind for kind in self._kinds.values()})
+            if kinds is None
+            else [str(kind) for kind in kinds]
+        )
+        retained: Dict[str, _KindAnnIndex] = (
+            {} if kinds is None else {kind: state for kind, state in self._indices.items() if kind not in target_kinds}
+        )
+        for kind in target_kinds:
+            item_ids = [item_id for item_id, item_kind in self._kinds.items() if item_kind == kind]
+            if not item_ids:
+                continue
+            state = self._build_index(kind, capacity=max(16, len(item_ids)))
+            vectors = np.asarray([self._vectors[item_id] for item_id in item_ids], dtype=np.float32)
+            labels = np.arange(len(item_ids), dtype=np.int64)
+            state.index.add_items(vectors, labels)
+            state.label_to_id = {
+                int(label): item_id for label, item_id in zip(labels.tolist(), item_ids)
+            }
+            state.id_to_label = {item_id: int(label) for label, item_id in zip(labels.tolist(), item_ids)}
+            state.next_label = len(item_ids)
+            retained[kind] = state
+        self._indices = retained
+
+    def save_sidecar(
+        self,
+        directory: str,
+        *,
+        epoch: int,
+        kinds: Optional[Sequence[str]] = None,
+    ) -> None:
+        os.makedirs(directory, exist_ok=True)
+        meta_path = os.path.join(directory, "meta.json")
+        metadata: Dict[str, Any]
+        if kinds is None or not os.path.exists(meta_path):
+            metadata = {
+                "epoch": int(epoch),
+                "dim": self.dim,
+                "m": self.m,
+                "ef_construction": self.ef_construction,
+                "ef_search": self.ef_search,
+                "kinds": {},
+            }
+            for filename in os.listdir(directory):
+                if filename.endswith(".bin") or filename == "meta.json":
+                    os.remove(os.path.join(directory, filename))
+            target_kinds = list(self._indices.keys()) if kinds is None else list(kinds)
+        else:
+            with open(meta_path, "r", encoding="utf-8") as handle:
+                payload = loads(handle.read())
+            metadata = payload if isinstance(payload, dict) else {}
+            metadata["epoch"] = int(epoch)
+            metadata["dim"] = self.dim
+            metadata["m"] = self.m
+            metadata["ef_construction"] = self.ef_construction
+            metadata["ef_search"] = self.ef_search
+            metadata.setdefault("kinds", {})
+            target_kinds = list(kinds)
+        for kind in target_kinds:
+            state = self._indices.get(kind)
+            filename = f"{kind}.bin"
+            path = os.path.join(directory, filename)
+            if state is None or not state.id_to_label:
+                if os.path.exists(path):
+                    os.remove(path)
+                metadata["kinds"].pop(kind, None)
+                continue
+            state.index.save_index(path)
+            metadata["kinds"][kind] = {
+                "file": filename,
+                "next_label": state.next_label,
+                "label_to_id": {str(label): item_id for label, item_id in state.label_to_id.items()},
+            }
+        with open(meta_path, "w", encoding="utf-8") as handle:
+            handle.write(dumps(metadata))
+
+    def try_load_sidecar(self, directory: str, *, epoch: int) -> bool:
+        meta_path = os.path.join(directory, "meta.json")
+        if not os.path.exists(meta_path):
+            return False
+        with open(meta_path, "r", encoding="utf-8") as handle:
+            payload = loads(handle.read())
+        if not isinstance(payload, dict):
+            return False
+        if int(payload.get("epoch", -1)) != int(epoch):
+            return False
+        if int(payload.get("dim", -1)) != self.dim:
+            return False
+        kinds_payload = payload.get("kinds", {})
+        if not isinstance(kinds_payload, dict):
+            return False
+        loaded_indices: Dict[str, _KindAnnIndex] = {}
+        for kind, item in kinds_payload.items():
+            if not isinstance(item, dict):
+                return False
+            label_to_id_raw = item.get("label_to_id", {})
+            if not isinstance(label_to_id_raw, dict):
+                return False
+            label_to_id = {int(label): str(item_id) for label, item_id in label_to_id_raw.items()}
+            for item_id in label_to_id.values():
+                if item_id not in self._vectors or self._kinds.get(item_id) != kind:
+                    return False
+            index_path = os.path.join(directory, str(item.get("file", "")))
+            if not os.path.exists(index_path):
+                return False
+            index = hnswlib.Index(space="cosine", dim=self.dim)
+            index.load_index(index_path, max_elements=max(len(label_to_id), 16))
+            index.set_ef(self.ef_search)
+            loaded_indices[str(kind)] = _KindAnnIndex(
+                kind=str(kind),
+                index=index,
+                label_to_id=label_to_id,
+                id_to_label={item_id: label for label, item_id in label_to_id.items()},
+                next_label=int(item.get("next_label", len(label_to_id))),
+            )
+        required_kinds = {kind for kind in self._kinds.values()}
+        if set(loaded_indices.keys()) != required_kinds:
+            return False
+        self._indices = loaded_indices
+        return True
 
     def search(
         self, q: np.ndarray, k: int = 10, kind: Optional[str] = None
     ) -> List[Tuple[str, float]]:
-        """执行余弦相似度搜索"""
-        if not self.vecs:
+        """执行 HNSW 余弦相似度搜索。"""
+        if not self._vectors:
             return []
         vector = q.astype(np.float32)
+        kinds = [kind] if kind is not None else list(self._indices.keys())
         hits: List[Tuple[str, float]] = []
-        for item_id, candidate, candidate_kind in zip(self.ids, self.vecs, self.kinds):
-            if kind is not None and candidate_kind != kind:
+        for target_kind in kinds:
+            state = self._indices.get(target_kind)
+            if state is None or not state.id_to_label:
                 continue
-            hits.append((item_id, cosine_sim(vector, candidate)))
+            top_k = min(int(k), len(state.id_to_label))
+            labels, distances = state.index.knn_query(vector.reshape(1, -1), k=top_k)
+            for label, distance in zip(labels[0], distances[0]):
+                item_id = state.label_to_id.get(int(label))
+                if item_id is None:
+                    continue
+                hits.append((item_id, 1.0 - float(distance)))
         hits.sort(key=lambda item: item[1], reverse=True)
         return hits[:k]
 
@@ -394,18 +703,41 @@ class VectorIndex:
         """序列化"""
         return {
             "dim": self.dim,
-            "ids": list(self.ids),
-            "kinds": list(self.kinds),
-            "vecs": [vec.astype(np.float32).tolist() for vec in self.vecs],
+            "m": self.m,
+            "ef_construction": self.ef_construction,
+            "ef_search": self.ef_search,
+            "items": [
+                {
+                    "id": item_id,
+                    "kind": self._kinds[item_id],
+                    "vec": vec.astype(np.float32).tolist(),
+                }
+                for item_id, vec in self._vectors.items()
+            ],
         }
 
     @classmethod
-    def from_state_dict(cls, data: Dict[str, Any]) -> "VectorIndex":
+    def from_state_dict(
+        cls,
+        data: Dict[str, Any],
+        *,
+        build_index: bool = True,
+    ) -> "VectorIndex":
         """反序列化"""
-        obj = cls(dim=int(data["dim"]))
-        obj.ids = [str(item) for item in data.get("ids", [])]
-        obj.kinds = [str(item) for item in data.get("kinds", [])]
-        obj.vecs = [np.asarray(vec, dtype=np.float32) for vec in data.get("vecs", [])]
+        obj = cls(
+            dim=int(data["dim"]),
+            m=int(data.get("m", 32)),
+            ef_construction=int(data.get("ef_construction", 200)),
+            ef_search=int(data.get("ef_search", 128)),
+        )
+        for item in data.get("items", []):
+            item_id = str(item["id"])
+            vector = np.asarray(item["vec"], dtype=np.float32)
+            kind = str(item["kind"])
+            obj._vectors[item_id] = vector
+            obj._kinds[item_id] = kind
+        if build_index:
+            obj.rebuild_indices()
         return obj
 
 
@@ -446,6 +778,10 @@ class FieldRetriever:
         graph: MemoryGraph,
         *,
         query_analyzer: BaseQueryAnalyzer,
+        ppr_damping: float = 0.85,
+        ppr_max_iter: int = 60,
+        ppr_tol: float = 1e-6,
+        weights: Optional[RetrievalWeights] = None,
     ):
         self.metric = metric
         self.vindex = vindex
@@ -453,6 +789,10 @@ class FieldRetriever:
         self.query_analyzer = query_analyzer
         self.time_extractor = TimeRangeExtractor()
         self.fact_extractor = FactExtractor()
+        self.ppr_damping = float(ppr_damping)
+        self.ppr_max_iter = int(ppr_max_iter)
+        self.ppr_tol = float(ppr_tol)
+        self.weights = weights or RetrievalWeights()
 
     # --- 各种辅助 Payload 提取函数 ---
     def _payload_vec(self, payload: Any) -> Optional[np.ndarray]:
@@ -591,7 +931,7 @@ class FieldRetriever:
 
     def _build_events_timeline(self, kinds: Sequence[str]) -> List[Tuple[str, float]]:
         timeline: List[Tuple[str, float]] = []
-        for node_id in self.graph.g.nodes():
+        for node_id in self.graph.node_ids():
             if self.graph.kind(node_id) not in kinds:
                 continue
             payload = self.graph.payload(node_id)
@@ -700,7 +1040,7 @@ class FieldRetriever:
 
         lowered = [keyword.lower() for keyword in keywords]
         ranked: List[Tuple[str, float, str]] = []
-        for node_id in self.graph.g.nodes():
+        for node_id in self.graph.node_ids():
             kind = self.graph.kind(node_id)
             if kind not in kinds:
                 continue
@@ -755,42 +1095,68 @@ class FieldRetriever:
         personalization: Dict[str, float],
         damping: float = 0.85,
         max_iter: int = 60,
+        tol: float = 1e-6,
     ) -> Dict[str, float]:
-        """执行个性化 PageRank，模拟联想扩散"""
-        graph = self.graph.g
-        personalized = {node: value for node, value in personalization.items() if node in graph}
+        """执行基于稀疏邻接表的个性化 PageRank。"""
+        personalized = {node: value for node, value in personalization.items() if node in self.graph}
         if not personalized:
             return {}
-        cached = self.graph.get_cached_pagerank(personalized, damping, max_iter)
+        cached = self.graph.get_cached_pagerank(personalized, damping, max_iter, tol)
         if cached is not None:
             return cached
-        # 构建带权图，权重由 EdgeBelief 决定
-        weighted = nx.DiGraph()
-        weighted.add_nodes_from(graph.nodes())
-        for src, dst, data in graph.edges(data=True):
-            belief: EdgeBelief = data["belief"]
-            if belief.sign < 0:
+        node_ids = self.graph.node_ids()
+        if not node_ids:
+            return {}
+        index = {node_id: idx for idx, node_id in enumerate(node_ids)}
+        personalization_vec = np.zeros(len(node_ids), dtype=np.float64)
+        for node_id, value in personalized.items():
+            personalization_vec[index[node_id]] = max(0.0, float(value))
+        total = float(personalization_vec.sum())
+        if total <= 0.0:
+            return {}
+        personalization_vec /= total
+
+        outgoing: List[List[Tuple[int, float]]] = [[] for _ in node_ids]
+        dangling = np.ones(len(node_ids), dtype=bool)
+        for src, dst, belief in self.graph.iter_edge_items(sign=1):
+            src_idx = index.get(src)
+            dst_idx = index.get(dst)
+            if src_idx is None or dst_idx is None:
                 continue
-            weighted.add_edge(src, dst, w=belief.pagerank_weight())
+            outgoing[src_idx].append((dst_idx, max(1e-6, belief.pagerank_weight())))
+            dangling[src_idx] = False
 
-        try:
-            result = nx.pagerank(
-                weighted,
-                alpha=damping,
-                personalization=personalized,
-                weight="w",
-                max_iter=max_iter,
-            )
-        except nx.PowerIterationFailedConvergence:
-            node_count = len(weighted.nodes())
-            result = (
-                {node_id: 1.0 / node_count for node_id in weighted.nodes()}
-                if node_count > 0
-                else {}
-            )
+        transition: List[List[Tuple[int, float]]] = []
+        for row in outgoing:
+            total_weight = sum(weight for _, weight in row)
+            if total_weight <= 0.0:
+                transition.append([])
+                continue
+            transition.append([(dst_idx, weight / total_weight) for dst_idx, weight in row])
 
-        normalized_result = {str(node_id): float(score) for node_id, score in result.items()}
-        self.graph.set_cached_pagerank(personalized, damping, max_iter, normalized_result)
+        rank = personalization_vec.copy()
+        for _ in range(max_iter):
+            next_rank = (1.0 - damping) * personalization_vec
+            dangling_mass = damping * float(rank[dangling].sum())
+            if dangling_mass > 0.0:
+                next_rank += dangling_mass * personalization_vec
+            for src_idx, row in enumerate(transition):
+                if not row:
+                    continue
+                source_mass = damping * rank[src_idx]
+                if source_mass <= 0.0:
+                    continue
+                for dst_idx, weight in row:
+                    next_rank[dst_idx] += source_mass * weight
+            delta = float(np.abs(next_rank - rank).sum())
+            rank = next_rank
+            if delta <= tol:
+                break
+
+        normalized_result = {
+            node_id: float(rank[index[node_id]]) for node_id in node_ids if rank[index[node_id]] > 0.0
+        }
+        self.graph.set_cached_pagerank(personalized, damping, max_iter, tol, normalized_result)
         return normalized_result
 
     def _direct_semantic_search(
@@ -809,7 +1175,7 @@ class FieldRetriever:
 
         for kind in kinds:
             for node_id, similarity in self.vindex.search(query_emb, k=k * 2, kind=kind):
-                if node_id not in self.graph.g:
+                if node_id not in self.graph:
                     continue
                 if similarity > personalization.get(node_id, 0.0):
                     personalization[node_id] = similarity
@@ -860,10 +1226,14 @@ class FieldRetriever:
             + self._negative_edge_strength(node_id, stronger_id)
             for stronger_id in stronger_ids
         )
-        return min(0.25, 0.14 * anchor_penalty + 0.08 * candidate_penalty)
+        return min(
+            0.25,
+            self.weights.negative_anchor_penalty * anchor_penalty
+            + self.weights.negative_candidate_penalty * candidate_penalty,
+        )
 
     def _negative_edge_strength(self, src: str, dst: str) -> float:
-        if not self.graph.g.has_edge(src, dst):
+        if not self.graph.has_edge(src, dst):
             return 0.0
         belief = self.graph.edge_belief(src, dst)
         if belief.sign >= 0:
@@ -889,9 +1259,9 @@ class FieldRetriever:
             query_text=query_text,
             kinds=kinds,
             k=k,
-            max_iter=60,
+            max_iter=self.ppr_max_iter,
             reseed_k=80,
-            attractor_weight=0.5,
+            attractor_weight=self.weights.attractor_weight,
             query_type=None,
         )
 
@@ -900,7 +1270,7 @@ class FieldRetriever:
             query_emb=query_emb,
             kinds=kinds,
             k=plan.effective_k,
-            damping=0.80,
+            damping=self.weights.direct_damping,
             max_iter=plan.effective_max_iter,
             query_type=plan.query_type,
         )
@@ -926,7 +1296,7 @@ class FieldRetriever:
         candidates: List[Tuple[str, np.ndarray, float]] = []
         for kind in kinds:
             for item_id, sim in self.vindex.search(query_emb, k=60, kind=kind):
-                if item_id not in self.graph.g:
+                if item_id not in self.graph:
                     continue
                 if not self._matches_time_range(item_id, plan.time_range):
                     continue
@@ -937,7 +1307,10 @@ class FieldRetriever:
                 # 计算身份一致性偏置：在警觉状态下，相关的威胁记忆会被“引力”增强
                 identity_bonus = 0.0
                 if isinstance(payload, Plot):
-                    identity_bonus = 0.15 * payload.frame.alignment_score(state.axis_state)
+                    identity_bonus = (
+                        self.weights.plot_alignment_bonus
+                        * payload.frame.alignment_score(state.axis_state)
+                    )
                 mass = self._payload_mass(payload)
                 candidates.append((item_id, node_vec, mass + identity_bonus + sim))
 
@@ -952,7 +1325,12 @@ class FieldRetriever:
                     continue
                 personalization[item_id] = max(personalization.get(item_id, 0.0), sim)
 
-        pr = self._pagerank(personalization, damping=0.85, max_iter=plan.effective_max_iter)
+        pr = self._pagerank(
+            personalization,
+            damping=self.weights.pagerank_damping,
+            max_iter=plan.effective_max_iter,
+            tol=self.ppr_tol,
+        )
         attractor_ranked: List[Tuple[str, float, str]] = []
         for item_id, score in pr.items():
             kind = self.graph.kind(item_id)
@@ -963,8 +1341,11 @@ class FieldRetriever:
             bonus = self._payload_mass(payload)
             if isinstance(payload, Plot):
                 # 再次应用身份偏置
-                bonus += 0.10 * payload.frame.alignment_score(state.axis_state)
-                bonus += 0.03 * payload.confidence
+                bonus += (
+                    self.weights.attractor_plot_alignment_bonus
+                    * payload.frame.alignment_score(state.axis_state)
+                )
+                bonus += self.weights.attractor_plot_confidence_bonus * payload.confidence
                 bonus += self._compute_fact_key_boost(item_id, query_text)
                 if (
                     plan.query_type in {QueryType.USER_FACT, QueryType.FACTUAL}
@@ -975,7 +1356,9 @@ class FieldRetriever:
                     bonus += self._compute_user_role_boost(item_id)
             elif node_vec is not None:
                 # 给故事/主题节点根据当前身份向量进行语义加权
-                bonus += 0.05 * float(np.dot(l2_normalize(node_vec), l2_normalize(self_vec)))
+                bonus += self.weights.story_theme_identity_bonus * float(
+                    np.dot(l2_normalize(node_vec), l2_normalize(self_vec))
+                )
             attractor_ranked.append((item_id, float(score) + 1e-3 * bonus, kind))
         attractor_ranked.sort(key=lambda item: item[1], reverse=True)
 

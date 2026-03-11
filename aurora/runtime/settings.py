@@ -1,4 +1,4 @@
-"""Runtime settings for Aurora V6."""
+"""Runtime settings for Aurora V7."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ DEFAULT_DATA_DIR = ".aurora"
 
 
 class AuroraSettings(BaseSettings):
-    """Aurora V5 runtime settings."""
+    """Aurora V7 runtime settings."""
 
     model_config = SettingsConfigDict(
         env_prefix="AURORA_",
@@ -21,8 +21,6 @@ class AuroraSettings(BaseSettings):
 
     data_dir: str = DEFAULT_DATA_DIR
     runtime_db_filename: str = "runtime.sqlite3"
-    snapshot_dirname: str = "snapshots"
-    snapshot_every_projected_events: int = 20
     memory_seed: int = 42
 
     worker_count: int = 2
@@ -58,6 +56,7 @@ class AuroraSettings(BaseSettings):
 
     meaning_provider: Literal["heuristic", "llm"] = "llm"
     narrative_provider: Literal["heuristic", "llm"] = "llm"
+    persona_bootstrap_mode: Literal["provided", "llm", "heuristic_explicit"] = "provided"
 
     llm_provider: Optional[Literal["bailian", "ark"]] = "bailian"
 
@@ -85,5 +84,13 @@ class AuroraSettings(BaseSettings):
 
     embedding_cache_enabled: bool = True
     embedding_cache_size: int = 10000
+
+    ann_m: int = 32
+    ann_ef_construction: int = 200
+    ann_ef_search: int = 128
+    ppr_damping: float = 0.85
+    ppr_max_iter: int = 60
+    ppr_tol: float = 1e-6
+    tuning_path: Optional[str] = None
 
     mcp_port: int = 8765

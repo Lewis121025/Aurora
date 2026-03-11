@@ -99,6 +99,30 @@ class TestFieldRetrieverBasic:
         assert len(trace.ranked) == 0
 
 
+class TestVectorIndex:
+    """VectorIndex 的稳定性测试。"""
+
+    def test_repeated_delete_and_readd_resizes_against_next_label(self):
+        vindex = VectorIndex(dim=8)
+        base = np.ones(8, dtype=np.float32)
+        base /= np.linalg.norm(base)
+
+        for i in range(64):
+            vindex.add("story_hot", base, kind="story")
+            vindex.remove("story_hot")
+            vindex.add("theme_hot", base, kind="theme")
+            vindex.remove("theme_hot")
+
+        vindex.add("story_hot", base, kind="story")
+        vindex.add("theme_hot", base, kind="theme")
+
+        story_hits = vindex.search(base, k=1, kind="story")
+        theme_hits = vindex.search(base, k=1, kind="theme")
+
+        assert story_hits[0][0] == "story_hot"
+        assert theme_hits[0][0] == "theme_hot"
+
+
 class TestMeanShift:
     """均值漂移吸引子追踪的测试。"""
 
@@ -187,10 +211,12 @@ class TestPageRank:
         retriever, embedder, vindex, graph = retriever_setup
 
         query = embedder.embed_text("图记忆冲突测试")
-        idx0 = vindex.ids.index("plot_0")
-        idx1 = vindex.ids.index("plot_1")
-        vindex.vecs[idx0] = query.astype(np.float32)
-        vindex.vecs[idx1] = ((query + 0.02).astype(np.float32)) / np.linalg.norm(query + 0.02)
+        vindex.add("plot_0", query.astype(np.float32), kind="plot")
+        vindex.add(
+            "plot_1",
+            ((query + 0.02).astype(np.float32)) / np.linalg.norm(query + 0.02),
+            kind="plot",
+        )
         graph.add_node("anchor_core", "anchor", {"id": "anchor_core"})
         graph.ensure_edge(
             "anchor_core",

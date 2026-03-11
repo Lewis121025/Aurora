@@ -11,8 +11,8 @@ import json
 import random
 import time
 import uuid
-from dataclasses import dataclass
-from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, cast
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Literal, Optional, Sequence, Set, Tuple, cast
 
 import numpy as np
 
@@ -59,12 +59,13 @@ from aurora.soul.retrieval import (
     OnlineKDE,
     VectorIndex,
 )
+from aurora.soul.tuning import AuroraTuning
 from aurora.utils.id_utils import det_id
 from aurora.utils.math_utils import cosine_sim
 from aurora.utils.time_utils import now_ts
 
 # 系统版本标识
-SOUL_MEMORY_STATE_VERSION = "aurora-soul-memory-v6"
+SOUL_MEMORY_STATE_VERSION = "aurora-soul-memory-v7"
 
 
 def moving_average(old: float, new: float, rate: float) -> float:
@@ -221,6 +222,14 @@ class SoulConfig:
     dream_walk_steps: int = 6
     dream_walk_samples: int = 24
     dream_persist_threshold: float = 0.18
+    persona_bootstrap_mode: Literal["provided", "llm", "heuristic_explicit"] = "provided"
+    ann_m: int = 32
+    ann_ef_construction: int = 200
+    ann_ef_search: int = 128
+    ppr_damping: float = 0.85
+    ppr_max_iter: int = 60
+    ppr_tol: float = 1e-6
+    tuning: AuroraTuning = AuroraTuning()
 
     def __post_init__(self) -> None:
         if self.architecture_mode != "graph_first":
@@ -252,6 +261,14 @@ class SoulConfig:
             "dream_walk_steps": self.dream_walk_steps,
             "dream_walk_samples": self.dream_walk_samples,
             "dream_persist_threshold": self.dream_persist_threshold,
+            "persona_bootstrap_mode": self.persona_bootstrap_mode,
+            "ann_m": self.ann_m,
+            "ann_ef_construction": self.ann_ef_construction,
+            "ann_ef_search": self.ann_ef_search,
+            "ppr_damping": self.ppr_damping,
+            "ppr_max_iter": self.ppr_max_iter,
+            "ppr_tol": self.ppr_tol,
+            "tuning": self.tuning.to_state_dict(),
         }
 
     @classmethod
@@ -286,6 +303,17 @@ class SoulConfig:
             dream_walk_steps=int(data.get("dream_walk_steps", 6)),
             dream_walk_samples=int(data.get("dream_walk_samples", 24)),
             dream_persist_threshold=float(data.get("dream_persist_threshold", 0.18)),
+            persona_bootstrap_mode=cast(
+                Literal["provided", "llm", "heuristic_explicit"],
+                data.get("persona_bootstrap_mode", "provided"),
+            ),
+            ann_m=int(data.get("ann_m", 32)),
+            ann_ef_construction=int(data.get("ann_ef_construction", 200)),
+            ann_ef_search=int(data.get("ann_ef_search", 128)),
+            ppr_damping=float(data.get("ppr_damping", 0.85)),
+            ppr_max_iter=int(data.get("ppr_max_iter", 60)),
+            ppr_tol=float(data.get("ppr_tol", 1e-6)),
+            tuning=AuroraTuning.from_state_dict(cast(Dict[str, Any], data.get("tuning", {}))),
         )
 
 
@@ -301,6 +329,32 @@ class GraphProjectionState:
     anchor_nodes: Dict[str, Dict[str, Any]]
     core_anchor_ids: List[str]
     view_stats: GraphViewStats
+
+
+@dataclass
+class ProjectionDelta:
+    upsert_nodes: Dict[str, Set[str]] = field(default_factory=dict)
+    delete_nodes: Dict[str, Set[str]] = field(default_factory=dict)
+    ann_dirty_kinds: Set[str] = field(default_factory=set)
+    persist_identity: bool = False
+    persist_schema: bool = False
+    persist_modes: bool = False
+    persist_metric: bool = False
+    persist_kde: bool = False
+    persist_runtime_state: bool = False
+
+    def mark_upsert(self, kind: str, node_id: str) -> None:
+        self.upsert_nodes.setdefault(kind, set()).add(node_id)
+        self.delete_nodes.get(kind, set()).discard(node_id)
+        self.ann_dirty_kinds.add(kind)
+
+    def mark_delete(self, kind: str, node_id: str) -> None:
+        self.delete_nodes.setdefault(kind, set()).add(node_id)
+        self.upsert_nodes.get(kind, set()).discard(node_id)
+        self.ann_dirty_kinds.add(kind)
+
+    def mark_runtime(self) -> None:
+        self.persist_runtime_state = True
 
 
 class AuroraSoul:
@@ -349,12 +403,21 @@ class AuroraSoul:
         self.kde = OnlineKDE(dim=cfg.dim, reservoir=cfg.kde_reservoir, seed=seed)
         self.metric = LowRankMetric(dim=cfg.dim, rank=cfg.metric_rank, seed=seed)
         self.graph = MemoryGraph()
-        self.vindex = VectorIndex(dim=cfg.dim)
+        self.vindex = VectorIndex(
+            dim=cfg.dim,
+            m=cfg.ann_m,
+            ef_construction=cfg.ann_ef_construction,
+            ef_search=cfg.ann_ef_search,
+        )
         self.retriever = FieldRetriever(
             metric=self.metric,
             vindex=self.vindex,
             graph=self.graph,
             query_analyzer=query_analyzer or MissingQueryAnalyzer(),
+            ppr_damping=cfg.ppr_damping,
+            ppr_max_iter=cfg.ppr_max_iter,
+            ppr_tol=cfg.ppr_tol,
+            weights=cfg.tuning.retrieval,
         )
         self.consolidator = SchemaConsolidator(
             every_events=cfg.axis_merge_every_events,
@@ -389,8 +452,24 @@ class AuroraSoul:
         self.core_anchor_ids: List[str] = []
         self.view_stats = GraphViewStats()
         self.graph_metrics: Dict[str, Any] = {}
+        self._projection_delta = ProjectionDelta()
         self._bootstrap_core_anchors()
         self._refresh_graph_metrics()
+
+    def _reset_projection_delta(self) -> None:
+        self._projection_delta = ProjectionDelta()
+        self.graph.clear_edge_delta()
+
+    def consume_projection_delta(self) -> ProjectionDelta:
+        delta = self._projection_delta
+        self._projection_delta = ProjectionDelta()
+        return delta
+
+    def _mark_node_upsert(self, kind: str, node_id: str) -> None:
+        self._projection_delta.mark_upsert(kind, node_id)
+
+    def _mark_node_delete(self, kind: str, node_id: str) -> None:
+        self._projection_delta.mark_delete(kind, node_id)
 
     def _load_persona_axes(self) -> List[Dict[str, Any]]:
         """加载或提取人设轴"""
@@ -401,7 +480,10 @@ class AuroraSoul:
                     return payload
             except Exception:
                 pass
-        # 尝试通过 provider 智能提取
+        if self.cfg.persona_bootstrap_mode == "provided":
+            return []
+        if self.cfg.persona_bootstrap_mode == "heuristic_explicit":
+            return heuristic_persona_axes(self.cfg.profile_text)
         bootstrapper = getattr(self.meaning_provider, "bootstrap_persona_axes", None)
         if callable(bootstrapper):
             extracted = cast(List[Dict[str, Any]], bootstrapper(self.cfg.profile_text))
@@ -409,8 +491,9 @@ class AuroraSoul:
             extracted = self.meaning_provider.extract_persona_axes(self.cfg.profile_text)
         if extracted:
             return extracted
-        # 兜底：启发式提取
-        return heuristic_persona_axes(self.cfg.profile_text)
+        raise ValueError(
+            "persona_bootstrap_mode='llm' requires the meaning provider to return persona axes"
+        )
 
     def _make_initial_identity(self) -> IdentityState:
         """初始化身份状态，设定初始轴坐标和自我向量"""
@@ -428,7 +511,7 @@ class AuroraSoul:
             intuition_axes={name: 0.0 for name in axis_state},
             current_mode_label="origin",
         )
-        state.narrative_log.append("Initialized v6 multimodal soul.")
+        state.narrative_log.append("Initialized v7 structured multimodal soul.")
         return state
 
     def _compose_self_vector(self, axis_state: Dict[str, float]) -> np.ndarray:
@@ -483,8 +566,9 @@ class AuroraSoul:
             implication += float(value) * axis.direction
         if np.linalg.norm(implication) < 1e-6:
             return plot.embedding
-        # 权重混合：72% 原始语义 + 28% 心理内涵
-        return l2_normalize(0.72 * plot.embedding + 0.28 * implication)
+        semantic_weight = self.cfg.tuning.view_refresh.plot_vector_semantic_weight
+        implication_weight = self.cfg.tuning.view_refresh.plot_vector_implication_weight
+        return l2_normalize(semantic_weight * plot.embedding + implication_weight * implication)
 
     def _story_vector_for_index(self, story: StoryArc) -> np.ndarray:
         if story.centroid is None:
@@ -592,6 +676,8 @@ class AuroraSoul:
 
     def _refresh_materialized_views(self, *, force: bool = False) -> None:
         """按需物化 story/theme 视图。"""
+        previous_story_ids = set(self.stories.keys())
+        previous_theme_ids = set(self.themes.keys())
         projection = GraphProjectionState(
             graph=self.graph,
             vindex=self.vindex,
@@ -608,6 +694,17 @@ class AuroraSoul:
         self.stories = projection.stories
         self.themes = projection.themes
         self.view_stats = projection.view_stats
+        current_story_ids = set(self.stories.keys())
+        current_theme_ids = set(self.themes.keys())
+        for story_id in current_story_ids:
+            self._mark_node_upsert("story", story_id)
+        for theme_id in current_theme_ids:
+            self._mark_node_upsert("theme", theme_id)
+        for story_id in previous_story_ids - current_story_ids:
+            self._mark_node_delete("story", story_id)
+        for theme_id in previous_theme_ids - current_theme_ids:
+            self._mark_node_delete("theme", theme_id)
+        self._projection_delta.persist_runtime_state = True
         self._refresh_graph_metrics()
 
     def _plot_semantic_hits(
@@ -657,19 +754,22 @@ class AuroraSoul:
         target_graph = self.graph if graph is None else graph
         anchors = self.anchor_nodes if anchor_nodes is None else anchor_nodes
         anchor_ids = self.core_anchor_ids if core_anchor_ids is None else core_anchor_ids
+        min_edge_weight = self.cfg.tuning.graph.min_edge_weight
         for anchor_id in anchor_ids:
             payload = anchors.get(anchor_id)
             if payload is None:
                 continue
             anchor_emb = cast(np.ndarray, payload.get("embedding"))
             sim = cosine_sim(anchor_emb, plot.embedding)
-            if sim >= self.cfg.graph_similarity_threshold * 0.5:
+            if sim >= (
+                self.cfg.graph_similarity_threshold * self.cfg.tuning.graph.anchor_similarity_factor
+            ):
                 target_graph.ensure_edge(
                     anchor_id,
                     plot.id,
                     "anchors",
                     sign=1,
-                    weight=max(0.05, sim),
+                    weight=max(min_edge_weight, sim),
                     confidence=plot.confidence,
                     provenance="anchor_similarity",
                 )
@@ -678,13 +778,13 @@ class AuroraSoul:
                     anchor_id,
                     "anchored_by",
                     sign=1,
-                    weight=max(0.05, sim),
+                    weight=max(min_edge_weight, sim),
                     confidence=plot.confidence,
                     provenance="anchor_similarity",
                 )
                 continue
             if sim <= -self.cfg.graph_contradiction_threshold:
-                weight = max(0.05, abs(sim))
+                weight = max(min_edge_weight, abs(sim))
                 target_graph.ensure_edge(
                     anchor_id,
                     plot.id,
@@ -717,6 +817,9 @@ class AuroraSoul:
         plots[plot.id] = plot
         graph.add_node(plot.id, "plot", plot)
         vindex.add(plot.id, self._plot_vector_for_index(plot), kind="plot")
+        self._mark_node_upsert("plot", plot.id)
+        for anchor_id in core_anchor_ids:
+            self._mark_node_upsert("anchor", anchor_id)
 
         previous_plots = sorted(
             (item for item in plots.values() if item.id != plot.id),
@@ -728,7 +831,7 @@ class AuroraSoul:
                 prev.id,
                 plot.id,
                 "precedes",
-                weight=0.8,
+                weight=self.cfg.tuning.graph.temporal_edge_weight,
                 confidence=min(prev.confidence, plot.confidence),
                 provenance="temporal",
             )
@@ -736,7 +839,7 @@ class AuroraSoul:
                 plot.id,
                 prev.id,
                 "follows",
-                weight=0.8,
+                weight=self.cfg.tuning.graph.temporal_edge_weight,
                 confidence=min(prev.confidence, plot.confidence),
                 provenance="temporal",
             )
@@ -751,7 +854,7 @@ class AuroraSoul:
         for neighbor_id, score in semantic_hits[: self.cfg.graph_semantic_neighbors]:
             if score < self.cfg.graph_similarity_threshold:
                 continue
-            weight = max(0.05, score)
+            weight = max(self.cfg.tuning.graph.min_edge_weight, score)
             graph.ensure_edge(
                 plot.id,
                 neighbor_id,
@@ -807,6 +910,7 @@ class AuroraSoul:
         self.graph.add_node(summary.id, "summary", summary)
         if summary.embedding.size == self.cfg.dim:
             self.vindex.add(summary.id, l2_normalize(summary.embedding), kind="summary")
+        self._mark_node_upsert("summary", summary.id)
         self._refresh_graph_metrics()
 
     def remove_plot_from_hot_state(self, plot_id: str) -> None:
@@ -815,6 +919,7 @@ class AuroraSoul:
             return
         self.vindex.remove(plot_id)
         self.graph.remove_node(plot_id)
+        self._mark_node_delete("plot", plot_id)
         for story in self.stories.values():
             if plot_id in story.plot_ids:
                 story.plot_ids = [item for item in story.plot_ids if item != plot_id]
@@ -864,24 +969,26 @@ class AuroraSoul:
             max(0.0, -float(np.dot(self.identity.self_vector, embedding))) * frame.self_relevance
         )
         # 情感负荷：基于唤醒度、负效价以及威胁/羞耻等信号
+        affective = self.cfg.tuning.affective_load
         affective_load = (
-            0.30 * frame.arousal
-            + 0.20 * max(0.0, -frame.valence)
-            + 0.18 * frame.threat
-            + 0.12 * frame.shame
-            + 0.10 * frame.control
-            + 0.10 * frame.abandonment
+            affective.arousal * frame.arousal
+            + affective.negative_valence * max(0.0, -frame.valence)
+            + affective.threat * frame.threat
+            + affective.shame * frame.shame
+            + affective.control * frame.control
+            + affective.abandonment * frame.abandonment
         )
         # 叙事不一致性
         narrative_incongruity = mean_abs(axis_conflicts.values()) * (
             0.55 + 0.45 * frame.self_relevance
         )
         # 综合总分计算
+        dissonance_weights = self.cfg.tuning.dissonance
         total = (
-            0.36 * mean_abs(axis_conflicts.values())
-            + 0.20 * semantic_conflict
-            + 0.28 * affective_load
-            + 0.16 * narrative_incongruity
+            dissonance_weights.axis_conflict * mean_abs(axis_conflicts.values())
+            + dissonance_weights.semantic_conflict * semantic_conflict
+            + dissonance_weights.affective_load * affective_load
+            + dissonance_weights.narrative_incongruity * narrative_incongruity
         )
         return DissonanceReport(
             axis_conflicts=axis_conflicts,
@@ -898,14 +1005,21 @@ class AuroraSoul:
         模拟了心理学中的渐进式性格改变。
         """
         changed = False
+        assimilation = self.cfg.tuning.assimilation
         for axis_name in self._axis_names():
             evidence = frame.axis_evidence.get(axis_name, 0.0)
-            if abs(evidence) < 0.06:
+            if abs(evidence) < assimilation.evidence_floor:
                 continue
             axis = self.schema.all_axes().get(axis_name)
-            # 稳态轴同化速度较快，人设轴较慢（更稳定）
-            rate = 0.015 if (axis is not None and axis.level == "persona") else 0.025
-            rate *= 0.55 + 0.45 * frame.self_relevance
+            rate = (
+                assimilation.persona_axis_rate
+                if (axis is not None and axis.level == "persona")
+                else assimilation.homeostatic_axis_rate
+            )
+            rate *= (
+                assimilation.self_relevance_base
+                + assimilation.self_relevance_bonus * frame.self_relevance
+            )
             self.identity.axis_state[axis_name] = moving_average(
                 self.identity.axis_state.get(axis_name, 0.0),
                 evidence,
@@ -916,15 +1030,19 @@ class AuroraSoul:
         # 情感反馈通道的固定调节逻辑
         self.identity.axis_state["regulation"] = clamp(
             self.identity.axis_state.get("regulation", 0.0)
-            + 0.03 * frame.care
-            - 0.04 * frame.arousal
-            - 0.03 * frame.threat
+            + assimilation.regulation_care_bonus * frame.care
+            - assimilation.regulation_arousal_penalty * frame.arousal
+            - assimilation.regulation_threat_penalty * frame.threat
         )
         self.identity.axis_state["vigilance"] = clamp(
-            self.identity.axis_state.get("vigilance", 0.0) + 0.03 * frame.threat - 0.02 * frame.care
+            self.identity.axis_state.get("vigilance", 0.0)
+            + assimilation.vigilance_threat_bonus * frame.threat
+            - assimilation.vigilance_care_penalty * frame.care
         )
         self.identity.axis_state["coherence"] = clamp(
-            self.identity.axis_state.get("coherence", 0.0) - 0.02 * frame.shame + 0.01 * frame.care
+            self.identity.axis_state.get("coherence", 0.0)
+            - assimilation.coherence_shame_penalty * frame.shame
+            + assimilation.coherence_care_bonus * frame.care
         )
         changed = True
         if changed:
@@ -933,7 +1051,7 @@ class AuroraSoul:
 
     def _maybe_expand_schema(self, plot: Plot) -> bool:
         """Schema 演化：如果情节中出现了反复提及且未被解释的标签，则自动创建新的性格轴"""
-        if plot.source != "wake" or plot.tension < 0.75:
+        if plot.source != "wake" or plot.tension < self.cfg.tuning.graph.hot_plot_tension_min:
             return False
         existing = set(self.schema.all_axes().keys())
         for tag in plot.frame.tags:
@@ -1058,7 +1176,11 @@ class AuroraSoul:
         if not chosen:
             chosen = fallback
         for candidate in chosen[:n]:
-            operator = "integration" if candidate.resonance >= 0.35 else "counterfactual"
+            operator = (
+                "integration"
+                if candidate.resonance >= self.cfg.tuning.graph.dream_integration_threshold
+                else "counterfactual"
+            )
             dream_text = self.narrator.compose_dream(
                 operator,
                 candidate.tags,
@@ -1068,8 +1190,8 @@ class AuroraSoul:
             dream_plot = self.ingest(
                 (Message(role="self", parts=(TextPart(text=dream_text),), actor="self"),),
                 source="dream",
-                confidence=0.34,
-                evidence_weight=0.20,
+                confidence=self.cfg.tuning.view_refresh.generated_dream_confidence,
+                evidence_weight=self.cfg.tuning.view_refresh.generated_dream_evidence_weight,
             )
             self.identity.dream_count += 1
             for plot_id in candidate.plot_ids:
@@ -1090,7 +1212,12 @@ class AuroraSoul:
         """graph-first: 统一写入 plot 图节点，所有高层结构都降为派生视图或后台算子。"""
         self._store_plot_graph_first(plot)
 
-        energy_scale = {"wake": 1.0, "dream": 0.35, "repair": 0.20, "mode": 0.15}[plot.source]
+        energy_scale = {
+            "wake": self.cfg.tuning.view_refresh.wake_energy_scale,
+            "dream": self.cfg.tuning.view_refresh.dream_energy_scale,
+            "repair": self.cfg.tuning.view_refresh.repair_energy_scale,
+            "mode": self.cfg.tuning.view_refresh.mode_energy_scale,
+        }[plot.source]
         self.identity.active_energy += energy_scale * (
             0.38 * dissonance.total
             + 0.26 * frame.arousal
@@ -1098,7 +1225,9 @@ class AuroraSoul:
             + 0.10 * frame.threat
         )
         self.identity.contradiction_ema = moving_average(
-            self.identity.contradiction_ema, dissonance.total, 0.24
+            self.identity.contradiction_ema,
+            dissonance.total,
+            self.cfg.tuning.assimilation.contradiction_ema_rate,
         )
 
         if plot.source == "wake":
@@ -1121,6 +1250,13 @@ class AuroraSoul:
             -self.cfg.max_recent_semantic_texts :
         ]
         self._pressure_manage()
+        self._refresh_materialized_views(force=False)
+        self._projection_delta.persist_identity = True
+        self._projection_delta.persist_schema = True
+        self._projection_delta.persist_modes = True
+        self._projection_delta.persist_metric = True
+        self._projection_delta.persist_kde = True
+        self._projection_delta.persist_runtime_state = True
         self.graph_metrics["last_plot"] = {
             "id": plot.id,
             "source": plot.source,
@@ -1182,14 +1318,15 @@ class AuroraSoul:
         # 失调与张力计算
         dissonance = self._compute_dissonance(frame, embedding)
         plot.contradiction = float(dissonance.total)
+        tension = self.cfg.tuning.tension
         plot.tension = float(
             (
-                0.30 * plot.surprise
-                + 0.20 * plot.pred_error
-                + 0.20 * plot.contradiction
-                + 0.15 * frame.arousal
-                + 0.10 * frame.self_relevance
-                + 0.05 * max(0.0, 1.0 - plot.redundancy)
+                tension.surprise * plot.surprise
+                + tension.pred_error * plot.pred_error
+                + tension.contradiction * plot.contradiction
+                + tension.arousal * frame.arousal
+                + tension.self_relevance * frame.self_relevance
+                + tension.novelty * max(0.0, 1.0 - plot.redundancy)
             )
             * evidence_weight
         )
@@ -1219,6 +1356,7 @@ class AuroraSoul:
         )
 
     def apply_projected_event(self, *, event_type: str, event_id: str, payload: Dict[str, Any]) -> Optional[str]:
+        self._reset_projection_delta()
         if event_type == "interaction":
             plot = self.project_interaction_event(
                 event_id=event_id,
@@ -1248,8 +1386,16 @@ class AuroraSoul:
         existing = self.plots.get(plot_id)
         if existing is not None:
             return existing.id
-        confidence = 0.34 if source == "dream" else 0.72
-        evidence_weight = 0.20 if source == "dream" else 0.35
+        confidence = (
+            self.cfg.tuning.view_refresh.generated_dream_confidence
+            if source == "dream"
+            else self.cfg.tuning.view_refresh.generated_repair_confidence
+        )
+        evidence_weight = (
+            self.cfg.tuning.view_refresh.generated_dream_evidence_weight
+            if source == "dream"
+            else self.cfg.tuning.view_refresh.generated_repair_evidence_weight
+        )
         plot = self.ingest(
             (Message(role="self", parts=(TextPart(text=str(payload.get("text", ""))),), actor="self"),),
             event_id=event_id,
@@ -1320,7 +1466,7 @@ class AuroraSoul:
                     summary.id,
                     story_id,
                     "summarizes_story",
-                    weight=0.5,
+                    weight=self.cfg.tuning.graph.summary_edge_weight,
                     confidence=0.9,
                     provenance="compaction",
                 )
@@ -1330,13 +1476,19 @@ class AuroraSoul:
                     summary.id,
                     theme_id,
                     "summarizes_theme",
-                    weight=0.5,
+                    weight=self.cfg.tuning.graph.summary_edge_weight,
                     confidence=0.9,
                     provenance="compaction",
                 )
         for plot_id in summary.source_plot_ids:
             self.remove_plot_from_hot_state(plot_id)
-        self.refresh_materialized_views()
+        self._refresh_materialized_views(force=False)
+        self._projection_delta.persist_identity = True
+        self._projection_delta.persist_schema = True
+        self._projection_delta.persist_modes = True
+        self._projection_delta.persist_metric = True
+        self._projection_delta.persist_kde = True
+        self._projection_delta.persist_runtime_state = True
         return summary
 
     def plan_repair_events(self, *, limit: int = 1) -> List[Dict[str, Any]]:
@@ -1404,7 +1556,11 @@ class AuroraSoul:
             chosen = fallback
         planned: List[Dict[str, Any]] = []
         for candidate in chosen[:n]:
-            operator = "integration" if candidate.resonance >= 0.35 else "counterfactual"
+            operator = (
+                "integration"
+                if candidate.resonance >= self.cfg.tuning.graph.dream_integration_threshold
+                else "counterfactual"
+            )
             text = self.narrator.compose_dream(
                 operator,
                 candidate.tags,
@@ -1439,13 +1595,13 @@ class AuroraSoul:
             if plot.event_id
             and now - plot.ts >= cold_age_s
             and plot.mass() < mass_threshold
-            and plot.tension < 0.40
-            and plot.contradiction < 0.35
+            and plot.tension < self.cfg.tuning.graph.cold_plot_tension_max
+            and plot.contradiction < self.cfg.tuning.graph.cold_plot_contradiction_max
             and plot.id not in self.core_anchor_ids
             and all(
                 self.graph.kind(neighbor_id) != "anchor"
-                for neighbor_id in self.graph.g.predecessors(plot.id)
-                if neighbor_id in self.graph.g
+                for neighbor_id in self.graph.predecessors(plot.id)
+                if neighbor_id in self.graph
             )
         ]
         if len(candidates) < group_min_size:
@@ -1508,7 +1664,6 @@ class AuroraSoul:
 
     def query(self, messages: Sequence[Message], k: int = 8) -> RetrievalTrace:
         """记忆检索接口：场论驱动的复杂检索"""
-        self._refresh_materialized_views(force=True)
         query_started = time.perf_counter()
         semantic_text = self.meaning_provider.project(messages)
         query_embedding = self.event_embedder.embed_content(messages)
@@ -1538,7 +1693,7 @@ class AuroraSoul:
 
     def feedback_retrieval(self, query_text: str, chosen_id: str, success: bool) -> None:
         """检索反馈学习：利用 Triplet Loss 在线微调度量矩阵 (Metric Matrix)"""
-        if chosen_id not in self.graph.g:
+        if chosen_id not in self.graph:
             return
         query_vec = self.event_embedder.embed_content(
             (Message(role="user", parts=(TextPart(text=query_text),)),)
@@ -1561,14 +1716,16 @@ class AuroraSoul:
         # 更新图和主题的证据置信度
         if self.graph.kind(chosen_id) == "theme" and chosen_id in self.themes:
             self.themes[chosen_id].update_evidence(success)
-        for neighbor in list(self.graph.g.predecessors(chosen_id)) + list(
-            self.graph.g.successors(chosen_id)
+        for neighbor in list(self.graph.predecessors(chosen_id)) + list(
+            self.graph.successors(chosen_id)
         ):
-            if self.graph.g.has_edge(neighbor, chosen_id):
+            if self.graph.has_edge(neighbor, chosen_id):
                 self.graph.edge_belief(neighbor, chosen_id).update(success)
-            if self.graph.g.has_edge(chosen_id, neighbor):
+                self.graph.mark_edge_dirty(neighbor, chosen_id)
+            if self.graph.has_edge(chosen_id, neighbor):
                 self.graph.edge_belief(chosen_id, neighbor).update(success)
-        self.graph._pagerank_cache.clear()
+                self.graph.mark_edge_dirty(chosen_id, neighbor)
+        self.graph.clear_pagerank_cache()
 
     def intuition_keywords(self, limit: int = 2) -> List[str]:
         """获取当前最显著的直觉（梦中倾向）"""
@@ -1633,6 +1790,20 @@ class AuroraSoul:
         self._refresh_materialized_views()
         return self.narrator.compose_summary(self.identity, self.schema, self.recent_semantic_texts)
 
+    def clear(self) -> None:
+        """重置为同配置的新内存实例，供 benchmark/fixture 快速复用。"""
+        reset = AuroraSoul(
+            cfg=self.cfg,
+            seed=self._seed,
+            event_embedder=self.event_embedder,
+            axis_embedder=self.axis_embedder,
+            meaning_provider=self.meaning_provider,
+            narrator=self.narrator,
+            query_analyzer=self.retriever.query_analyzer,
+        )
+        self.__dict__.clear()
+        self.__dict__.update(reset.__dict__)
+
     def to_state_dict(self) -> Dict[str, Any]:
         """全量状态序列化，用于持久化存储"""
         return {
@@ -1681,10 +1852,12 @@ class AuroraSoul:
         meaning_provider: Optional[MeaningProvider] = None,
         narrator: Optional[NarrativeProvider] = None,
         query_analyzer: Optional[BaseQueryAnalyzer] = None,
+        skip_vindex_rebuild: bool = False,
+        refresh_views: bool = True,
     ) -> "AuroraSoul":
         """从状态数据恢复灵魂引擎"""
         if data.get("schema_version") != SOUL_MEMORY_STATE_VERSION:
-            raise ValueError("Snapshot schema mismatch: expected Aurora Soul v6")
+            raise ValueError("Snapshot schema mismatch: expected Aurora Soul v7")
         cfg = SoulConfig.from_state_dict(data["cfg"])
         obj = cls(
             cfg=cfg,
@@ -1699,7 +1872,10 @@ class AuroraSoul:
         # 恢复各个组件状态
         obj.kde = OnlineKDE.from_state_dict(data["kde"])
         obj.metric = LowRankMetric.from_state_dict(data["metric"])
-        obj.vindex = VectorIndex.from_state_dict(data["vindex"])
+        obj.vindex = VectorIndex.from_state_dict(
+            data["vindex"],
+            build_index=not skip_vindex_rebuild,
+        )
         obj.plots = {
             plot_id: Plot.from_state_dict(item) for plot_id, item in data.get("plots", {}).items()
         }
@@ -1744,6 +1920,10 @@ class AuroraSoul:
             vindex=obj.vindex,
             graph=obj.graph,
             query_analyzer=query_analyzer or MissingQueryAnalyzer(),
+            ppr_damping=obj.cfg.ppr_damping,
+            ppr_max_iter=obj.cfg.ppr_max_iter,
+            ppr_tol=obj.cfg.ppr_tol,
+            weights=obj.cfg.tuning.retrieval,
         )
         obj.schema = PsychologicalSchema.from_state_dict(data["schema"])
         for axis in obj.schema.all_axes().values():
@@ -1765,6 +1945,7 @@ class AuroraSoul:
         obj.step = int(data.get("step", 0))
         obj.view_stats = GraphViewStats.from_state_dict(data.get("view_stats", {}))
         obj.graph_metrics = copy.deepcopy(data.get("graph_metrics", {}))
-        obj._refresh_materialized_views(force=True)
-        obj._refresh_graph_metrics()
+        if refresh_views:
+            obj._refresh_materialized_views(force=True)
+            obj._refresh_graph_metrics()
         return obj

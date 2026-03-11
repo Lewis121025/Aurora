@@ -15,8 +15,8 @@ from aurora.integrations.storage.runtime_store import (
     StoredEvent,
     StoredJob,
 )
-from aurora.integrations.storage.snapshot import Snapshot, SnapshotStore
 from aurora.runtime.bootstrap import (
+    build_memory_config,
     check_embedding_api_keys,
     create_content_embedding_provider,
     create_llm_provider,
@@ -36,14 +36,16 @@ from aurora.runtime.results import (
     QueryResult,
 )
 from aurora.runtime.settings import AuroraSettings
-from aurora.soul.engine import AuroraSoul
+from aurora.soul.engine import AuroraSoul, SOUL_MEMORY_STATE_VERSION
 from aurora.soul.models import Message, TextPart, messages_to_text
 from aurora.system.errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_SCHEMA_VERSION = "aurora-runtime-v6"
+RUNTIME_SCHEMA_VERSION = "aurora-runtime-v7"
 SYSTEM_SESSION_ID = "__aurora_system__"
+LEGACY_SNAPSHOT_DIRNAME = "snapshots"
+ANN_SIDECAR_DIRNAME = "ann_index_v7"
 
 
 class AuroraRuntime:
@@ -57,16 +59,23 @@ class AuroraRuntime:
         self._stop = threading.Event()
         self._scheduler_thread: Optional[threading.Thread] = None
         self._worker_threads: List[threading.Thread] = []
-        self._loaded_snapshot_seq = 0
         self._last_projected_seq = 0
 
         os.makedirs(self.settings.data_dir, exist_ok=True)
-        self.store = SQLiteRuntimeStore(
-            os.path.join(self.settings.data_dir, self.settings.runtime_db_filename)
-        )
-        self.snapshots = SnapshotStore(
-            os.path.join(self.settings.data_dir, self.settings.snapshot_dirname)
-        )
+        legacy_snapshot_dir = os.path.join(self.settings.data_dir, LEGACY_SNAPSHOT_DIRNAME)
+        if os.path.exists(legacy_snapshot_dir):
+            raise ConfigurationError(
+                "Detected legacy snapshots directory. Aurora V7 requires a fresh data directory."
+            )
+        self._ann_sidecar_dir = os.path.join(self.settings.data_dir, ANN_SIDECAR_DIRNAME)
+        try:
+            self.store = SQLiteRuntimeStore(
+                os.path.join(self.settings.data_dir, self.settings.runtime_db_filename),
+                runtime_schema_version=RUNTIME_SCHEMA_VERSION,
+                memory_state_version=SOUL_MEMORY_STATE_VERSION,
+            )
+        except ValueError as exc:
+            raise ConfigurationError(str(exc)) from exc
         self.mem = self._load_or_init()
         self.response_contexts = ResponseContextBuilder(memory=self.mem)
 
@@ -75,53 +84,97 @@ class AuroraRuntime:
         self._start_scheduler()
 
     def _load_or_init(self) -> AuroraSoul:
-        try:
-            latest = self.snapshots.latest()
-        except ValueError as exc:
-            raise ConfigurationError(str(exc).replace("V2", "Aurora Soul V6")) from exc
-        if latest is None:
+        self._last_projected_seq = int(self.store.get_runtime_state().get("last_projected_seq", 0))
+        derived_state = self.store.load_derived_state()
+        if derived_state is None:
             return create_memory(settings=self.settings, llm=self.llm)
-        _seq, snap = latest
-        self._loaded_snapshot_seq = snap.last_seq
-        self._last_projected_seq = snap.last_seq
         event_embedder = create_content_embedding_provider(self.settings)
         axis_embedder = create_text_embedding_provider(self.settings)
         meaning_provider = create_meaning_provider(settings=self.settings, llm=self.llm)
         narrator = create_narrative_provider(settings=self.settings, llm=self.llm)
         query_analyzer = create_query_analyzer(settings=self.settings, llm=self.llm)
         try:
-            return AuroraSoul.from_state_dict(
-                snap.state,
+            derived_state["cfg"] = build_memory_config(self.settings).to_state_dict()
+            mem = AuroraSoul.from_state_dict(
+                derived_state,
                 event_embedder=event_embedder,
                 axis_embedder=axis_embedder,
                 meaning_provider=meaning_provider,
                 narrator=narrator,
                 query_analyzer=query_analyzer,
+                skip_vindex_rebuild=True,
+                refresh_views=False,
             )
+            if not mem.vindex.try_load_sidecar(
+                self._ann_sidecar_dir,
+                epoch=self._last_projected_seq,
+            ):
+                mem.vindex.rebuild_indices()
+            return mem
         except ValueError as exc:
             raise ConfigurationError(str(exc)) from exc
 
-    def _snapshot(self) -> None:
-        self.snapshots.save(Snapshot(last_seq=self._last_projected_seq, state=self.mem.to_state_dict()))
-
-    def _maybe_snapshot(self) -> None:
-        threshold = int(self.settings.snapshot_every_projected_events)
-        if threshold <= 0:
-            return
-        if self._last_projected_seq <= 0:
-            return
-        if self._last_projected_seq % threshold == 0:
-            self._snapshot()
-
     def _replay_projected_events(self) -> None:
-        target_seq = int(self.store.get_runtime_state().get("last_projected_seq", 0))
-        if target_seq <= self._loaded_snapshot_seq:
-            self._last_projected_seq = max(self._last_projected_seq, target_seq)
-            return
-        for event in self.store.iter_projected_events(after_seq=self._loaded_snapshot_seq):
+        replayed = False
+        for event in self.store.iter_projected_events(after_seq=self._last_projected_seq):
             with self._lock:
                 self._apply_event_to_memory(event)
             self._last_projected_seq = max(self._last_projected_seq, event.seq)
+            replayed = True
+        if replayed:
+            with self._lock:
+                self._persist_derived_state()
+
+    def _persist_derived_state(
+        self,
+        *,
+        event_id: Optional[str] = None,
+        event_seq: Optional[int] = None,
+        node_id: Optional[str] = None,
+        node_kind: Optional[str] = None,
+    ) -> None:
+        runtime_state = self.store.get_runtime_state()
+        self.store.replace_derived_state(
+            mem=self.mem,
+            last_projected_seq=self._last_projected_seq,
+            runtime_state=runtime_state,
+            event_id=event_id,
+            event_seq=event_seq,
+            node_id=node_id,
+            node_kind=node_kind,
+        )
+        self.mem.vindex.save_sidecar(self._ann_sidecar_dir, epoch=self._last_projected_seq)
+
+    def _persist_projection_delta(
+        self,
+        *,
+        delta: Any,
+        event_id: str,
+        event_seq: int,
+        node_id: Optional[str],
+        node_kind: Optional[str],
+    ) -> None:
+        edge_upserts, edge_deletes = self.mem.graph.consume_edge_delta()
+        runtime_state = self.store.get_runtime_state()
+        self.store.apply_projection_delta(
+            mem=self.mem,
+            delta=delta,
+            edge_upserts=edge_upserts,
+            edge_deletes=edge_deletes,
+            last_projected_seq=self._last_projected_seq,
+            runtime_state=runtime_state,
+            event_id=event_id,
+            event_seq=event_seq,
+            node_id=node_id,
+            node_kind=node_kind,
+        )
+        dirty_kinds = sorted(getattr(delta, "ann_dirty_kinds", ()))
+        if dirty_kinds:
+            self.mem.vindex.save_sidecar(
+                self._ann_sidecar_dir,
+                epoch=self._last_projected_seq,
+                kinds=dirty_kinds,
+            )
 
     def _start_workers(self) -> None:
         worker_count = max(1, int(self.settings.worker_count))
@@ -217,14 +270,15 @@ class AuroraRuntime:
         self.store.mark_projecting(job.event_id)
         with self._lock:
             node_id, node_kind = self._apply_event_to_memory(event)
+            delta = self.mem.consume_projection_delta()
             self._last_projected_seq = max(self._last_projected_seq, event.seq)
-            self._maybe_snapshot()
-        self.store.mark_projected(
-            event_id=job.event_id,
-            event_seq=event.seq,
-            node_id=node_id,
-            node_kind=node_kind,
-        )
+            self._persist_projection_delta(
+                delta=delta,
+                event_id=job.event_id,
+                event_seq=event.seq,
+                node_id=node_id,
+                node_kind=node_kind,
+            )
         self.store.complete_job(job.job_id)
 
     def _process_run_evolve(self, job: StoredJob) -> None:

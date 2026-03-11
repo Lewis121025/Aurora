@@ -1326,11 +1326,9 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
                 memory.stories.clear()
                 memory.themes.clear()
                 if hasattr(memory, "graph"):
-                    memory.graph.g.clear()
+                    memory.graph.clear()
                 if hasattr(memory, "vindex"):
-                    memory.vindex.ids.clear()
-                    memory.vindex.vecs.clear()
-                    memory.vindex.kinds.clear()
+                    memory.vindex.clear()
                 if hasattr(memory, "_relationship_story_index"):
                     memory._relationship_story_index.clear()
                 if hasattr(memory, "_identity_dimensions"):

@@ -169,6 +169,19 @@ def test_graph_first_materializes_story_and_theme_views_on_query() -> None:
     assert any(plot.theme_id is not None for plot in mem.plots.values())
 
 
+def test_query_does_not_refresh_views_on_hot_path() -> None:
+    mem = build_memory(seed=30)
+    mem.ingest(_messages("我们反复围绕图检索和主题聚类展开。"))
+
+    def _fail_build(*args, **kwargs):
+        raise AssertionError("query should not rebuild materialized views")
+
+    mem.view_builder.build = _fail_build  # type: ignore[assignment]
+    trace = mem.query(_messages("图检索"), k=4)
+
+    assert trace.ranked is not None
+
+
 def test_graph_first_evolve_generates_repair_or_dream_with_provenance() -> None:
     mem = build_memory(seed=31)
 
@@ -199,6 +212,6 @@ def test_graph_first_evolve_generates_repair_or_dream_with_provenance() -> None:
     assert {item.source for item in evolved} <= {"dream", "repair"}
     assert any(
         mem.graph.edge_belief(src, dst).edge_type in {"dreams_about", "resolves"}
-        for src, dst in mem.graph.g.edges()
+        for src, dst in mem.graph.iter_edges()
         if src in {item.id for item in evolved} or dst in {item.id for item in evolved}
     )
