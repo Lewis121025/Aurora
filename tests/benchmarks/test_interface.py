@@ -368,7 +368,11 @@ class MockMemory:
 class MockAdapter(BenchmarkAdapter):
     """用于测试的模拟适配器。"""
 
-    def __init__(self, instances=None, results=None):
+    def __init__(
+        self,
+        instances: list[BenchmarkInstance] | None = None,
+        results: list[BenchmarkResult] | None = None,
+    ) -> None:
         super().__init__()
         self._instances = instances or []
         self._results = results or []
@@ -378,10 +382,10 @@ class MockAdapter(BenchmarkAdapter):
     def name(self) -> str:
         return "MockBenchmark"
 
-    def load_dataset(self, path: str) -> list:
+    def load_dataset(self, path: str) -> list[BenchmarkInstance]:
         return self._instances
 
-    def evaluate(self, instance, memory) -> BenchmarkResult:
+    def evaluate(self, instance: BenchmarkInstance, memory: object) -> BenchmarkResult:
         if self._results:
             result = self._results[self._result_idx % len(self._results)]
             self._result_idx += 1
@@ -393,7 +397,7 @@ class MockAdapter(BenchmarkAdapter):
             expected=instance.expected_answer,
         )
 
-    def aggregate_results(self, results: list) -> dict:
+    def aggregate_results(self, results: list[BenchmarkResult]) -> dict[str, float]:
         if not results:
             return {"accuracy": 0.0}
         correct = sum(1 for r in results if r.score >= 0.5)
@@ -702,6 +706,7 @@ class TestEvaluationConfig:
 
         assert config.use_llm_judge is False
         assert config.max_instances == 100
+        assert config.capabilities_filter is not None
         assert len(config.capabilities_filter) == 1
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import cast
 
 from aurora.interfaces.terminal.observer import run_observer
 from aurora.interfaces.terminal.tui import (
@@ -172,7 +173,7 @@ def test_refresh_live_state_reuses_cached_runtime_state(tmp_path) -> None:
                 "repressed_energy": 0.1,
             }
 
-    tui = AuroraTerminalTUI(FakeRuntime(), session_id="cache-test")
+    tui = AuroraTerminalTUI(cast(AuroraRuntime, FakeRuntime()), session_id="cache-test")
     assert calls == {"identity": 1, "stats": 1}
 
     tui._refresh_live_state()

@@ -11,7 +11,6 @@ from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.integrations.storage.runtime_store import (
-    ProjectionStatus,
     SQLiteRuntimeStore,
     StoredEvent,
     StoredJob,
@@ -35,7 +34,7 @@ from aurora.runtime.results import (
     QueryHit,
     QueryResult,
 )
-from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
+from aurora.runtime.settings import AuroraSettings
 from aurora.soul.engine import AuroraSoul
 from aurora.system.errors import ConfigurationError
 

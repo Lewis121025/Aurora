@@ -76,7 +76,11 @@ def _cmd_respond(args: argparse.Namespace) -> None:
                     "event_id": result.event_id,
                     "mode": result.memory_context.mode,
                     "intuition": result.memory_context.intuition,
-                    "salient_axes": result.memory_context.narrative_summary.salient_axes,
+                    "salient_axes": (
+                        result.memory_context.narrative_summary.salient_axes
+                        if result.memory_context.narrative_summary is not None
+                        else []
+                    ),
                     "retrieval_hits": result.memory_context.retrieval_hits,
                     "overlay_hits": result.memory_context.overlay_hits,
                     "persistence": result.persistence.__dict__,

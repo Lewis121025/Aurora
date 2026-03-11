@@ -5,11 +5,12 @@ import time
 import uuid
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, TypeVar, cast
 
 from aurora.utils.jsonx import dumps, loads
 
 RUNTIME_SYSTEM_SUBJECT_ID = "__runtime__"
+TxResult = TypeVar("TxResult")
 
 
 @dataclass(frozen=True)
@@ -165,7 +166,7 @@ class SQLiteRuntimeStore:
         finally:
             conn.close()
 
-    def _in_tx(self, fn):
+    def _in_tx(self, fn: Callable[[sqlite3.Connection], TxResult]) -> TxResult:
         conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
@@ -441,7 +442,7 @@ class SQLiteRuntimeStore:
                 opened_conn.close()
         if row is None:
             return {"last_projected_seq": 0, "last_fade_ts": None, "last_evolve_ts": None}
-        return loads(row["payload"])
+        return self._loads_object(row["payload"])
 
     def claim_jobs(
         self,
@@ -595,7 +596,7 @@ class SQLiteRuntimeStore:
             except sqlite3.OperationalError:
                 rows = []
             for row in rows:
-                payload = loads(row["payload"])
+                payload = self._loads_object(row["payload"])
                 snippet = str(payload.get("search_text") or payload.get("user_message") or "")[:240]
                 score = self._overlay_score(
                     rank=float(row["rank"]),
@@ -628,7 +629,7 @@ class SQLiteRuntimeStore:
             terms = {lowered_query.lower()}
             terms.update(part.lower() for part in lowered_query.split() if part.strip())
             for row in rows:
-                payload = loads(row["payload"])
+                payload = self._loads_object(row["payload"])
                 text = str(payload.get("search_text") or payload.get("user_message") or "")
                 text_lower = text.lower()
                 match_count = sum(1 for term in terms if term and term in text_lower)
@@ -695,7 +696,7 @@ class SQLiteRuntimeStore:
             event_type=str(row["event_type"]),
             session_id=str(row["session_id"]),
             ts=float(row["ts"]),
-            payload=loads(row["payload"]),
+            payload=SQLiteRuntimeStore._loads_object(row["payload"]),
         )
 
     @staticmethod
@@ -704,7 +705,7 @@ class SQLiteRuntimeStore:
             job_id=str(row["job_id"]),
             job_type=str(row["job_type"]),
             event_id=str(row["event_id"]) if row["event_id"] is not None else None,
-            payload=loads(row["payload"]),
+            payload=SQLiteRuntimeStore._loads_object(row["payload"]),
             status=str(row["status"]),
             attempts=int(row["attempts"]),
             max_attempts=int(row["max_attempts"]),
@@ -729,6 +730,13 @@ class SQLiteRuntimeStore:
             node_id=str(row["node_id"]) if row["node_id"] is not None else None,
             node_kind=str(row["node_kind"]) if row["node_kind"] is not None else None,
             error=str(row["error"]) if row["error"] is not None else None,
-            payload=loads(row["payload"]),
+            payload=SQLiteRuntimeStore._loads_object(row["payload"]),
             updated_ts=float(row["updated_ts"]),
         )
+
+    @staticmethod
+    def _loads_object(raw: str) -> Dict[str, Any]:
+        payload = loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("Expected JSON object payload in runtime store")
+        return cast(Dict[str, Any], payload)

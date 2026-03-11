@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from functools import lru_cache
 
@@ -26,6 +27,7 @@ from aurora.interfaces.api.schemas import (
     RetrievalTraceSummary,
     StructuredMemoryContext,
 )
+from aurora.runtime.results import StructuredMemoryContext as RuntimeStructuredMemoryContext
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
 from aurora.system.version import __version__
@@ -54,7 +56,7 @@ def shutdown_runtime() -> None:
 
 
 @asynccontextmanager
-async def app_lifespan(_app: FastAPI):
+async def app_lifespan(_app: FastAPI) -> AsyncIterator[None]:
     yield
     shutdown_runtime()
 
@@ -63,16 +65,18 @@ app = FastAPI(title="Aurora Soul API", version=__version__, lifespan=app_lifespa
 
 
 def _identity_response(payload: dict[str, object]) -> IdentitySnapshotResponse:
-    return IdentitySnapshotResponse(**payload)
+    return IdentitySnapshotResponse.model_validate(payload)
 
 
 def _summary_response(payload: dict[str, object]) -> NarrativeSummaryResponse:
-    return NarrativeSummaryResponse(**payload)
+    return NarrativeSummaryResponse.model_validate(payload)
 
 
-def _context_response(context) -> StructuredMemoryContext:
+def _context_response(context: RuntimeStructuredMemoryContext) -> StructuredMemoryContext:
     identity = context.identity
     summary = context.narrative_summary
+    if identity is None or summary is None:
+        raise ValueError("Structured memory context is missing identity or narrative summary")
     return StructuredMemoryContext(
         mode=context.mode,
         narrative_pressure=context.narrative_pressure,
@@ -160,9 +164,13 @@ def feedback(req: FeedbackRequest) -> dict[str, bool]:
 @app.get("/v5/identity", response_model=IdentityResponse)
 def identity() -> IdentityResponse:
     report = get_runtime().get_identity()
+    identity_payload = report["identity"]
+    summary_payload = report["narrative_summary"]
+    if not isinstance(identity_payload, dict) or not isinstance(summary_payload, dict):
+        raise ValueError("Runtime identity payload is malformed")
     return IdentityResponse(
-        identity=_identity_response(report["identity"]),
-        narrative_summary=_summary_response(report["narrative_summary"]),
+        identity=_identity_response(identity_payload),
+        narrative_summary=_summary_response(summary_payload),
     )
 
 

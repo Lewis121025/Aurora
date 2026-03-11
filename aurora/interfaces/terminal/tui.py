@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence
+from typing import TYPE_CHECKING, Any, List, Literal, Optional, Sequence
 
-try:
+if TYPE_CHECKING:
     from rich import box
     from rich.align import Align
     from rich.console import Group
@@ -18,143 +18,157 @@ try:
     from textual.widgets import Input, Static, Tab, Tabs
 
     TERMINAL_UI_DEPS_AVAILABLE = True
-except ModuleNotFoundError:
-    TERMINAL_UI_DEPS_AVAILABLE = False
+else:
+    try:
+        from rich import box
+        from rich.align import Align
+        from rich.console import Group
+        from rich.panel import Panel
+        from rich.text import Text
+        from textual import on, work
+        from textual.app import App, ComposeResult
+        from textual.binding import Binding
+        from textual.containers import Horizontal, Vertical, VerticalScroll
+        from textual.widgets import Input, Static, Tab, Tabs
 
-    class _Box:
-        ROUNDED = "rounded"
+        TERMINAL_UI_DEPS_AVAILABLE = True
+    except ModuleNotFoundError:
+        TERMINAL_UI_DEPS_AVAILABLE = False
 
-    box = _Box()
+        class _Box:
+            ROUNDED = "rounded"
 
-    class Align:
-        @staticmethod
-        def right(renderable):
-            return renderable
+        box = _Box()
 
-        @staticmethod
-        def center(renderable):
-            return renderable
+        class Align:
+            @staticmethod
+            def right(renderable: Any) -> Any:
+                return renderable
 
-        @staticmethod
-        def left(renderable):
-            return renderable
+            @staticmethod
+            def center(renderable: Any) -> Any:
+                return renderable
 
-    class Group(tuple):
-        def __new__(cls, *items):
-            return super().__new__(cls, items)
+            @staticmethod
+            def left(renderable: Any) -> Any:
+                return renderable
 
-    class Panel:
-        @staticmethod
-        def fit(renderable, **_: Any):
-            return renderable
+        class Group(tuple[Any, ...]):
+            def __new__(cls, *items: Any) -> "Group":
+                return super().__new__(cls, items)
 
-    class Text:
-        def __init__(self, text: str = "", *, style: str | None = None) -> None:
-            self._parts = [text]
-            self.style = style
-            self.no_wrap = False
+        class Panel:
+            @staticmethod
+            def fit(renderable: Any, **_: Any) -> Any:
+                return renderable
 
-        def append(self, text: str, *, style: str | None = None) -> None:
-            self._parts.append(text)
+        class Text:
+            def __init__(self, text: str = "", *, style: str | None = None) -> None:
+                self._parts = [text]
+                self.style = style
+                self.no_wrap = False
 
-        def __str__(self) -> str:
-            return "".join(self._parts)
+            def append(self, text: str, *, style: str | None = None) -> None:
+                self._parts.append(text)
 
-    def on(*_args: Any, **_kwargs: Any):
-        def decorator(func):
-            return func
+            def __str__(self) -> str:
+                return "".join(self._parts)
 
-        return decorator
+        def on(*_args: Any, **_kwargs: Any) -> Any:
+            def decorator(func: Any) -> Any:
+                return func
 
-    def work(*_args: Any, **_kwargs: Any):
-        def decorator(func):
-            return func
+            return decorator
 
-        return decorator
+        def work(*_args: Any, **_kwargs: Any) -> Any:
+            def decorator(func: Any) -> Any:
+                return func
 
-    class App:
-        CSS = ""
-        BINDINGS: list[object] = []
+            return decorator
 
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
+        class App:
+            CSS = ""
+            BINDINGS: list[object] = []
+
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                pass
+
+            def __class_getitem__(cls, _item: object) -> type["App"]:
+                return cls
+
+            def run(self) -> None:
+                raise RuntimeError(
+                    "Aurora terminal UI requires optional dependencies 'rich' and 'textual'."
+                )
+
+            def query_one(self, *_args: Any, **_kwargs: Any) -> "_WidgetStub":
+                return _WidgetStub()
+
+        ComposeResult = object
+
+        class Binding:
+            def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+                pass
+
+        class _WidgetStub:
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                pass
+
+            def __enter__(self) -> "_WidgetStub":
+                return self
+
+            def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> Literal[False]:
+                return False
+
+            def update(self, *_args: Any, **_kwargs: Any) -> None:
+                pass
+
+            def remove_children(self) -> None:
+                pass
+
+            def mount(self, *_args: Any, **_kwargs: Any) -> None:
+                pass
+
+            def scroll_end(self, *_args: Any, **_kwargs: Any) -> None:
+                pass
+
+            def focus(self) -> None:
+                pass
+
+            def remove_class(self, *_args: Any, **_kwargs: Any) -> None:
+                pass
+
+            def add_class(self, *_args: Any, **_kwargs: Any) -> None:
+                pass
+
+            def remove(self) -> None:
+                pass
+
+        class Horizontal(_WidgetStub):
             pass
 
-        def __class_getitem__(cls, _item: object):
-            return cls
-
-        def run(self) -> None:
-            raise RuntimeError(
-                "Aurora terminal UI requires optional dependencies 'rich' and 'textual'."
-            )
-
-        def query_one(self, *_args: Any, **_kwargs: Any):
-            return _WidgetStub()
-
-    ComposeResult = object
-
-    class Binding:
-        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+        class Vertical(_WidgetStub):
             pass
 
-    class _WidgetStub:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
+        class VerticalScroll(_WidgetStub):
             pass
 
-        def __enter__(self):
-            return self
+        class Input(_WidgetStub):
+            class Submitted:
+                def __init__(self, value: str = "", input: object | None = None) -> None:
+                    self.value = value
+                    self.input = input or _WidgetStub()
 
-        def __exit__(self, exc_type, exc, tb) -> bool:
-            return False
-
-        def update(self, *_args: Any, **_kwargs: Any) -> None:
+        class Static(_WidgetStub):
             pass
 
-        def remove_children(self) -> None:
+        class Tab(_WidgetStub):
             pass
 
-        def mount(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        def scroll_end(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        def focus(self) -> None:
-            pass
-
-        def remove_class(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        def add_class(self, *_args: Any, **_kwargs: Any) -> None:
-            pass
-
-        def remove(self) -> None:
-            pass
-
-    class Horizontal(_WidgetStub):
-        pass
-
-    class Vertical(_WidgetStub):
-        pass
-
-    class VerticalScroll(_WidgetStub):
-        pass
-
-    class Input(_WidgetStub):
-        class Submitted:
-            def __init__(self, value: str = "", input: object | None = None) -> None:
-                self.value = value
-                self.input = input or _WidgetStub()
-
-    class Static(_WidgetStub):
-        pass
-
-    class Tab(_WidgetStub):
-        pass
-
-    class Tabs(_WidgetStub):
-        class TabActivated:
-            def __init__(self, tab: object | None = None) -> None:
-                self.tab = tab or _WidgetStub()
+        class Tabs(_WidgetStub):
+            class TabActivated:
+                def __init__(self, tab: object | None = None) -> None:
+                    self.tab = tab or _WidgetStub()
 
 from aurora.runtime.results import (
     ChatStreamEvent,
@@ -650,7 +664,7 @@ class ChatBubble(Static):
         self.remove_class("kind-system")
         self.add_class(f"kind-{_entry_kind(self.entry.title)}")
 
-    def _render_entry(self):
+    def _render_entry(self) -> Any:
         kind = _entry_kind(self.entry.title)
         meta_style = {
             "assistant": "bold #0c1118 on #d4b173",
@@ -937,7 +951,7 @@ class AuroraTerminalTUI(App[None]):
             return f"Aurora · {mode} · {state}"
         return f"Aurora · {mode} · {state} · {self.session_id}"
 
-    def _render_topbar(self):
+    def _render_topbar(self) -> Any:
         mode = "未建立"
         if self._cached_report is not None:
             mode = self._cached_report["identity"]["current_mode"]
@@ -953,7 +967,7 @@ class AuroraTerminalTUI(App[None]):
             line.append(f" 会话 {self.session_id} ", style="bold #d8e3ef on #13202f")
         return line
 
-    def _render_chat_header(self):
+    def _render_chat_header(self) -> Any:
         subtitle = "流式回复已开启，右侧同步展示提示词、检索与写回"
         if self.turn_count > 0:
             subtitle = f"已完成 {self.turn_count} 轮对话，当前回复会持续流式写入"
@@ -962,14 +976,14 @@ class AuroraTerminalTUI(App[None]):
             Text(subtitle, style="#8fa3ba"),
         )
 
-    def _render_sidebar_header(self):
+    def _render_sidebar_header(self) -> Any:
         active = self._inspector_title()
         return Group(
             Text("状态侧栏", style="bold #f4efe4"),
             Text(f"当前焦点：{active}", style="#8fa3ba"),
         )
 
-    def _render_statusbar(self):
+    def _render_statusbar(self) -> Any:
         if self._busy:
             return Text(self._footer_text, style="bold #f3cf92")
         return Text(self._footer_text, style="#8090a5")

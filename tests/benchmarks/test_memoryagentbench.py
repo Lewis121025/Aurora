@@ -13,6 +13,7 @@ Tests the MemoryAgentBench adapter:
 from __future__ import annotations
 
 import json
+from typing import Optional
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -79,7 +80,7 @@ class MockMemory:
         self._queries = []
         self._plot_counter = 0
 
-    def ingest(self, interaction_text: str, event_id: str = None, **kwargs):
+    def ingest(self, interaction_text: str, event_id: Optional[str] = None, **kwargs):
         self._ingested.append(interaction_text)
 
         # Create a mock plot

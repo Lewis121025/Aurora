@@ -20,6 +20,8 @@ from aurora.soul.extractors import (
     HeuristicMeaningProvider,
     LLMMeaningProvider,
     LLMNarrativeProvider,
+    MeaningProvider,
+    NarrativeProvider,
 )
 from aurora.system.errors import ConfigurationError
 
@@ -142,7 +144,9 @@ def build_memory_config(settings: AuroraSettings) -> SoulConfig:
     )
 
 
-def create_meaning_provider(*, settings: AuroraSettings, llm: Optional[LLMProvider]):
+def create_meaning_provider(
+    *, settings: AuroraSettings, llm: Optional[LLMProvider]
+) -> MeaningProvider:
     """创建意义提取器。若配置为 'llm' 则使用大模型，否则使用启发式规则。"""
     if settings.meaning_provider == "llm":
         if llm is None:
@@ -156,7 +160,9 @@ def create_meaning_provider(*, settings: AuroraSettings, llm: Optional[LLMProvid
     return HeuristicMeaningProvider()
 
 
-def create_narrative_provider(*, settings: AuroraSettings, llm: Optional[LLMProvider]):
+def create_narrative_provider(
+    *, settings: AuroraSettings, llm: Optional[LLMProvider]
+) -> NarrativeProvider:
     """创建叙事生成器。负责生成自我总结、梦境和修复文本。"""
     if settings.narrative_provider == "llm":
         if llm is None:

@@ -91,7 +91,7 @@ class TestFieldRetrieverBasic:
             query_text="测试",
             embedder=embedder,
             state=identity_state,
-            kinds=["plot"],
+            kinds=("plot",),
             k=5,
         )
 

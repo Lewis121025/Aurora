@@ -112,6 +112,7 @@ def test_runtime_respond_returns_persistence_receipt(tmp_path: Path) -> None:
     assert result.reply.strip()
     assert result.persistence.status == "accepted"
     assert result.persistence.job_id
+    assert result.memory_context.identity is not None
     assert result.memory_context.mode == result.memory_context.identity.current_mode
     runtime.close()
 

@@ -25,6 +25,7 @@ from typing import Any, Dict, List, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from aurora.runtime.runtime import AuroraRuntime
+    from aurora.runtime.results import PersistenceReceipt, QueryResult
 
 logger = logging.getLogger(__name__)
 
@@ -270,7 +271,7 @@ class AuroraMCPServer:
         event_id = str(uuid.uuid4())
         session_id = args.get("session_id", "mcp_session")
 
-        def _sync_ingest():
+        def _sync_ingest() -> "PersistenceReceipt":
             return self.runtime.accept_interaction(
                 event_id=event_id,
                 session_id=session_id,
@@ -299,7 +300,7 @@ class AuroraMCPServer:
         query = args["query"]
         k = args.get("k", 8)
 
-        def _sync_query():
+        def _sync_query() -> "QueryResult":
             return self.runtime.query(text=query, k=k, session_id=args.get("session_id"))
 
         loop = asyncio.get_event_loop()
@@ -333,7 +334,7 @@ class AuroraMCPServer:
     ) -> Dict[str, Any]:
         """处理 get_identity 工具调用。"""
 
-        def _sync_identity():
+        def _sync_identity() -> Dict[str, Any]:
             return self.runtime.get_identity()
 
         loop = asyncio.get_event_loop()
@@ -345,7 +346,7 @@ class AuroraMCPServer:
     ) -> Dict[str, Any]:
         """处理 provide_feedback 工具调用。"""
 
-        def _sync_feedback():
+        def _sync_feedback() -> None:
             self.runtime.feedback(
                 query_text=args["query"],
                 chosen_id=args["chosen_id"],
@@ -435,8 +436,8 @@ class AuroraMCPServer:
         params = request.get("params", {})
         request_id = request.get("id")
 
-        result = None
-        error = None
+        result: Dict[str, Any] | None = None
+        error: Dict[str, Any] | None = None
 
         try:
             if method == "initialize":

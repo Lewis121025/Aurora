@@ -14,6 +14,7 @@ aurora/benchmarks/adapters/locomo.py 的测试
 from __future__ import annotations
 
 import json
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -92,9 +93,9 @@ class MockMemory:
     """用于测试的模拟 AURORA 内存。"""
 
     def __init__(self):
-        self.plots = {}
-        self.stories = {}
-        self.themes = {}
+        self.plots: dict[str, Any] = {}
+        self.stories: dict[str, Any] = {}
+        self.themes: dict[str, Any] = {}
         self._ingested = []
         self._queries = []
         self._plot_counter = 0

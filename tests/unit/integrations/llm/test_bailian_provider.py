@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+from typing import Any
 
 from aurora.integrations.llm.ark import ArkLLM
 from aurora.integrations.llm.bailian import BailianLLM
@@ -41,7 +42,7 @@ class _FakeChat:
 
 class _FakeClient:
     def __init__(self, content: str):
-        self.calls = []
+        self.calls: list[dict[str, Any]] = []
         self.chat = _FakeChat(self, content)
 
 
