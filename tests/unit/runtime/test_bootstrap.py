@@ -5,9 +5,10 @@ import pytest
 from aurora.system.errors import ConfigurationError
 from aurora.integrations.llm.bailian import BailianLLM
 from aurora.runtime.bootstrap import (
-    create_embedding_provider,
+    create_content_embedding_provider,
     create_llm_provider,
     create_query_analyzer,
+    create_text_embedding_provider,
 )
 from aurora.runtime.settings import AuroraSettings
 from aurora.soul.query import QueryAnalyzer
@@ -37,10 +38,16 @@ def test_create_llm_provider_uses_bailian_provider():
     assert isinstance(provider, BailianLLM)
 
 
-def test_create_embedding_provider_requires_bailian_api_key():
-    settings = AuroraSettings(embedding_provider="bailian", bailian_embedding_api_key=None)
+def test_create_content_embedding_provider_requires_bailian_api_key():
+    settings = AuroraSettings(content_embedding_provider="bailian", bailian_embedding_api_key=None)
     with pytest.raises(ConfigurationError):
-        create_embedding_provider(settings)
+        create_content_embedding_provider(settings)
+
+
+def test_create_text_embedding_provider_requires_bailian_api_key():
+    settings = AuroraSettings(text_embedding_provider="bailian", bailian_embedding_api_key=None)
+    with pytest.raises(ConfigurationError):
+        create_text_embedding_provider(settings)
 
 
 def test_create_query_analyzer_requires_live_llm():

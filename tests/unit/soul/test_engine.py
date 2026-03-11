@@ -5,6 +5,7 @@ import numpy as np
 from aurora.integrations.embeddings.hash import HashEmbedding
 from aurora.soul.engine import AuroraSoul, SoulConfig
 from aurora.soul.extractors import CombinatorialNarrativeProvider, HeuristicMeaningProvider
+from aurora.soul.models import Message, TextPart
 from tests.helpers.query_router import build_test_query_analyzer
 
 
@@ -25,13 +26,17 @@ def build_memory(seed: int) -> AuroraSoul:
     )
 
 
+def _messages(text: str) -> list[Message]:
+    return [Message(role="user", parts=(TextPart(text=text),))]
+
+
 def test_soul_memory_round_trip_preserves_identity_and_plots() -> None:
     mem = build_memory(seed=7)
 
     first = None
     for text in ["对方冷淡地拒绝我。", "你又一次忽视我。", "我有点害怕被丢下。"]:
-        first = mem.ingest(text, actors=("user", "agent"))
-    mem.query("我们围绕什么关系张力反复出现过", k=6)
+        first = mem.ingest(_messages(text))
+    mem.query(_messages("我们围绕什么关系张力反复出现过"), k=6)
     assert first is not None
     assert any(plot.story_id is not None for plot in mem.plots.values())
     assert mem.identity.current_mode_label
@@ -58,8 +63,8 @@ def test_soul_memory_round_trip_preserves_identity_and_plots() -> None:
 def test_soul_memory_feedback_and_evolve_keep_new_observables_available() -> None:
     mem = build_memory(seed=11)
 
-    mem.ingest("你总是不理我，让我很难过。", actors=("user", "agent"))
-    trace = mem.query("她现在是什么状态？", k=4)
+    mem.ingest(_messages("你总是不理我，让我很难过。"))
+    trace = mem.query(_messages("她现在是什么状态？"), k=4)
     assert trace.ranked
 
     top_id, _, _ = trace.ranked[0]
@@ -98,7 +103,7 @@ def test_restore_does_not_call_remote_bootstrap_hooks() -> None:
         narrator=CombinatorialNarrativeProvider(),
         query_analyzer=build_test_query_analyzer(),
     )
-    mem.ingest("你突然安静下来，让我有点不确定。", actors=("user", "agent"))
+    mem.ingest(_messages("你突然安静下来，让我有点不确定。"))
 
     restored = AuroraSoul.from_state_dict(
         mem.to_state_dict(),
@@ -115,7 +120,7 @@ def test_restore_does_not_call_remote_bootstrap_hooks() -> None:
 
 def test_restore_rejects_removed_architecture_modes() -> None:
     mem = build_memory(seed=21)
-    mem.ingest("你看起来比昨天更放松了一点。", actors=("user", "agent"))
+    mem.ingest(_messages("你看起来比昨天更放松了一点。"))
 
     state = mem.to_state_dict()
     state["cfg"]["architecture_mode"] = "shadow"
@@ -152,10 +157,10 @@ def test_graph_first_materializes_story_and_theme_views_on_query() -> None:
         "你又提到结构化记忆和检索一致性。",
         "我们继续围绕图记忆和主题整理展开。",
     ]:
-        plot = mem.ingest(text, actors=("user", "agent"))
+        plot = mem.ingest(_messages(text))
         assert plot.story_id is None
 
-    trace = mem.query("我们之前围绕什么主题讨论过", k=6)
+    trace = mem.query(_messages("我们之前围绕什么主题讨论过"), k=6)
 
     assert trace.ranked
     assert mem.stories
@@ -167,7 +172,7 @@ def test_graph_first_materializes_story_and_theme_views_on_query() -> None:
 def test_graph_first_evolve_generates_repair_or_dream_with_provenance() -> None:
     mem = build_memory(seed=31)
 
-    plot = mem.ingest("你总是否定我，让我感觉自己不值得被接住。", actors=("user", "agent"))
+    plot = mem.ingest(_messages("你总是否定我，让我感觉自己不值得被接住。"))
     anchor_id = mem.core_anchor_ids[0]
     mem.graph.ensure_edge(
         anchor_id,

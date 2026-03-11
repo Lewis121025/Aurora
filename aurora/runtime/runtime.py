@@ -1,4 +1,4 @@
-"""Aurora V5 runtime: event-sourced CQRS with durable workers and overlay queries."""
+"""Aurora V6 runtime: event-sourced CQRS with multimodal interaction payloads."""
 
 from __future__ import annotations
 
@@ -18,12 +18,13 @@ from aurora.integrations.storage.runtime_store import (
 from aurora.integrations.storage.snapshot import Snapshot, SnapshotStore
 from aurora.runtime.bootstrap import (
     check_embedding_api_keys,
-    create_embedding_provider,
+    create_content_embedding_provider,
     create_llm_provider,
     create_meaning_provider,
     create_memory,
     create_narrative_provider,
     create_query_analyzer,
+    create_text_embedding_provider,
 )
 from aurora.runtime.response_context import ResponseContextBuilder
 from aurora.runtime.results import (
@@ -36,11 +37,12 @@ from aurora.runtime.results import (
 )
 from aurora.runtime.settings import AuroraSettings
 from aurora.soul.engine import AuroraSoul
+from aurora.soul.models import Message, TextPart, messages_to_text, normalize_text
 from aurora.system.errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
-RUNTIME_SCHEMA_VERSION = "aurora-runtime-v5"
+RUNTIME_SCHEMA_VERSION = "aurora-runtime-v6"
 SYSTEM_SESSION_ID = "__aurora_system__"
 
 
@@ -76,17 +78,14 @@ class AuroraRuntime:
         try:
             latest = self.snapshots.latest()
         except ValueError as exc:
-            raise ConfigurationError(str(exc).replace("V2", "Aurora Soul V5")) from exc
+            raise ConfigurationError(str(exc).replace("V2", "Aurora Soul V6")) from exc
         if latest is None:
             return create_memory(settings=self.settings, llm=self.llm)
         _seq, snap = latest
         self._loaded_snapshot_seq = snap.last_seq
         self._last_projected_seq = snap.last_seq
-        event_embedder = create_embedding_provider(self.settings)
-        axis_embedder = create_embedding_provider(
-            self.settings,
-            provider_override=self.settings.axis_embedding_provider or self.settings.embedding_provider,
-        )
+        event_embedder = create_content_embedding_provider(self.settings)
+        axis_embedder = create_text_embedding_provider(self.settings)
         meaning_provider = create_meaning_provider(settings=self.settings, llm=self.llm)
         narrator = create_narrative_provider(settings=self.settings, llm=self.llm)
         query_analyzer = create_query_analyzer(settings=self.settings, llm=self.llm)
@@ -309,25 +308,17 @@ class AuroraRuntime:
         *,
         event_id: str,
         session_id: str,
-        user_message: str,
-        agent_message: str,
-        actors: Optional[Sequence[str]] = None,
-        context: Optional[str] = None,
+        messages: Sequence[Message],
         ts: Optional[float] = None,
     ) -> PersistenceReceipt:
         event_ts = float(ts or time.time())
+        search_text = messages_to_text(messages, include_image_uris=True)
         payload = {
             "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
-            "user_message": user_message,
-            "agent_message": agent_message,
-            "actors": list(actors) if actors else ["user", "agent"],
-            "context": context,
+            "messages": [message.to_state_dict() for message in messages],
             "ts": event_ts,
+            "search_text": search_text,
         }
-        search_text = f"USER: {user_message}\nAURORA: {agent_message}"
-        if context:
-            search_text += f"\nCONTEXT: {context}"
-        payload["search_text"] = search_text
         event, job = self.store.append_event_and_enqueue(
             event_id=event_id,
             event_type="interaction",
@@ -348,9 +339,9 @@ class AuroraRuntime:
             projection_status="accepted",
         )
 
-    def _graph_query_hits(self, *, text: str, k: int) -> Tuple[List[QueryHit], Any]:
+    def _graph_query_hits(self, *, messages: Sequence[Message], k: int) -> Tuple[List[QueryHit], Any]:
         with self._lock:
-            trace = self.mem.query(text, k=max(k * 2, 8))
+            trace = self.mem.query(messages, k=max(k * 2, 8))
             hits: List[QueryHit] = []
             for node_id, score, kind in trace.ranked:
                 snippet, metadata = self._snippet_for(node_id=node_id, kind=kind)
@@ -405,9 +396,15 @@ class AuroraRuntime:
             return list(summary.source_event_ids) if summary is not None else []
         return []
 
-    def _overlay_query_hits(self, *, text: str, k: int, session_id: Optional[str]) -> List[QueryHit]:
+    def _overlay_query_hits(
+        self,
+        *,
+        query_text: str,
+        k: int,
+        session_id: Optional[str],
+    ) -> List[QueryHit]:
         hits = self.store.search_overlay_events(
-            query_text=text,
+            query_text=query_text,
             limit=max(k * 2, self.settings.overlay_search_limit),
             session_id=session_id,
         )
@@ -422,12 +419,19 @@ class AuroraRuntime:
             for hit in hits
         ]
 
-    def query(self, *, text: str, k: int = 8, session_id: Optional[str] = None) -> QueryResult:
-        graph_hits, trace = self._graph_query_hits(text=text, k=k)
-        overlay_hits = self._overlay_query_hits(text=text, k=k, session_id=session_id)
+    def query(
+        self,
+        *,
+        messages: Sequence[Message],
+        k: int = 8,
+        session_id: Optional[str] = None,
+    ) -> QueryResult:
+        query_text = self.mem.meaning_provider.project(messages)
+        graph_hits, trace = self._graph_query_hits(messages=messages, k=k)
+        overlay_hits = self._overlay_query_hits(query_text=query_text, k=k, session_id=session_id)
         merged = self._merge_hits(graph_hits=graph_hits, overlay_hits=overlay_hits, limit=k)
         return QueryResult(
-            query=text,
+            query=query_text,
             attractor_path_len=len(trace.attractor_path),
             overlay_hit_count=len(overlay_hits),
             hits=merged,
@@ -437,15 +441,20 @@ class AuroraRuntime:
         self,
         *,
         session_id: str,
-        user_message: str,
+        user_messages: Sequence[Message],
         k: int = 6,
     ) -> tuple[Any, Any]:
-        graph_hits, trace = self._graph_query_hits(text=user_message, k=k)
-        overlay_hits = self._overlay_query_hits(text=user_message, k=k, session_id=session_id)
+        query_text = self.mem.meaning_provider.project(user_messages)
+        graph_hits, trace = self._graph_query_hits(messages=user_messages, k=k)
+        overlay_hits = self._overlay_query_hits(
+            query_text=query_text,
+            k=k,
+            session_id=session_id,
+        )
         merged = self._merge_hits(graph_hits=graph_hits, overlay_hits=overlay_hits, limit=k)
         context = self.response_contexts.build(hits=merged, max_items=k)
         summary = self.response_contexts.trace_summary(
-            query=user_message,
+            query=query_text,
             attractor_path_len=len(trace.attractor_path),
             graph_kinds=[kind for _, _, kind in trace.ranked],
             overlay_hit_count=len(overlay_hits),
@@ -467,27 +476,26 @@ class AuroraRuntime:
         self,
         *,
         session_id: str,
-        user_message: str,
+        user_messages: Sequence[Message],
         event_id: Optional[str] = None,
-        context: Optional[str] = None,
-        actors: Optional[Sequence[str]] = None,
         k: int = 6,
         ts: Optional[float] = None,
     ) -> Iterator[ChatStreamEvent]:
         total_started = time.perf_counter()
         resolved_event_id = event_id or f"evt_turn_{uuid.uuid4().hex}"
+        user_display = normalize_text(messages_to_text(user_messages))
 
         yield ChatStreamEvent(kind="status", stage="retrieval", text="正在检索记忆")
         retrieval_started = time.perf_counter()
         memory_context, trace_summary = self.build_response_context(
             session_id=session_id,
-            user_message=user_message,
+            user_messages=user_messages,
             k=k,
         )
         retrieval_ms = (time.perf_counter() - retrieval_started) * 1000.0
 
         prompt = self.response_contexts.build_prompt(
-            user_message=user_message,
+            user_messages=list(user_messages),
             rendered_memory_brief=self.response_contexts.render_memory_brief(memory_context),
         )
 
@@ -498,8 +506,7 @@ class AuroraRuntime:
         assert self.llm is not None
         try:
             for chunk in self.llm.stream_complete(
-                prompt.user_prompt,
-                system=prompt.system_prompt,
+                prompt.messages,
                 temperature=0.3,
                 max_tokens=400,
                 timeout_s=self._response_llm_timeout_s(),
@@ -512,28 +519,33 @@ class AuroraRuntime:
             reply = "".join(reply_parts).strip()
             if not reply:
                 llm_error = "empty_stream_response"
-                reply = self._build_response_fallback(
+                reply_message = self._build_response_fallback(
                     memory_context=memory_context,
-                    user_message=user_message,
+                    user_text=user_display,
                     reason=llm_error,
                 )
+                reply = normalize_text(messages_to_text((reply_message,)))
                 yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
+            else:
+                reply_message = Message(role="assistant", parts=(TextPart(text=reply),))
         except Exception as exc:
             llm_error = str(exc)
             partial = "".join(reply_parts).strip()
             if partial:
                 reply = partial
+                reply_message = Message(role="assistant", parts=(TextPart(text=reply),))
                 yield ChatStreamEvent(
                     kind="status",
                     stage="generation",
                     text="流式生成中断，保留已生成内容",
                 )
             else:
-                reply = self._build_response_fallback(
+                reply_message = self._build_response_fallback(
                     memory_context=memory_context,
-                    user_message=user_message,
+                    user_text=user_display,
                     reason=llm_error,
                 )
+                reply = normalize_text(messages_to_text((reply_message,)))
                 yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
         generation_ms = (time.perf_counter() - generation_started) * 1000.0
 
@@ -542,10 +554,7 @@ class AuroraRuntime:
         receipt = self.accept_interaction(
             event_id=resolved_event_id,
             session_id=session_id,
-            user_message=user_message,
-            agent_message=reply,
-            actors=actors,
-            context=context,
+            messages=[*user_messages, reply_message],
             ts=ts,
         )
         persist_ms = (time.perf_counter() - persist_started) * 1000.0
@@ -555,12 +564,10 @@ class AuroraRuntime:
             kind="done",
             stage="done",
             result=ChatTurnResult(
-                reply=reply,
+                reply_message=reply_message,
                 event_id=resolved_event_id,
                 memory_context=memory_context,
                 rendered_memory_brief=prompt.rendered_memory_brief,
-                system_prompt=prompt.system_prompt,
-                user_prompt=prompt.user_prompt,
                 retrieval_trace_summary=trace_summary,
                 persistence=receipt,
                 timings=ChatTimings(
@@ -577,10 +584,8 @@ class AuroraRuntime:
         self,
         *,
         session_id: str,
-        user_message: str,
+        user_messages: Sequence[Message],
         event_id: Optional[str] = None,
-        context: Optional[str] = None,
-        actors: Optional[Sequence[str]] = None,
         k: int = 6,
         ts: Optional[float] = None,
     ) -> ChatTurnResult:
@@ -589,48 +594,36 @@ class AuroraRuntime:
         retrieval_started = time.perf_counter()
         memory_context, trace_summary = self.build_response_context(
             session_id=session_id,
-            user_message=user_message,
+            user_messages=user_messages,
             k=k,
         )
         retrieval_ms = (time.perf_counter() - retrieval_started) * 1000.0
         prompt = self.response_contexts.build_prompt(
-            user_message=user_message,
+            user_messages=list(user_messages),
             rendered_memory_brief=self.response_contexts.render_memory_brief(memory_context),
         )
         generation_started = time.perf_counter()
         llm_error: Optional[str] = None
-        reply = self._generate_reply(
+        reply_message = self._generate_reply(
             prompt=prompt,
             memory_context=memory_context,
-            user_message=user_message,
+            user_text=normalize_text(messages_to_text(user_messages)),
         )
-        if reply.startswith("__LLM_ERROR__:"):
-            llm_error = reply.removeprefix("__LLM_ERROR__:")
-            reply = self._build_response_fallback(
-                memory_context=memory_context,
-                user_message=user_message,
-                reason=llm_error,
-            )
         generation_ms = (time.perf_counter() - generation_started) * 1000.0
         persist_started = time.perf_counter()
         receipt = self.accept_interaction(
             event_id=resolved_event_id,
             session_id=session_id,
-            user_message=user_message,
-            agent_message=reply,
-            actors=actors,
-            context=context,
+            messages=[*user_messages, reply_message],
             ts=ts,
         )
         persist_ms = (time.perf_counter() - persist_started) * 1000.0
         total_ms = (time.perf_counter() - total_started) * 1000.0
         return ChatTurnResult(
-            reply=reply,
+            reply_message=reply_message,
             event_id=resolved_event_id,
             memory_context=memory_context,
             rendered_memory_brief=prompt.rendered_memory_brief,
-            system_prompt=prompt.system_prompt,
-            user_prompt=prompt.user_prompt,
             retrieval_trace_summary=trace_summary,
             persistence=receipt,
             timings=ChatTimings(
@@ -642,26 +635,46 @@ class AuroraRuntime:
             llm_error=llm_error,
         )
 
-    def _generate_reply(self, *, prompt: Any, memory_context: Any, user_message: str) -> str:
+    def _generate_reply(self, *, prompt: Any, memory_context: Any, user_text: str) -> Message:
         assert self.llm is not None
         try:
             return self.llm.complete(
-                prompt.user_prompt,
-                system=prompt.system_prompt,
+                prompt.messages,
                 temperature=0.3,
                 max_tokens=400,
                 timeout_s=self._response_llm_timeout_s(),
                 max_retries=self._response_llm_max_retries(),
-            ).strip()
+            )
         except Exception as exc:
-            return f"__LLM_ERROR__:{exc}"
+            return self._build_response_fallback(
+                memory_context=memory_context,
+                user_text=user_text,
+                reason=str(exc),
+            )
 
     @staticmethod
-    def _build_response_fallback(*, memory_context: Any, user_message: str, reason: Optional[str] = None) -> str:
+    def _build_response_fallback(
+        *, memory_context: Any, user_text: str, reason: Optional[str] = None
+    ) -> Message:
         prefix = "这轮语言模型调用失败了。"
         if memory_context.narrative_summary is not None:
-            return prefix + f"我当前还能稳住的内部状态是：{memory_context.narrative_summary.current_mode}。"
-        return f"{prefix} 当前没有足够稳定的线索来回答。我会先接收这轮对话：{user_message[:80]}"
+            return Message(
+                role="assistant",
+                parts=(
+                    TextPart(
+                        text=prefix
+                        + f"我当前还能稳住的内部状态是：{memory_context.narrative_summary.current_mode}。"
+                    ),
+                ),
+            )
+        return Message(
+            role="assistant",
+            parts=(
+                TextPart(
+                    text=f"{prefix} 当前没有足够稳定的线索来回答。我会先接收这轮对话：{user_text[:80]}"
+                ),
+            ),
+        )
 
     def get_identity(self) -> Dict[str, Any]:
         with self._lock:
@@ -754,7 +767,7 @@ class AuroraRuntime:
             metadata = {"source": plot.source, "story_id": plot.story_id or ""}
             if plot.event_id:
                 metadata["event_id"] = plot.event_id
-            return plot.text[:240], metadata
+            return plot.semantic_text[:240], metadata
         if kind == "summary":
             summary = self.mem.summaries.get(node_id)
             if summary is None:

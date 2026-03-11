@@ -10,9 +10,12 @@ from __future__ import annotations
 import json
 import logging
 import time
-from typing import Any, Dict, Iterator, List, Optional, Type, TypeVar, cast
+from typing import Any, Dict, Iterator, List, Optional, Sequence, Type, TypeVar, cast
 
 from pydantic import BaseModel
+
+from aurora.integrations.assets import AssetResolver
+from aurora.soul.models import ImagePart, Message, TextPart
 
 from .provider import LLMProvider
 
@@ -57,6 +60,7 @@ class ArkLLM(LLMProvider):
         self.timeout = timeout
         self._client: Any | None = None
         self._total_tokens_used = 0
+        self._assets = AssetResolver()
 
     def _get_client(self) -> Any:
         """
@@ -104,28 +108,52 @@ class ArkLLM(LLMProvider):
             return ""
         return str(content)
 
+    def _to_openai_messages(self, messages: Sequence[Message]) -> List[Dict[str, Any]]:
+        encoded: List[Dict[str, Any]] = []
+        for message in messages:
+            content: List[Dict[str, Any]] = []
+            for part in message.parts:
+                if isinstance(part, TextPart):
+                    content.append({"type": "text", "text": part.text})
+                    continue
+                if isinstance(part, ImagePart):
+                    content.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": self._assets.resolve_for_remote(
+                                    part.uri,
+                                    mime_type=part.mime_type,
+                                )
+                            },
+                        }
+                    )
+                    continue
+                raise TypeError(f"Unsupported message part: {type(part)!r}")
+            encoded.append({"role": message.role, "content": content})
+        return encoded
+
+    def _response_message(self, content: Any) -> Message:
+        text = self._response_text(content)
+        return Message(role="assistant", parts=(TextPart(text=text),))
+
     def complete(
         self,
-        prompt: str,
+        messages: Sequence[Message],
         *,
-        system: Optional[str] = None,
         temperature: float = 0.2,
         max_tokens: int = 512,
         timeout_s: float = 30.0,
         stop: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
         max_retries: Optional[int] = None,
-    ) -> str:
+    ) -> Message:
         """
         生成文本补全。
         执行带有指数退避（Exponential Backoff）的同步阻塞调用。
         """
         client = self._get_client()
-
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+        encoded_messages = self._to_openai_messages(messages)
 
         last_error = None
         attempt_limit = self.max_retries if max_retries is None else max(1, int(max_retries))
@@ -133,7 +161,7 @@ class ArkLLM(LLMProvider):
             try:
                 kwargs = {
                     "model": self.model,
-                    "messages": messages,
+                    "messages": encoded_messages,
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     "timeout": timeout_s,
@@ -148,7 +176,7 @@ class ArkLLM(LLMProvider):
                 if hasattr(response, "usage") and response.usage:
                     self._total_tokens_used += response.usage.total_tokens
 
-                return self._response_text(response.choices[0].message.content)
+                return self._response_message(response.choices[0].message.content)
 
             except Exception as e:
                 last_error = e
@@ -162,9 +190,8 @@ class ArkLLM(LLMProvider):
 
     def stream_complete(
         self,
-        prompt: str,
+        messages: Sequence[Message],
         *,
-        system: Optional[str] = None,
         temperature: float = 0.2,
         max_tokens: int = 512,
         timeout_s: float = 30.0,
@@ -174,11 +201,7 @@ class ArkLLM(LLMProvider):
     ) -> Iterator[str]:
         """流式文本生成。通过迭代器逐块返回生成的字符串。"""
         client = self._get_client()
-
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+        encoded_messages = self._to_openai_messages(messages)
 
         last_error = None
         attempt_limit = self.max_retries if max_retries is None else max(1, int(max_retries))
@@ -187,7 +210,7 @@ class ArkLLM(LLMProvider):
             try:
                 kwargs = {
                     "model": self.model,
-                    "messages": messages,
+                    "messages": encoded_messages,
                     "temperature": temperature,
                     "max_tokens": max_tokens,
                     "timeout": timeout_s,
@@ -233,8 +256,7 @@ class ArkLLM(LLMProvider):
     def complete_json(
         self,
         *,
-        system: str,
-        user: str,
+        messages: Sequence[Message],
         schema: Type[T],
         temperature: float = 0.2,
         timeout_s: float = 30.0,
@@ -250,10 +272,15 @@ class ArkLLM(LLMProvider):
         4. 执行严格的 Schema 校验。
         """
         client = self._get_client()
-        messages = [
-            {"role": "system", "content": f"{system}\n\n只返回符合给定 Schema 的 JSON 数据。"},
-            {"role": "user", "content": user},
-        ]
+        schema_messages = list(messages)
+        schema_messages.insert(
+            0,
+            Message(
+                role="system",
+                parts=(TextPart(text="只返回符合给定 Schema 的 JSON 数据。"),),
+            ),
+        )
+        encoded_messages = self._to_openai_messages(schema_messages)
 
         last_error = None
         attempt_limit = self.max_retries if max_retries is None else max(1, int(max_retries))
@@ -262,7 +289,7 @@ class ArkLLM(LLMProvider):
                 response = client.chat.completions.create(
                     **{
                         "model": self.model,
-                        "messages": messages,
+                        "messages": encoded_messages,
                         "temperature": temperature,
                         "max_tokens": self._json_max_tokens(schema),
                         "timeout": timeout_s,
@@ -359,37 +386,6 @@ class ArkLLM(LLMProvider):
                 if isinstance(nested, dict):
                     return cast(Dict[str, Any], nested)
         return data
-
-    def complete_text(
-        self,
-        *,
-        system: str,
-        user: str,
-        temperature: float = 0.7,
-        max_tokens: int = 2048,
-        timeout_s: float = 30.0,
-    ) -> str:
-        """
-        快速文本补全便捷方法。适用于自由形式的叙事、摘要生成。
-        """
-        client = self._get_client()
-
-        response = client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            temperature=temperature,
-            max_tokens=max_tokens,
-            timeout=timeout_s,
-            **self._request_options(structured=False),
-        )
-
-        if hasattr(response, "usage") and response.usage:
-            self._total_tokens_used += response.usage.total_tokens
-
-        return self._response_text(response.choices[0].message.content)
 
     @property
     def total_tokens_used(self) -> int:

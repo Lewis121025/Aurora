@@ -9,8 +9,8 @@ AURORA 本地语义嵌入
     from aurora.integrations.embeddings import LocalSemanticEmbedding
 
     embedder = LocalSemanticEmbedding(dim=384)
-    vec1 = embedder.embed("我住在北京")
-    vec2 = embedder.embed("我在北京生活")
+    vec1 = embedder.embed_text("我住在北京")
+    vec2 = embedder.embed_text("我在北京生活")
     # vec1 和 vec2 会相似，因为它们共享词汇
 """
 
@@ -22,11 +22,12 @@ from typing import Dict, List, Sequence
 
 import numpy as np
 
-from aurora.integrations.embeddings.base import EmbeddingProvider
+from aurora.integrations.embeddings.base import ContentEmbeddingProvider, TextEmbeddingProvider
+from aurora.soul.models import Message, messages_have_image_parts, messages_text_only
 from aurora.utils.math_utils import l2_normalize
 
 
-class LocalSemanticEmbedding(EmbeddingProvider):
+class LocalSemanticEmbedding(ContentEmbeddingProvider, TextEmbeddingProvider):
     """本地语义嵌入，使用词频向量捕获基本语义相似性。
 
     比 HashEmbedding 更好，因为语义相似的文本会有相似的向量。
@@ -105,7 +106,7 @@ class LocalSemanticEmbedding(EmbeddingProvider):
 
         return tokens
 
-    def embed(self, text: str) -> np.ndarray:
+    def embed_text(self, text: str) -> np.ndarray:
         """生成文本的语义向量。
 
         使用词袋模型：将所有词向量取平均。
@@ -139,7 +140,7 @@ class LocalSemanticEmbedding(EmbeddingProvider):
         # L2 归一化
         return l2_normalize(embedding)
 
-    def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
+    def embed_text_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
         """嵌入多个文本。
 
         参数：
@@ -148,7 +149,7 @@ class LocalSemanticEmbedding(EmbeddingProvider):
         返回：
             嵌入向量列表
         """
-        return [self.embed(t) for t in texts]
+        return [self.embed_text(text) for text in texts]
 
     def similarity(self, text1: str, text2: str) -> float:
         """计算两个文本的余弦相似度。
@@ -162,6 +163,14 @@ class LocalSemanticEmbedding(EmbeddingProvider):
         返回：
             范围在 [-1, 1] 的余弦相似度
         """
-        vec1 = self.embed(text1)
-        vec2 = self.embed(text2)
+        vec1 = self.embed_text(text1)
+        vec2 = self.embed_text(text2)
         return float(np.dot(vec1, vec2))
+
+    def embed_content(self, messages: Sequence[Message]) -> np.ndarray:
+        if messages_have_image_parts(messages):
+            raise ValueError("LocalSemanticEmbedding is text-only and cannot embed image parts")
+        return self.embed_text(messages_text_only(messages))
+
+    def embed_content_batch(self, items: Sequence[Sequence[Message]]) -> List[np.ndarray]:
+        return [self.embed_content(messages) for messages in items]

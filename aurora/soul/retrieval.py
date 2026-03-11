@@ -40,7 +40,6 @@ from aurora.soul.models import (
     l2_normalize,
     softmax,
 )
-from aurora.integrations.embeddings.base import EmbeddingProvider
 from aurora.utils.math_utils import cosine_sim
 
 
@@ -484,7 +483,7 @@ class FieldRetriever:
 
     def _payload_text(self, payload: Any) -> str:
         if isinstance(payload, dict):
-            for key in ("text", "name", "description"):
+            for key in ("semantic_text", "text", "name", "description"):
                 value = payload.get(key)
                 if value:
                     return str(value)
@@ -492,8 +491,8 @@ class FieldRetriever:
         return str(
             getattr(
                 payload,
-                "text",
-                getattr(payload, "name", getattr(payload, "description", "")),
+                "semantic_text",
+                getattr(payload, "text", getattr(payload, "name", getattr(payload, "description", ""))),
             )
         )
 
@@ -873,7 +872,7 @@ class FieldRetriever:
     def retrieve(
         self,
         query_text: str,
-        embedder: EmbeddingProvider,
+        query_embedding: np.ndarray,
         state: IdentityState,
         kinds: Tuple[str, ...],
         k: int = 5,
@@ -881,7 +880,7 @@ class FieldRetriever:
         """
         核心检索入口。
         """
-        query_emb = embedder.embed(query_text)
+        query_emb = np.asarray(query_embedding, dtype=np.float32)
         self_vec = (
             state.self_vector if getattr(state, "self_vector", None) is not None else query_emb
         )

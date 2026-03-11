@@ -1,11 +1,11 @@
-"""Runtime result models for Aurora V5."""
+"""Runtime result models for Aurora V6."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
-from aurora.soul.models import IdentitySnapshot, NarrativeSummary
+from aurora.soul.models import IdentitySnapshot, Message, NarrativeSummary
 
 
 MemoryKind = Literal["event", "plot", "summary", "story", "theme"]
@@ -81,12 +81,10 @@ class ChatTimings:
 
 @dataclass(frozen=True)
 class ChatTurnResult:
-    reply: str
+    reply_message: Message
     event_id: str
     memory_context: StructuredMemoryContext
     rendered_memory_brief: str
-    system_prompt: str
-    user_prompt: str
     retrieval_trace_summary: RetrievalTraceSummary
     persistence: PersistenceReceipt
     timings: ChatTimings

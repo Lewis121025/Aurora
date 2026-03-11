@@ -18,6 +18,7 @@ from aurora.interfaces.api.schemas import (
     IdentitySnapshotResponse,
     JobStatusResponse,
     MemoryStatsResponse,
+    MessagePayload,
     NarrativeSummaryResponse,
     PersistenceReceiptResponse,
     QueryHitResponse,
@@ -27,9 +28,11 @@ from aurora.interfaces.api.schemas import (
     RetrievalTraceSummary,
     StructuredMemoryContext,
 )
+from aurora.interfaces.messages import message_payload, to_domain_messages
 from aurora.runtime.results import StructuredMemoryContext as RuntimeStructuredMemoryContext
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
+from aurora.soul.models import Message
 from aurora.system.version import __version__
 
 try:
@@ -89,29 +92,34 @@ def _context_response(context: RuntimeStructuredMemoryContext) -> StructuredMemo
     )
 
 
+def _message_response(message: Message) -> MessagePayload:
+    return message_payload(message)
+
+
 @app.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:
     return HealthResponse(status="healthy", version=__version__, timestamp=time.time())
 
 
-@app.post("/v5/interactions", response_model=PersistenceReceiptResponse)
+@app.post("/v6/interactions", response_model=PersistenceReceiptResponse)
 def interactions(req: AcceptedInteractionRequest) -> PersistenceReceiptResponse:
     event_id = req.event_id or f"evt_turn_{int(time.time() * 1000)}"
     receipt = get_runtime().accept_interaction(
         event_id=event_id,
         session_id=req.session_id,
-        user_message=req.user_message,
-        agent_message=req.agent_message,
-        actors=req.actors,
-        context=req.context,
+        messages=_to_domain_messages(req.messages),
         ts=req.ts,
     )
     return PersistenceReceiptResponse(**receipt.__dict__)
 
 
-@app.post("/v5/query", response_model=QueryResponse)
+@app.post("/v6/query", response_model=QueryResponse)
 def query(req: QueryRequest) -> QueryResponse:
-    result = get_runtime().query(text=req.text, k=req.k, session_id=req.session_id)
+    result = get_runtime().query(
+        messages=_to_domain_messages(req.messages),
+        k=req.k,
+        session_id=req.session_id,
+    )
     return QueryResponse(
         query=result.query,
         attractor_path_len=result.attractor_path_len,
@@ -120,24 +128,20 @@ def query(req: QueryRequest) -> QueryResponse:
     )
 
 
-@app.post("/v5/chat/replies", response_model=ChatReplyAcceptedResponse)
+@app.post("/v6/chat/replies", response_model=ChatReplyAcceptedResponse)
 def chat_replies(req: ReplyRequest) -> ChatReplyAcceptedResponse:
     result = get_runtime().respond(
         session_id=req.session_id,
-        user_message=req.user_message,
+        user_messages=_to_domain_messages(req.messages),
         event_id=req.event_id,
-        context=req.context,
-        actors=req.actors,
         k=req.k,
         ts=req.ts,
     )
     return ChatReplyAcceptedResponse(
-        reply=result.reply,
+        reply_message=_message_response(result.reply_message),
         event_id=result.event_id,
         memory_context=_context_response(result.memory_context),
         rendered_memory_brief=result.rendered_memory_brief,
-        system_prompt=result.system_prompt,
-        user_prompt=result.user_prompt,
         retrieval_trace_summary=RetrievalTraceSummary(**result.retrieval_trace_summary.__dict__),
         persistence=PersistenceReceiptResponse(**result.persistence.__dict__),
         timings=ChatTimings(**result.timings.__dict__),
@@ -145,23 +149,23 @@ def chat_replies(req: ReplyRequest) -> ChatReplyAcceptedResponse:
     )
 
 
-@app.get("/v5/events/{event_id}", response_model=EventStatusResponse)
+@app.get("/v6/events/{event_id}", response_model=EventStatusResponse)
 def event_status(event_id: str) -> EventStatusResponse:
     return EventStatusResponse(**get_runtime().get_event_status(event_id))
 
 
-@app.get("/v5/jobs/{job_id}", response_model=JobStatusResponse)
+@app.get("/v6/jobs/{job_id}", response_model=JobStatusResponse)
 def job_status(job_id: str) -> JobStatusResponse:
     return JobStatusResponse(**get_runtime().get_job_status(job_id))
 
 
-@app.post("/v5/feedback")
+@app.post("/v6/feedback")
 def feedback(req: FeedbackRequest) -> dict[str, bool]:
     get_runtime().feedback(query_text=req.query_text, chosen_id=req.chosen_id, success=req.success)
     return {"ok": True}
 
 
-@app.get("/v5/identity", response_model=IdentityResponse)
+@app.get("/v6/identity", response_model=IdentityResponse)
 def identity() -> IdentityResponse:
     report = get_runtime().get_identity()
     identity_payload = report["identity"]
@@ -174,6 +178,6 @@ def identity() -> IdentityResponse:
     )
 
 
-@app.get("/v5/stats", response_model=MemoryStatsResponse)
+@app.get("/v6/stats", response_model=MemoryStatsResponse)
 def stats() -> MemoryStatsResponse:
     return MemoryStatsResponse(**get_runtime().get_stats())

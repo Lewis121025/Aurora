@@ -15,6 +15,7 @@ from typing import List, Literal, Optional, Sequence, Tuple
 from pydantic import BaseModel, Field
 
 from aurora.integrations.llm.provider import LLMProvider
+from aurora.soul.models import Message, TextPart
 from aurora.system.errors import ConfigurationError
 
 # 检索超参数
@@ -219,8 +220,13 @@ class LLMQueryAnalyzer(BaseQueryAnalyzer):
             return QueryAnalysis(query_type=QueryType.FACTUAL)
 
         payload = self._llm.complete_json(
-            system=QUERY_ROUTER_SYSTEM_PROMPT,
-            user=build_query_router_user_prompt(text),
+            messages=(
+                Message(role="system", parts=(TextPart(text=QUERY_ROUTER_SYSTEM_PROMPT),)),
+                Message(
+                    role="user",
+                    parts=(TextPart(text=build_query_router_user_prompt(text)),),
+                ),
+            ),
             schema=QueryRoutePayload,
             temperature=0.0,
             timeout_s=self._timeout_s,

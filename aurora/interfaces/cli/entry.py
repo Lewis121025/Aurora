@@ -5,9 +5,20 @@ import json
 import os
 from typing import Optional, Sequence
 
+from aurora.interfaces.messages import parse_message_json
 from aurora.interfaces.terminal.observer import run_observer
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
+
+
+def _load_messages(args: argparse.Namespace):
+    raw = ""
+    if args.messages_json:
+        raw = args.messages_json
+    elif args.messages_file:
+        with open(args.messages_file, "r", encoding="utf-8") as handle:
+            raw = handle.read()
+    return parse_message_json(raw)
 
 
 def _get_runtime(data_dir: Optional[str] = None) -> AuroraRuntime:
@@ -22,15 +33,13 @@ def _close_runtime(runtime: object) -> None:
 
 
 def _cmd_ingest(args: argparse.Namespace) -> None:
+    messages = _load_messages(args)
     runtime = _get_runtime(args.data_dir)
     try:
         receipt = runtime.accept_interaction(
             event_id=args.event_id or "evt_cli_ingest",
             session_id=args.session_id or "cli",
-            user_message=args.user_message,
-            agent_message=args.agent_message,
-            actors=args.actors,
-            context=args.context,
+            messages=messages,
             ts=args.ts,
         )
         print(json.dumps(receipt.__dict__, ensure_ascii=False, indent=2))
@@ -39,9 +48,10 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 
 
 def _cmd_query(args: argparse.Namespace) -> None:
+    messages = _load_messages(args)
     runtime = _get_runtime(args.data_dir)
     try:
-        result = runtime.query(text=args.query, k=args.k, session_id=args.session_id)
+        result = runtime.query(messages=messages, k=args.k, session_id=args.session_id)
         print(
             json.dumps(
                 {
@@ -59,20 +69,19 @@ def _cmd_query(args: argparse.Namespace) -> None:
 
 
 def _cmd_respond(args: argparse.Namespace) -> None:
+    messages = _load_messages(args)
     runtime = _get_runtime(args.data_dir)
     try:
         result = runtime.respond(
             session_id=args.session_id or "cli",
-            user_message=args.user_message,
-            context=args.context,
-            actors=args.actors,
+            user_messages=messages,
             k=args.k,
             ts=args.ts,
         )
         print(
             json.dumps(
                 {
-                    "reply": result.reply,
+                    "reply_message": result.reply_message.to_state_dict(),
                     "event_id": result.event_id,
                     "mode": result.memory_context.mode,
                     "intuition": result.memory_context.intuition,
@@ -169,24 +178,25 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     sub = parser.add_subparsers(dest="cmd")
 
     ingest_p = sub.add_parser("ingest", help="接收一条交互并入队投影")
-    ingest_p.add_argument("user_message")
-    ingest_p.add_argument("agent_message")
+    ingest_group = ingest_p.add_mutually_exclusive_group(required=True)
+    ingest_group.add_argument("--messages-json", help="V6 messages JSON 数组")
+    ingest_group.add_argument("--messages-file", help="包含 V6 messages JSON 数组的文件路径")
     ingest_p.add_argument("--event-id")
     ingest_p.add_argument("--session-id")
-    ingest_p.add_argument("--context")
-    ingest_p.add_argument("--actors", nargs="*")
     ingest_p.add_argument("--ts", type=float)
 
     query_p = sub.add_parser("query", help="查询 Aurora")
-    query_p.add_argument("query")
+    query_group = query_p.add_mutually_exclusive_group(required=True)
+    query_group.add_argument("--messages-json", help="V6 messages JSON 数组")
+    query_group.add_argument("--messages-file", help="包含 V6 messages JSON 数组的文件路径")
     query_p.add_argument("-k", type=int, default=8)
     query_p.add_argument("--session-id")
 
     respond_p = sub.add_parser("respond", help="生成一轮回复并异步持久化")
-    respond_p.add_argument("user_message")
+    respond_group = respond_p.add_mutually_exclusive_group(required=True)
+    respond_group.add_argument("--messages-json", help="V6 messages JSON 数组")
+    respond_group.add_argument("--messages-file", help="包含 V6 messages JSON 数组的文件路径")
     respond_p.add_argument("--session-id")
-    respond_p.add_argument("--context")
-    respond_p.add_argument("--actors", nargs="*")
     respond_p.add_argument("-k", type=int, default=6)
     respond_p.add_argument("--ts", type=float)
 

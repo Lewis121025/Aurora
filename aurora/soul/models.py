@@ -58,6 +58,8 @@ AXIS_LEVELS = {"homeostatic", "persona"}
 PLOT_SOURCES = {"wake", "dream", "repair", "mode"}
 ITEM_STATUSES = {"active", "absorbed", "archived"}
 THEME_TYPES = {"pattern", "lesson", "preference", "causality", "capability", "limitation", "self"}
+MESSAGE_ROLES = {"user", "assistant", "system", "self"}
+MESSAGE_PART_TYPES = {"text", "image"}
 
 
 def sigmoid(x: float) -> float:
@@ -103,6 +105,20 @@ def _coerce_theme_type(
     )
 
 
+def _coerce_message_role(value: Any) -> Literal["user", "assistant", "system", "self"]:
+    role = str(value)
+    if role not in MESSAGE_ROLES:
+        role = "user"
+    return cast(Literal["user", "assistant", "system", "self"], role)
+
+
+def _coerce_message_part_type(value: Any) -> Literal["text", "image"]:
+    part_type = str(value)
+    if part_type not in MESSAGE_PART_TYPES:
+        part_type = "text"
+    return cast(Literal["text", "image"], part_type)
+
+
 def stable_hash(text: str) -> int:
     """生成稳定的哈希值，用于确定性标识"""
     h = hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -143,6 +159,126 @@ def tokenize_loose(text: str) -> List[str]:
     """简单的分词器，支持中英文混排"""
     words = re.findall(r"[A-Za-z][A-Za-z_\-]{1,}|[\u4e00-\u9fff]{1,6}|\d+", text.lower())
     return [word for word in words if word.strip()]
+
+
+def normalize_text(text: str) -> str:
+    """将文本压缩为稳定的单空格表示。"""
+    return " ".join(str(text).split()).strip()
+
+
+@dataclass(frozen=True)
+class TextPart:
+    type: Literal["text"] = "text"
+    text: str = ""
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {"type": "text", "text": self.text}
+
+
+@dataclass(frozen=True)
+class ImagePart:
+    type: Literal["image"] = "image"
+    uri: str = ""
+    mime_type: Optional[str] = None
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"type": "image", "uri": self.uri}
+        if self.mime_type:
+            payload["mime_type"] = self.mime_type
+        return payload
+
+
+MessagePart = TextPart | ImagePart
+
+
+def message_part_from_state_dict(data: Dict[str, Any]) -> MessagePart:
+    part_type = _coerce_message_part_type(data.get("type", "text"))
+    if part_type == "image":
+        return ImagePart(
+            uri=str(data.get("uri", "")),
+            mime_type=str(data["mime_type"]) if data.get("mime_type") is not None else None,
+        )
+    return TextPart(text=str(data.get("text", "")))
+
+
+@dataclass(frozen=True)
+class Message:
+    role: Literal["user", "assistant", "system", "self"]
+    parts: Tuple[MessagePart, ...]
+    actor: Optional[str] = None
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "role": self.role,
+            "parts": [part.to_state_dict() for part in self.parts],
+        }
+        if self.actor is not None:
+            payload["actor"] = self.actor
+        return payload
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "Message":
+        return cls(
+            role=_coerce_message_role(data.get("role", "user")),
+            parts=tuple(
+                message_part_from_state_dict(item)
+                for item in cast(Sequence[Dict[str, Any]], data.get("parts", ()))
+            ),
+            actor=str(data["actor"]) if data.get("actor") is not None else None,
+        )
+
+
+def render_part_text(part: MessagePart, *, include_image_uris: bool = False) -> str:
+    if isinstance(part, TextPart):
+        return normalize_text(part.text)
+    label = "[image]"
+    if include_image_uris and part.uri:
+        return f"{label} {part.uri}"
+    return label
+
+
+def message_text(message: Message, *, include_image_uris: bool = False) -> str:
+    content = " ".join(
+        filter(
+            None,
+            (render_part_text(part, include_image_uris=include_image_uris) for part in message.parts),
+        )
+    ).strip()
+    if not content:
+        content = "[empty]"
+    return f"{message.role.upper()}: {content}"
+
+
+def messages_to_text(messages: Sequence[Message], *, include_image_uris: bool = False) -> str:
+    return "\n".join(
+        message_text(message, include_image_uris=include_image_uris) for message in messages
+    ).strip()
+
+
+def messages_text_only(messages: Sequence[Message]) -> str:
+    parts: List[str] = []
+    for message in messages:
+        content = " ".join(
+            normalize_text(part.text)
+            for part in message.parts
+            if isinstance(part, TextPart) and normalize_text(part.text)
+        ).strip()
+        if content:
+            parts.append(f"{message.role.upper()}: {content}")
+    return "\n".join(parts).strip()
+
+
+def messages_have_image_parts(messages: Sequence[Message]) -> bool:
+    return any(isinstance(part, ImagePart) for message in messages for part in message.parts)
+
+
+def message_actors(messages: Sequence[Message]) -> Tuple[str, ...]:
+    ordered: List[str] = []
+    for message in messages:
+        actor = normalize_text(message.actor or message.role)
+        if actor and actor not in ordered:
+            ordered.append(actor)
+    return tuple(ordered)
 
 
 # 反义词提示库，用于启发式地推断人设维度的负极
@@ -207,8 +343,8 @@ class AxisSpec:
             ).strip()
             or self.negative_pole
         )
-        self.positive_anchor = l2_normalize(embedder.embed(pos_text))
-        self.negative_anchor = l2_normalize(embedder.embed(neg_text))
+        self.positive_anchor = l2_normalize(embedder.embed_text(pos_text))
+        self.negative_anchor = l2_normalize(embedder.embed_text(neg_text))
         # 轴方向 = 正极 - 负极，代表了在该维度上移动的语义趋势
         self.direction = l2_normalize(self.positive_anchor - self.negative_anchor)
 
@@ -533,19 +669,26 @@ class EventFrame:
         )
 
 
+@dataclass(frozen=True)
+class MeaningExtraction:
+    semantic_text: str
+    frame: EventFrame
+
+
 @dataclass
 class Plot:
     """
     情节 (Plot)：最基础的原子记忆单元。
-    包含原始文本、向量空间位置以及心理学解读。
+    包含结构化消息、多模态向量空间位置以及心理学解读。
     """
 
     id: str
     event_id: Optional[str]
     ts: float
-    text: str
+    messages: Tuple[Message, ...]
+    semantic_text: str
     actors: Tuple[str, ...]
-    embedding: np.ndarray  # 原始文本 Embedding
+    embedding: np.ndarray  # 多模态事件 Embedding
     frame: EventFrame  # 心理语义框架
     source: Literal["wake", "dream", "repair", "mode"] = "wake"  # 来源
     confidence: float = 1.0  # 置信度
@@ -591,7 +734,8 @@ class Plot:
             "id": self.id,
             "event_id": self.event_id,
             "ts": float(self.ts),
-            "text": self.text,
+            "messages": [message.to_state_dict() for message in self.messages],
+            "semantic_text": self.semantic_text,
             "actors": list(self.actors),
             "embedding": vec_to_state(self.embedding),
             "frame": self.frame.to_state_dict(),
@@ -622,7 +766,11 @@ class Plot:
             id=str(data["id"]),
             event_id=str(data["event_id"]) if data.get("event_id") is not None else None,
             ts=float(data["ts"]),
-            text=str(data["text"]),
+            messages=tuple(
+                Message.from_state_dict(item)
+                for item in cast(Sequence[Dict[str, Any]], data.get("messages", ()))
+            ),
+            semantic_text=str(data.get("semantic_text", "")),
             actors=tuple(data.get("actors", ())),
             embedding=embedding,
             frame=EventFrame.from_state_dict(data.get("frame", {})),

@@ -3,9 +3,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-SCHEMA_VERSION = "v5"
+SCHEMA_VERSION = "v6"
 
 
 class MemoryKind(str, Enum):
@@ -16,22 +16,39 @@ class MemoryKind(str, Enum):
     THEME = "theme"
 
 
+class TextPartPayload(BaseModel):
+    type: Literal["text"]
+    text: str = Field(..., min_length=1)
+
+
+class ImagePartPayload(BaseModel):
+    type: Literal["image"]
+    uri: str = Field(..., min_length=1)
+    mime_type: Optional[str] = None
+
+
+MessagePartPayload = TextPartPayload | ImagePartPayload
+
+
+class MessagePayload(BaseModel):
+    role: Literal["user", "assistant", "system", "self"]
+    parts: List[MessagePartPayload] = Field(default_factory=list, min_length=1)
+    actor: Optional[str] = None
+
+
 class AcceptedInteractionRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
     event_id: Optional[str] = None
     session_id: str = "default"
-    user_message: str = Field(..., min_length=1)
-    agent_message: str = Field(..., min_length=1)
-    actors: Optional[List[str]] = None
-    context: Optional[str] = None
+    messages: List[MessagePayload] = Field(..., min_length=1)
     ts: Optional[float] = None
 
 
 class QueryRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
-    text: str = Field(..., min_length=1)
+    messages: List[MessagePayload] = Field(..., min_length=1)
     k: int = Field(default=8, ge=1, le=50)
     session_id: Optional[str] = None
 
@@ -40,12 +57,16 @@ class ReplyRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
     session_id: str = "default"
-    user_message: str = Field(..., min_length=1)
+    messages: List[MessagePayload] = Field(..., min_length=1)
     event_id: Optional[str] = None
-    context: Optional[str] = None
-    actors: Optional[List[str]] = None
     k: int = Field(default=6, ge=1, le=20)
     ts: Optional[float] = None
+
+    @model_validator(mode="after")
+    def _ensure_user_input(self) -> "ReplyRequest":
+        if not any(message.role == "user" for message in self.messages):
+            raise ValueError("ReplyRequest.messages must contain at least one user message")
+        return self
 
 
 class FeedbackRequest(BaseModel):
@@ -155,12 +176,10 @@ class ChatTimings(BaseModel):
 class ChatReplyAcceptedResponse(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
-    reply: str
+    reply_message: MessagePayload
     event_id: str
     memory_context: StructuredMemoryContext
     rendered_memory_brief: str
-    system_prompt: str
-    user_prompt: str
     retrieval_trace_summary: RetrievalTraceSummary
     persistence: PersistenceReceiptResponse
     timings: ChatTimings

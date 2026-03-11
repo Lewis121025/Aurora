@@ -1,4 +1,4 @@
-"""Runtime settings for Aurora V5."""
+"""Runtime settings for Aurora V6."""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ class AuroraSettings(BaseSettings):
     metric_rank: int = 64
     max_plots: int = 5000
     kde_reservoir: int = 4096
-    max_recent_texts: int = 12
+    max_recent_semantic_texts: int = 12
     axis_merge_every_events: int = 50
     persona_axis_budget: int = 24
     dreams_per_evolve: int = 2
@@ -67,17 +67,21 @@ class AuroraSettings(BaseSettings):
 
     bailian_llm_api_key: Optional[str] = None
     bailian_llm_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    bailian_llm_model: str = "qwen3.5-plus"
+    bailian_llm_model: str = "qwen3-vl-flash"
 
     llm_timeout: float = 60.0
     llm_max_retries: int = 3
 
-    embedding_provider: Literal["bailian", "ark", "local", "hash"] = "local"
-    axis_embedding_provider: Optional[Literal["bailian", "ark", "local", "hash"]] = None
+    content_embedding_provider: Literal["bailian", "local", "hash"] = "local"
+    text_embedding_provider: Optional[Literal["bailian", "ark", "local", "hash"]] = None
 
     bailian_embedding_api_key: Optional[str] = None
-    bailian_embedding_model: str = "text-embedding-v4"
-    bailian_embedding_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    bailian_text_embedding_model: str = "text-embedding-v4"
+    bailian_text_embedding_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    bailian_content_embedding_model: str = "qwen3-vl-embedding"
+    bailian_content_embedding_base_url: str = (
+        "https://dashscope.aliyuncs.com/api/v1/services/embeddings/multimodal-embedding/multimodal-embedding"
+    )
 
     embedding_cache_enabled: bool = True
     embedding_cache_size: int = 10000

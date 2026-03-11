@@ -82,6 +82,7 @@ from aurora.integrations.llm.Prompt.locomo_prompt import (
     LOCOMO_SUMMARIZATION_EVALUATION_SYSTEM_PROMPT,
     LOCOMO_SUMMARIZATION_EVALUATION_USER_PROMPT,
 )
+from aurora.soul.models import Message, TextPart, messages_to_text
 from aurora.integrations.llm.Prompt.qa_prompt import build_qa_prompt
 
 try:
@@ -93,6 +94,22 @@ except ImportError:
     BaseModel = object  # type: ignore
 
 logger = logging.getLogger(__name__)
+
+
+def _text_messages(text: str, *, role: str = "user") -> List[Message]:
+    return [Message(role=role, parts=(TextPart(text=str(text)),))]
+
+
+def _payload_text(payload: Any) -> str:
+    semantic_text = getattr(payload, "semantic_text", None)
+    if semantic_text:
+        return str(semantic_text)
+    messages = getattr(payload, "messages", None)
+    if messages:
+        return messages_to_text(messages)
+    if hasattr(payload, "to_narrative_summary"):
+        return str(payload.to_narrative_summary())
+    return ""
 
 
 # =============================================================================
@@ -755,17 +772,14 @@ class LOCOMOAdapter(BenchmarkAdapter):
 
                 # Format for AURORA ingestion
                 if speaker in ("user", "user1", "user2"):
-                    formatted_text = f"用户：{text}"
-                    actors = ("user", "agent")
+                    messages = _text_messages(f"用户：{text}")
                 else:
-                    formatted_text = f"助理：{text}"
-                    actors = ("agent", "user")
+                    messages = _text_messages(f"助理：{text}", role="assistant")
 
                 memory.ingest(
-                    interaction_text=formatted_text,
-                    actors=actors,
+                    messages=messages,
                     event_id=turn.get("id"),
-                    context_text=f"session:{session_id}",
+                    context_messages=_text_messages(f"session:{session_id}", role="system"),
                 )
 
     def prepare_memory(
@@ -802,15 +816,12 @@ class LOCOMOAdapter(BenchmarkAdapter):
 
             # Format for AURORA ingestion
             if speaker in ("user", "user1", "user2"):
-                formatted_text = f"用户：{text}"
-                actors = ("user", "agent")
+                messages = _text_messages(f"用户：{text}")
             else:
-                formatted_text = f"助理：{text}"
-                actors = ("agent", "user")
+                messages = _text_messages(f"助理：{text}", role="assistant")
 
             memory.ingest(
-                interaction_text=formatted_text,
-                actors=actors,
+                messages=messages,
                 event_id=turn.get("id"),
             )
 
@@ -880,7 +891,7 @@ class LOCOMOAdapter(BenchmarkAdapter):
 
         try:
             # Query memory for relevant context
-            trace = memory.query(instance.query, k=10)
+            trace = memory.query(_text_messages(instance.query), k=10)
             reasoning_trace.append(f"Retrieved {len(trace.ranked)} memories")
 
             # Gather retrieved content
@@ -888,10 +899,9 @@ class LOCOMOAdapter(BenchmarkAdapter):
             for nid, score, kind in trace.ranked[:5]:
                 try:
                     payload = memory.graph.payload(nid)
-                    if hasattr(payload, "text"):
-                        retrieved_texts.append(payload.text)
-                    elif hasattr(payload, "to_narrative_summary"):
-                        retrieved_texts.append(payload.to_narrative_summary())
+                    text = _payload_text(payload)
+                    if text:
+                        retrieved_texts.append(text)
                 except Exception as e:
                     logger.debug(f"Failed to retrieve payload for node {nid}: {e}")
 
@@ -992,7 +1002,7 @@ class LOCOMOAdapter(BenchmarkAdapter):
             max_context_length=5000,
         )
 
-        system_prompt = """You are a precise question-answering assistant.
+        judge_system_prompt = """You are a precise question-answering assistant.
 Answer the question based on the provided conversation context.
 Be concise and answer directly."""
 
@@ -1004,8 +1014,10 @@ Be concise and answer directly."""
                 answer: str = Field(description="The answer to the question")
 
             result = self.llm.complete_json(
-                system=system_prompt,
-                user=prompt,
+                messages=[
+                    Message(role="system", parts=(TextPart(text=judge_system_prompt),)),
+                    Message(role="user", parts=(TextPart(text=prompt),)),
+                ],
                 schema=QAAnswer,
                 temperature=0.1,
             )
@@ -1041,12 +1053,24 @@ Be concise and answer directly."""
         ):
             try:
                 result = self.llm.complete_json(
-                    system=LOCOMO_QA_EVALUATION_SYSTEM_PROMPT,
-                    user=LOCOMO_QA_EVALUATION_USER_PROMPT.format(
-                        question=question,
-                        ground_truth=ground_truth,
-                        prediction=prediction,
-                    ),
+                    messages=[
+                        Message(
+                            role="system",
+                            parts=(TextPart(text=LOCOMO_QA_EVALUATION_SYSTEM_PROMPT),),
+                        ),
+                        Message(
+                            role="user",
+                            parts=(
+                                TextPart(
+                                    text=LOCOMO_QA_EVALUATION_USER_PROMPT.format(
+                                        question=question,
+                                        ground_truth=ground_truth,
+                                        prediction=prediction,
+                                    )
+                                ),
+                            ),
+                        ),
+                    ],
                     schema=QAEvaluationResult,
                     temperature=0.1,
                 )
@@ -1238,11 +1262,23 @@ Be concise and answer directly."""
         ):
             try:
                 result = self.llm.complete_json(
-                    system=LOCOMO_SUMMARIZATION_EVALUATION_SYSTEM_PROMPT,
-                    user=LOCOMO_SUMMARIZATION_EVALUATION_USER_PROMPT.format(
-                        ground_truth=ground_truth,
-                        prediction=prediction,
-                    ),
+                    messages=[
+                        Message(
+                            role="system",
+                            parts=(TextPart(text=LOCOMO_SUMMARIZATION_EVALUATION_SYSTEM_PROMPT),),
+                        ),
+                        Message(
+                            role="user",
+                            parts=(
+                                TextPart(
+                                    text=LOCOMO_SUMMARIZATION_EVALUATION_USER_PROMPT.format(
+                                        ground_truth=ground_truth,
+                                        prediction=prediction,
+                                    )
+                                ),
+                            ),
+                        ),
+                    ],
                     schema=SummarizationEvaluationResult,
                     temperature=0.1,
                 )
@@ -1300,15 +1336,16 @@ Be concise and answer directly."""
 
         try:
             # Query memory for context
-            trace = memory.query(instance.query, k=5)
+            trace = memory.query(_text_messages(instance.query), k=5)
 
             # Generate simple response
             context_texts = []
             for nid, _, _ in trace.ranked[:3]:
                 try:
                     payload = memory.graph.payload(nid)
-                    if hasattr(payload, "text"):
-                        context_texts.append(payload.text)
+                    text = _payload_text(payload)
+                    if text:
+                        context_texts.append(text)
                 except Exception as e:
                     logger.debug(f"Failed to retrieve payload for node {nid}: {e}")
 

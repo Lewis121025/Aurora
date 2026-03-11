@@ -284,6 +284,13 @@ class MeaningFramePayloadV4(BaseModel):
     tags: List[str] = Field(default_factory=list)  # 提取的语义标签
 
 
+class SemanticProjectionPayload(BaseModel):
+    """多模态输入的规范化语义投影。"""
+
+    schema_version: str = SCHEMA_VERSION
+    semantic_text: str = ""
+
+
 class NarrativeSummaryPayloadV4(BaseModel):
     """叙事总结载荷：Agent 周期性生成的自我总结文本"""
 

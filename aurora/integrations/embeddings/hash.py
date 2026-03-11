@@ -9,7 +9,7 @@ AURORA 哈希嵌入
     from aurora.integrations.embeddings import HashEmbedding
 
     embedder = HashEmbedding(dim=384)
-    vec = embedder.embed("Hello world")
+    vec = embedder.embed_text("Hello world")
 """
 
 from __future__ import annotations
@@ -18,12 +18,13 @@ from typing import List, Sequence
 
 import numpy as np
 
-from aurora.integrations.embeddings.base import EmbeddingProvider
-from aurora.utils.math_utils import l2_normalize
+from aurora.integrations.embeddings.base import ContentEmbeddingProvider, TextEmbeddingProvider
+from aurora.soul.models import Message, messages_to_text
 from aurora.utils.id_utils import stable_hash
+from aurora.utils.math_utils import l2_normalize
 
 
-class HashEmbedding(EmbeddingProvider):
+class HashEmbedding(ContentEmbeddingProvider, TextEmbeddingProvider):
     """用于测试的确定性伪随机嵌入。
 
     基于文本哈希生成一致的嵌入。
@@ -38,12 +39,21 @@ class HashEmbedding(EmbeddingProvider):
         self.dim = dim
         self.seed = seed
 
-    def embed(self, text: str) -> np.ndarray:
-        """从文本生成确定性嵌入。"""
-        rng = np.random.default_rng(stable_hash(text) ^ self.seed)
+    def _hash_to_vector(self, value: str) -> np.ndarray:
+        rng = np.random.default_rng(stable_hash(value) ^ self.seed)
         v = rng.normal(size=self.dim).astype(np.float32)
         return l2_normalize(v)
 
-    def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
+    def embed_text(self, text: str) -> np.ndarray:
+        """从文本生成确定性嵌入。"""
+        return self._hash_to_vector(text)
+
+    def embed_text_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
         """嵌入多个文本。"""
-        return [self.embed(t) for t in texts]
+        return [self.embed_text(text) for text in texts]
+
+    def embed_content(self, messages: Sequence[Message]) -> np.ndarray:
+        return self._hash_to_vector(messages_to_text(messages, include_image_uris=True))
+
+    def embed_content_batch(self, items: Sequence[Sequence[Message]]) -> List[np.ndarray]:
+        return [self.embed_content(messages) for messages in items]

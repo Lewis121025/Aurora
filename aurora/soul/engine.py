@@ -16,7 +16,7 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Tuple, cast
 
 import numpy as np
 
-from aurora.integrations.embeddings.base import EmbeddingProvider
+from aurora.integrations.embeddings.base import ContentEmbeddingProvider, TextEmbeddingProvider
 from aurora.integrations.embeddings.local_semantic import LocalSemanticEmbedding
 from aurora.soul.graph_ops import GraphDreamOperator, GraphRepairOperator
 from aurora.soul.graph_views import GraphViewBuilder, GraphViewStats
@@ -35,16 +35,20 @@ from aurora.soul.models import (
     IdentityMode,
     IdentitySnapshot,
     IdentityState,
+    Message,
     NarrativeSummary,
     Plot,
     PsychologicalSchema,
     RetrievalTrace,
     Summary,
     StoryArc,
+    TextPart,
     Theme,
     clamp,
     heuristic_persona_axes,
     l2_normalize,
+    message_actors,
+    messages_to_text,
     mean_abs,
     schema_from_profile,
 )
@@ -60,7 +64,7 @@ from aurora.utils.math_utils import cosine_sim
 from aurora.utils.time_utils import now_ts
 
 # 系统版本标识
-SOUL_MEMORY_STATE_VERSION = "aurora-soul-memory-v5"
+SOUL_MEMORY_STATE_VERSION = "aurora-soul-memory-v6"
 
 
 def moving_average(old: float, new: float, rate: float) -> float:
@@ -90,7 +94,7 @@ class SchemaConsolidator:
         for axis_name, value in plot.frame.axis_evidence.items():
             if abs(value) < 0.24:
                 continue
-            self.axis_texts.setdefault(axis_name, []).append(plot.text[:140])
+            self.axis_texts.setdefault(axis_name, []).append(plot.semantic_text[:140])
             self.axis_texts[axis_name] = self.axis_texts[axis_name][-12:]
         self.events_since_last += 1
 
@@ -104,7 +108,7 @@ class SchemaConsolidator:
         self,
         *,
         schema: PsychologicalSchema,
-        axis_embedder: EmbeddingProvider,
+        axis_embedder: TextEmbeddingProvider,
         narrator: NarrativeProvider,
     ) -> List[Tuple[str, str]]:
         """执行合并逻辑：对比轴的向量方向和激活文本，合并重合度高的轴"""
@@ -203,7 +207,7 @@ class SoulConfig:
     max_plots: int = 5000  # 最大情节存储量
     kde_reservoir: int = 4096  # KDE 采样蓄水池大小
     retrieval_kinds: Tuple[str, ...] = ("summary", "theme", "story", "plot")  # 检索类型
-    max_recent_texts: int = 12  # 最近文本历史保留数
+    max_recent_semantic_texts: int = 12  # 最近语义投影历史保留数
     profile_text: str = ""  # 初始人设文本
     persona_axes_json: Optional[str] = None  # 预设人设轴 JSON
     axis_merge_every_events: int = 50  # 轴合并检查频率
@@ -234,7 +238,7 @@ class SoulConfig:
             "max_plots": self.max_plots,
             "kde_reservoir": self.kde_reservoir,
             "retrieval_kinds": list(self.retrieval_kinds),
-            "max_recent_texts": self.max_recent_texts,
+            "max_recent_semantic_texts": self.max_recent_semantic_texts,
             "profile_text": self.profile_text,
             "persona_axes_json": self.persona_axes_json,
             "axis_merge_every_events": self.axis_merge_every_events,
@@ -268,7 +272,7 @@ class SoulConfig:
             retrieval_kinds=tuple(
                 data.get("retrieval_kinds", ("summary", "theme", "story", "plot"))
             ),
-            max_recent_texts=int(data.get("max_recent_texts", 12)),
+            max_recent_semantic_texts=int(data.get("max_recent_semantic_texts", 12)),
             profile_text=str(data.get("profile_text", "")),
             persona_axes_json=data.get("persona_axes_json"),
             axis_merge_every_events=int(data.get("axis_merge_every_events", 50)),
@@ -311,8 +315,8 @@ class AuroraSoul:
         cfg: SoulConfig = SoulConfig(),
         *,
         seed: int = 0,
-        event_embedder: Optional[EmbeddingProvider] = None,
-        axis_embedder: Optional[EmbeddingProvider] = None,
+        event_embedder: Optional[ContentEmbeddingProvider] = None,
+        axis_embedder: Optional[TextEmbeddingProvider] = None,
         meaning_provider: Optional[MeaningProvider] = None,
         narrator: Optional[NarrativeProvider] = None,
         query_analyzer: Optional[BaseQueryAnalyzer] = None,
@@ -363,7 +367,7 @@ class AuroraSoul:
         self.stories: Dict[str, StoryArc] = {}
         self.themes: Dict[str, Theme] = {}
         self.modes: Dict[str, IdentityMode] = {}
-        self.recent_texts: List[str] = []
+        self.recent_semantic_texts: List[str] = []
         self.step = 0
 
         # 性格统计量初始化
@@ -424,7 +428,7 @@ class AuroraSoul:
             intuition_axes={name: 0.0 for name in axis_state},
             current_mode_label="origin",
         )
-        state.narrative_log.append("Initialized v4 generative soul.")
+        state.narrative_log.append("Initialized v6 multimodal soul.")
         return state
 
     def _compose_self_vector(self, axis_state: Dict[str, float]) -> np.ndarray:
@@ -438,7 +442,7 @@ class AuroraSoul:
             accumulator += float(value) * axis.direction
         # 如果没有显著偏移，使用 Profile 文本的 Embedding 作为基准
         if np.linalg.norm(accumulator) < 1e-6:
-            accumulator += self.axis_embedder.embed(self.cfg.profile_text or "origin self")
+            accumulator += self.axis_embedder.embed_text(self.cfg.profile_text or "origin self")
         return l2_normalize(accumulator)
 
     def _axis_names(self) -> List[str]:
@@ -502,7 +506,7 @@ class AuroraSoul:
         embedding = (
             self.identity.self_vector.copy()
             if np.linalg.norm(self.identity.self_vector) > 1e-6
-            else self.axis_embedder.embed(label)
+            else self.axis_embedder.embed_text(label)
         )
         anchor_id = "anchor_core_self"
         payload = {
@@ -1005,12 +1009,11 @@ class AuroraSoul:
                 self.identity,
                 target.score,
                 [axis_name for axis_name, score in salient_axes[:3] if score > 0.0],
-                " / ".join(plot.text[:96] for plot in target_plots[:2]),
+                " / ".join(plot.semantic_text[:96] for plot in target_plots[:2]),
                 self.schema,
             )
             repair_plot = self.ingest(
-                repair_text,
-                actors=("self",),
+                (Message(role="self", parts=(TextPart(text=repair_text),), actor="self"),),
                 source="repair",
                 confidence=0.72,
                 evidence_weight=0.35,
@@ -1063,8 +1066,7 @@ class AuroraSoul:
                 self.schema,
             )
             dream_plot = self.ingest(
-                dream_text,
-                actors=("self",),
+                (Message(role="self", parts=(TextPart(text=dream_text),), actor="self"),),
                 source="dream",
                 confidence=0.34,
                 evidence_weight=0.20,
@@ -1114,8 +1116,10 @@ class AuroraSoul:
                 self._axis_names()
             self._refresh_identity_from_anchors()
 
-        self.recent_texts.append(plot.text)
-        self.recent_texts = self.recent_texts[-self.cfg.max_recent_texts :]
+        self.recent_semantic_texts.append(plot.semantic_text)
+        self.recent_semantic_texts = self.recent_semantic_texts[
+            -self.cfg.max_recent_semantic_texts :
+        ]
         self._pressure_manage()
         self.graph_metrics["last_plot"] = {
             "id": plot.id,
@@ -1128,11 +1132,10 @@ class AuroraSoul:
 
     def ingest(
         self,
-        interaction_text: str,
+        messages: Sequence[Message],
         *,
         event_id: Optional[str] = None,
-        actors: Optional[Sequence[str]] = None,
-        context_text: Optional[str] = None,
+        context_messages: Optional[Sequence[Message]] = None,
         source: Literal["wake", "dream", "repair", "mode"] = "wake",
         confidence: float = 1.0,
         evidence_weight: float = 1.0,
@@ -1144,31 +1147,33 @@ class AuroraSoul:
         """
         self.step += 1
         event_ts = ts or now_ts()
-        # 语义理解
-        embedding = self.event_embedder.embed(interaction_text)
-        frame = self.meaning_provider.extract(
-            interaction_text,
+        embedding = self.event_embedder.embed_content(messages)
+        meaning = self.meaning_provider.extract(
+            messages,
             embedding,
             self.schema,
-            recent_tags=self.recent_texts,
+            recent_tags=self.recent_semantic_texts,
         )
+        frame = meaning.frame
         plot = Plot(
             id=plot_id or str(uuid.uuid4()),
             event_id=event_id,
             ts=event_ts,
-            text=interaction_text,
-            actors=tuple(actors) if actors else ("user", "agent"),
+            messages=tuple(messages),
+            semantic_text=meaning.semantic_text,
+            actors=message_actors(messages),
             embedding=embedding,
             frame=frame,
             source=source,
             confidence=confidence,
             evidence_weight=evidence_weight,
-            # 事实提取
-            fact_keys=[fact.fact_text for fact in self.fact_extractor.extract(interaction_text)],
+            fact_keys=[fact.fact_text for fact in self.fact_extractor.extract(meaning.semantic_text)],
         )
 
         # 动力学指标计算
-        context_emb = self.event_embedder.embed(context_text) if context_text else None
+        context_emb = (
+            self.event_embedder.embed_content(context_messages) if context_messages else None
+        )
         plot.surprise = float(self.kde.surprise(embedding))
         plot.pred_error = float(self._pred_error(embedding))
         plot.redundancy = float(self._redundancy(embedding))
@@ -1198,10 +1203,7 @@ class AuroraSoul:
         self,
         *,
         event_id: str,
-        user_message: str,
-        agent_message: str,
-        actors: Optional[Sequence[str]],
-        context_text: Optional[str],
+        messages: Sequence[Message],
         ts: float,
     ) -> Plot:
         plot_id = det_id("plot", event_id)
@@ -1209,10 +1211,8 @@ class AuroraSoul:
         if existing is not None:
             return existing
         return self.ingest(
-            f"USER: {user_message}\nAURORA: {agent_message}",
+            messages,
             event_id=event_id,
-            actors=actors or ("user", "agent"),
-            context_text=context_text or user_message,
             source="wake",
             ts=ts,
             plot_id=plot_id,
@@ -1222,10 +1222,10 @@ class AuroraSoul:
         if event_type == "interaction":
             plot = self.project_interaction_event(
                 event_id=event_id,
-                user_message=str(payload.get("user_message", "")),
-                agent_message=str(payload.get("agent_message", "")),
-                actors=cast(Optional[Sequence[str]], payload.get("actors")),
-                context_text=cast(Optional[str], payload.get("context")),
+                messages=tuple(
+                    Message.from_state_dict(item)
+                    for item in cast(Sequence[Dict[str, Any]], payload.get("messages", ()))
+                ),
                 ts=float(payload.get("ts", now_ts())),
             )
             return plot.id
@@ -1251,9 +1251,8 @@ class AuroraSoul:
         confidence = 0.34 if source == "dream" else 0.72
         evidence_weight = 0.20 if source == "dream" else 0.35
         plot = self.ingest(
-            str(payload.get("text", "")),
+            (Message(role="self", parts=(TextPart(text=str(payload.get("text", ""))),), actor="self"),),
             event_id=event_id,
-            actors=("self",),
             source=source,
             confidence=confidence,
             evidence_weight=evidence_weight,
@@ -1297,7 +1296,9 @@ class AuroraSoul:
         if existing is not None:
             return existing
         text = str(payload.get("text", ""))
-        embedding = self.event_embedder.embed(text)
+        embedding = self.event_embedder.embed_content(
+            (Message(role="system", parts=(TextPart(text=text),)),)
+        )
         summary = Summary(
             id=summary_id,
             event_id=event_id,
@@ -1374,7 +1375,7 @@ class AuroraSoul:
                 self.identity,
                 target.score,
                 [axis_name for axis_name, score in salient_axes[:3] if score > 0.0],
-                " / ".join(plot.text[:96] for plot in target_plots[:2]),
+                " / ".join(plot.semantic_text[:96] for plot in target_plots[:2]),
                 self.schema,
             )
             planned.append(
@@ -1469,7 +1470,7 @@ class AuroraSoul:
                         fact_keys.append(fact_key)
             story_ids = sorted({plot.story_id for plot in group if plot.story_id})
             theme_ids = sorted({plot.theme_id for plot in group if plot.theme_id})
-            snippets = " / ".join(plot.text[:64] for plot in group[:3])
+            snippets = " / ".join(plot.semantic_text[:64] for plot in group[:3])
             label = "、".join(tags[:4]) if tags else "旧记忆片段"
             text = f"[Summary] {label}。{snippets}"
             planned.append(
@@ -1505,13 +1506,15 @@ class AuroraSoul:
         self._refresh_graph_metrics()
         return evolved
 
-    def query(self, text: str, k: int = 8) -> RetrievalTrace:
+    def query(self, messages: Sequence[Message], k: int = 8) -> RetrievalTrace:
         """记忆检索接口：场论驱动的复杂检索"""
         self._refresh_materialized_views(force=True)
         query_started = time.perf_counter()
+        semantic_text = self.meaning_provider.project(messages)
+        query_embedding = self.event_embedder.embed_content(messages)
         trace = self.retriever.retrieve(
-            query_text=text,
-            embedder=self.event_embedder,
+            query_text=semantic_text,
+            query_embedding=query_embedding,
             state=self.identity,
             kinds=self.cfg.retrieval_kinds,
             k=k,
@@ -1537,7 +1540,9 @@ class AuroraSoul:
         """检索反馈学习：利用 Triplet Loss 在线微调度量矩阵 (Metric Matrix)"""
         if chosen_id not in self.graph.g:
             return
-        query_vec = self.event_embedder.embed(query_text)
+        query_vec = self.event_embedder.embed_content(
+            (Message(role="user", parts=(TextPart(text=query_text),)),)
+        )
         chosen_vec = self.retriever._payload_vec(self.graph.payload(chosen_id))
         if chosen_vec is None:
             return
@@ -1626,7 +1631,7 @@ class AuroraSoul:
     def narrative_summary(self) -> NarrativeSummary:
         """生成自我意识总结文本"""
         self._refresh_materialized_views()
-        return self.narrator.compose_summary(self.identity, self.schema, self.recent_texts)
+        return self.narrator.compose_summary(self.identity, self.schema, self.recent_semantic_texts)
 
     def to_state_dict(self) -> Dict[str, Any]:
         """全量状态序列化，用于持久化存储"""
@@ -1650,7 +1655,7 @@ class AuroraSoul:
             "consolidator": self.consolidator.to_state_dict(),
             "identity": self.identity.to_state_dict(),
             "modes": {mode_id: mode.to_state_dict() for mode_id, mode in self.modes.items()},
-            "recent_texts": list(self.recent_texts),
+            "recent_semantic_texts": list(self.recent_semantic_texts),
             "step": int(self.step),
             "anchors": {
                 anchor_id: {
@@ -1671,15 +1676,15 @@ class AuroraSoul:
         cls,
         data: Dict[str, Any],
         *,
-        event_embedder: Optional[EmbeddingProvider] = None,
-        axis_embedder: Optional[EmbeddingProvider] = None,
+        event_embedder: Optional[ContentEmbeddingProvider] = None,
+        axis_embedder: Optional[TextEmbeddingProvider] = None,
         meaning_provider: Optional[MeaningProvider] = None,
         narrator: Optional[NarrativeProvider] = None,
         query_analyzer: Optional[BaseQueryAnalyzer] = None,
     ) -> "AuroraSoul":
         """从状态数据恢复灵魂引擎"""
         if data.get("schema_version") != SOUL_MEMORY_STATE_VERSION:
-            raise ValueError("Snapshot schema mismatch: expected Aurora Soul v4")
+            raise ValueError("Snapshot schema mismatch: expected Aurora Soul v6")
         cfg = SoulConfig.from_state_dict(data["cfg"])
         obj = cls(
             cfg=cfg,
@@ -1754,7 +1759,9 @@ class AuroraSoul:
             mode_id: IdentityMode.from_state_dict(item)
             for mode_id, item in data.get("modes", {}).items()
         }
-        obj.recent_texts = [str(item) for item in data.get("recent_texts", [])]
+        obj.recent_semantic_texts = [
+            str(item) for item in data.get("recent_semantic_texts", [])
+        ]
         obj.step = int(data.get("step", 0))
         obj.view_stats = GraphViewStats.from_state_dict(data.get("view_stats", {}))
         obj.graph_metrics = copy.deepcopy(data.get("graph_metrics", {}))

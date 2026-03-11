@@ -37,32 +37,58 @@ from aurora.integrations.llm.schemas import (
     NarrativeSummaryPayloadV4,
     PersonaAxisPayload,
     RepairNarrationPayloadV4,
+    SemanticProjectionPayload,
 )
 from aurora.soul.models import (
     AxisSpec,
     EventFrame,
     IdentityState,
+    MeaningExtraction,
+    Message,
     NarrativeSummary,
     PsychologicalSchema,
+    TextPart,
     axes_to_phrase,
     clamp,
     clamp01,
     heuristic_persona_axes,
+    messages_have_image_parts,
+    messages_text_only,
+    messages_to_text,
+    normalize_text,
     top_axes_description,
     tokenize_loose,
 )
 
 
+def _text_prompt_messages(*, system: str, user: str) -> tuple[Message, Message]:
+    return (
+        Message(role="system", parts=(TextPart(text=system),)),
+        Message(role="user", parts=(TextPart(text=user),)),
+    )
+
+
+def _semantic_fallback(messages: Sequence[Message]) -> str:
+    semantic_text = messages_text_only(messages)
+    if semantic_text:
+        return semantic_text
+    return messages_to_text(messages, include_image_uris=True)
+
+
 class MeaningProvider(Protocol):
-    """意义提取器接口协议，定义了从文本中提取 EventFrame 的标准方法"""
+    """意义提取器接口协议，定义了从图文消息中提取 MeaningExtraction 的标准方法"""
+
+    def project(self, messages: Sequence[Message]) -> str:
+        """将结构化图文消息投影为规范化语义文本。"""
+        ...
 
     def extract(
         self,
-        text: str,
+        messages: Sequence[Message],
         embedding: np.ndarray,
         schema: PsychologicalSchema,
         recent_tags: Optional[Sequence[str]] = None,
-    ) -> EventFrame:
+    ) -> MeaningExtraction:
         """从给定文本中提取心理语义框架"""
         ...
 
@@ -82,7 +108,7 @@ class NarrativeProvider(Protocol):
         self,
         state: IdentityState,
         schema: PsychologicalSchema,
-        recent_texts: Sequence[str],
+        recent_semantic_texts: Sequence[str],
     ) -> NarrativeSummary:
         """生成当前身份状态的总结性叙事"""
         ...
@@ -266,21 +292,25 @@ class HeuristicMeaningProvider:
     def bootstrap_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
         return self.extract_persona_axes(profile_text)
 
+    def project(self, messages: Sequence[Message]) -> str:
+        return _semantic_fallback(messages)
+
     def extract(
         self,
-        text: str,
+        messages: Sequence[Message],
         embedding: np.ndarray,
         schema: PsychologicalSchema,
         recent_tags: Optional[Sequence[str]] = None,
-    ) -> EventFrame:
+    ) -> MeaningExtraction:
         """
         启发式提取过程：
         1. 利用向量投影计算各轴得分。
         2. 基于词库匹配计算基础心理倾向（如 care, threat）。
         3. 综合计算效价（Valence）和唤醒度（Arousal）。
         """
-        text_lower = text.lower()
-        tokens = set(tokenize_loose(text))
+        semantic_text = self.project(messages)
+        text_lower = semantic_text.lower()
+        tokens = set(tokenize_loose(semantic_text))
 
         # 核心：计算新输入在现有每一个心理轴上的投影得分
         axis_evidence = {
@@ -312,7 +342,7 @@ class HeuristicMeaningProvider:
 
         # 自动生成语义标签
         tags = self._make_tags(
-            text=text,
+            text=semantic_text,
             axis_evidence=axis_evidence,
             care=care,
             threat=threat,
@@ -331,19 +361,22 @@ class HeuristicMeaningProvider:
             + 0.10 * max(0, len(set(tags)) - 3)
         )
 
-        return EventFrame(
-            axis_evidence=axis_evidence,
-            valence=valence,
-            arousal=arousal,
-            care=care,
-            threat=threat,
-            control=control,
-            abandonment=abandonment,
-            agency_signal=agency_signal,
-            shame=shame,
-            novelty=novelty,
-            self_relevance=self_relevance,
-            tags=tuple(tags),
+        return MeaningExtraction(
+            semantic_text=semantic_text,
+            frame=EventFrame(
+                axis_evidence=axis_evidence,
+                valence=valence,
+                arousal=arousal,
+                care=care,
+                threat=threat,
+                control=control,
+                abandonment=abandonment,
+                agency_signal=agency_signal,
+                shame=shame,
+                novelty=novelty,
+                self_relevance=self_relevance,
+                tags=tuple(tags),
+            ),
         )
 
     @staticmethod
@@ -425,8 +458,10 @@ class LLMMeaningProvider:
             return []
         try:
             payload = self._llm.complete_json(
-                system=GEN_SOUL_PERSONA_AXIS_SYSTEM_PROMPT,
-                user=build_gen_soul_persona_axis_user_prompt(profile_text=profile_text),
+                messages=_text_prompt_messages(
+                    system=GEN_SOUL_PERSONA_AXIS_SYSTEM_PROMPT,
+                    user=build_gen_soul_persona_axis_user_prompt(profile_text=profile_text),
+                ),
                 schema=PersonaAxisPayload,
                 temperature=0.1,
                 timeout_s=self._timeout_s,
@@ -440,21 +475,57 @@ class LLMMeaningProvider:
     def bootstrap_persona_axes(self, profile_text: str) -> List[Dict[str, Any]]:
         return self._fallback.extract_persona_axes(profile_text)
 
+    def project(self, messages: Sequence[Message]) -> str:
+        fallback_text = self._fallback.project(messages)
+        if not messages_have_image_parts(messages):
+            return fallback_text
+        try:
+            payload = self._llm.complete_json(
+                messages=(
+                    Message(role="system", parts=(TextPart(text="将上面的图文输入整理成紧凑、可检索的语义文本。保留角色、动作、情绪、地点、时间与图像中的关键对象。"),)),
+                    *messages,
+                    Message(
+                        role="user",
+                        parts=(TextPart(text="返回 SemanticProjectionPayload JSON。"),),
+                    ),
+                ),
+                schema=SemanticProjectionPayload,
+                temperature=0.1,
+                timeout_s=self._timeout_s,
+                metadata={"operation": "semantic_projection_v6"},
+                max_retries=self._max_retries,
+            )
+        except Exception:
+            return fallback_text
+        projected = normalize_text(payload.semantic_text)
+        return projected or fallback_text
+
     def extract(
         self,
-        text: str,
+        messages: Sequence[Message],
         embedding: np.ndarray,
         schema: PsychologicalSchema,
         recent_tags: Optional[Sequence[str]] = None,
-    ) -> EventFrame:
+    ) -> MeaningExtraction:
         """深度语义提取：将文本映射到指定的动态 Schema 轴上"""
+        semantic_text = self.project(messages)
         try:
             payload = self._llm.complete_json(
-                system=GEN_SOUL_MEANING_SYSTEM_PROMPT,
-                user=build_gen_soul_meaning_user_prompt(
-                    text=text,
-                    axis_names=schema.ordered_axis_names(),
-                    recent_tags=recent_tags,
+                messages=(
+                    Message(role="system", parts=(TextPart(text=GEN_SOUL_MEANING_SYSTEM_PROMPT),)),
+                    *messages,
+                    Message(
+                        role="user",
+                        parts=(
+                            TextPart(
+                                text=build_gen_soul_meaning_user_prompt(
+                                    text=semantic_text,
+                                    axis_names=schema.ordered_axis_names(),
+                                    recent_tags=recent_tags,
+                                )
+                            ),
+                        ),
+                    ),
                 ),
                 schema=MeaningFramePayloadV4,
                 temperature=0.1,
@@ -463,7 +534,7 @@ class LLMMeaningProvider:
                 max_retries=self._max_retries,
             )
         except Exception:
-            return self._fallback.extract(text, embedding, schema, recent_tags=recent_tags)
+            return self._fallback.extract(messages, embedding, schema, recent_tags=recent_tags)
 
         # 整理轴得分，确保符合当前的 Schema
         axis_evidence = {
@@ -474,19 +545,22 @@ class LLMMeaningProvider:
         for axis_name in schema.ordered_axis_names():
             axis_evidence.setdefault(axis_name, 0.0)
 
-        return EventFrame(
-            axis_evidence=axis_evidence,
-            valence=clamp(payload.valence),
-            arousal=clamp01(payload.arousal),
-            care=clamp01(payload.care),
-            threat=clamp01(payload.threat),
-            control=clamp01(payload.control),
-            abandonment=clamp01(payload.abandonment),
-            agency_signal=clamp01(payload.agency_signal),
-            shame=clamp01(payload.shame),
-            novelty=clamp01(payload.novelty),
-            self_relevance=clamp01(payload.self_relevance),
-            tags=tuple(payload.tags[:12]),
+        return MeaningExtraction(
+            semantic_text=semantic_text,
+            frame=EventFrame(
+                axis_evidence=axis_evidence,
+                valence=clamp(payload.valence),
+                arousal=clamp01(payload.arousal),
+                care=clamp01(payload.care),
+                threat=clamp01(payload.threat),
+                control=clamp01(payload.control),
+                abandonment=clamp01(payload.abandonment),
+                agency_signal=clamp01(payload.agency_signal),
+                shame=clamp01(payload.shame),
+                novelty=clamp01(payload.novelty),
+                self_relevance=clamp01(payload.self_relevance),
+                tags=tuple(payload.tags[:12]),
+            ),
         )
 
 
@@ -510,7 +584,7 @@ class CombinatorialNarrativeProvider:
         self,
         state: IdentityState,
         schema: PsychologicalSchema,
-        recent_texts: Sequence[str],
+        recent_semantic_texts: Sequence[str],
     ) -> NarrativeSummary:
         """生成身份摘要"""
         salient_axes = [
@@ -521,8 +595,8 @@ class CombinatorialNarrativeProvider:
         ]
         axes_text = top_axes_description(state.axis_state, schema, topn=4)
         recent_hint = ""
-        if recent_texts:
-            snippet = recent_texts[-1][:48]
+        if recent_semantic_texts:
+            snippet = recent_semantic_texts[-1][:48]
             recent_hint = f" Recent signal: {snippet}"
         text = (
             f"Current mode is {state.current_mode_label}. "
@@ -659,18 +733,20 @@ class LLMNarrativeProvider:
         self,
         state: IdentityState,
         schema: PsychologicalSchema,
-        recent_texts: Sequence[str],
+        recent_semantic_texts: Sequence[str],
     ) -> NarrativeSummary:
         """生成带有深度解读的自我摘要"""
-        fallback = self._fallback.compose_summary(state, schema, recent_texts)
+        fallback = self._fallback.compose_summary(state, schema, recent_semantic_texts)
         try:
             payload = self._llm.complete_json(
-                system=GEN_SOUL_SUMMARY_SYSTEM_PROMPT,
-                user=build_gen_soul_summary_user_prompt(
-                    current_mode=state.current_mode_label,
-                    salient_axes=fallback.salient_axes,
-                    recent_texts=recent_texts,
-                    pressure=state.narrative_pressure(),
+                messages=_text_prompt_messages(
+                    system=GEN_SOUL_SUMMARY_SYSTEM_PROMPT,
+                    user=build_gen_soul_summary_user_prompt(
+                        current_mode=state.current_mode_label,
+                        salient_axes=fallback.salient_axes,
+                        recent_semantic_texts=recent_semantic_texts,
+                        pressure=state.narrative_pressure(),
+                    ),
                 ),
                 schema=NarrativeSummaryPayloadV4,
                 temperature=0.2,
@@ -709,12 +785,14 @@ class LLMNarrativeProvider:
         )
         try:
             payload = self._llm.complete_json(
-                system=GEN_SOUL_REPAIR_SYSTEM_PROMPT,
-                user=build_gen_soul_repair_user_prompt(
-                    mode=mode,
-                    plot_text=plot_text,
-                    salient_axes=salient_axes,
-                    dissonance_total=dissonance_total,
+                messages=_text_prompt_messages(
+                    system=GEN_SOUL_REPAIR_SYSTEM_PROMPT,
+                    user=build_gen_soul_repair_user_prompt(
+                        mode=mode,
+                        plot_text=plot_text,
+                        salient_axes=salient_axes,
+                        dissonance_total=dissonance_total,
+                    ),
                 ),
                 schema=RepairNarrationPayloadV4,
                 temperature=0.2,
@@ -737,9 +815,11 @@ class LLMNarrativeProvider:
         fallback = self._fallback.compose_dream(operator, fragment_tags, state, schema)
         try:
             payload = self._llm.complete_json(
-                system=GEN_SOUL_DREAM_SYSTEM_PROMPT,
-                user=build_gen_soul_dream_user_prompt(
-                    operator=operator, fragment_tags=fragment_tags
+                messages=_text_prompt_messages(
+                    system=GEN_SOUL_DREAM_SYSTEM_PROMPT,
+                    user=build_gen_soul_dream_user_prompt(
+                        operator=operator, fragment_tags=fragment_tags
+                    ),
                 ),
                 schema=DreamNarrationPayloadV4,
                 temperature=0.3,
@@ -761,8 +841,10 @@ class LLMNarrativeProvider:
         fallback = self._fallback.label_mode(prototype_axes, schema, support)
         try:
             payload = self._llm.complete_json(
-                system=GEN_SOUL_MODE_LABEL_SYSTEM_PROMPT,
-                user=build_gen_soul_mode_label_user_prompt(prototype_axes=prototype_axes),
+                messages=_text_prompt_messages(
+                    system=GEN_SOUL_MODE_LABEL_SYSTEM_PROMPT,
+                    user=build_gen_soul_mode_label_user_prompt(prototype_axes=prototype_axes),
+                ),
                 schema=ModeLabelPayloadV4,
                 temperature=0.1,
                 timeout_s=self._timeout_s,
@@ -793,13 +875,15 @@ class LLMNarrativeProvider:
         )
         try:
             payload = self._llm.complete_json(
-                system=GEN_SOUL_AXIS_MERGE_SYSTEM_PROMPT,
-                user=build_gen_soul_axis_merge_user_prompt(
-                    canonical_name=canonical.name,
-                    canonical_desc=canonical.description,
-                    alias_name=alias.name,
-                    alias_desc=alias.description,
-                    evidence_overlap=evidence_overlap,
+                messages=_text_prompt_messages(
+                    system=GEN_SOUL_AXIS_MERGE_SYSTEM_PROMPT,
+                    user=build_gen_soul_axis_merge_user_prompt(
+                        canonical_name=canonical.name,
+                        canonical_desc=canonical.description,
+                        alias_name=alias.name,
+                        alias_desc=alias.description,
+                        evidence_overlap=evidence_overlap,
+                    ),
                 ),
                 schema=AxisMergeJudgementPayload,
                 temperature=0.1,

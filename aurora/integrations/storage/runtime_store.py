@@ -597,7 +597,7 @@ class SQLiteRuntimeStore:
                 rows = []
             for row in rows:
                 payload = self._loads_object(row["payload"])
-                snippet = str(payload.get("search_text") or payload.get("user_message") or "")[:240]
+                snippet = str(payload.get("search_text") or "")[:240]
                 score = self._overlay_score(
                     rank=float(row["rank"]),
                     ts=float(row["ts"]),
@@ -630,7 +630,7 @@ class SQLiteRuntimeStore:
             terms.update(part.lower() for part in lowered_query.split() if part.strip())
             for row in rows:
                 payload = self._loads_object(row["payload"])
-                text = str(payload.get("search_text") or payload.get("user_message") or "")
+                text = str(payload.get("search_text") or "")
                 text_lower = text.lower()
                 match_count = sum(1 for term in terms if term and term in text_lower)
                 if terms and match_count == 0:

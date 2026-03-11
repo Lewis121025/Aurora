@@ -14,12 +14,12 @@ from typing import Any, List, Optional, Sequence
 
 import numpy as np
 
-from .base import EmbeddingProvider
+from .base import TextEmbeddingProvider
 
 logger = logging.getLogger(__name__)
 
 
-class ArkEmbedding(EmbeddingProvider):
+class ArkEmbedding(TextEmbeddingProvider):
     """使用 Doubao 嵌入模型的火山方舟 嵌入提供者。
 
     特性：
@@ -89,7 +89,7 @@ class ArkEmbedding(EmbeddingProvider):
         key = self._cache_key(text)
         self._cache[key] = embedding
 
-    def embed(self, text: str) -> np.ndarray:
+    def embed_text(self, text: str) -> np.ndarray:
         """为单个文本生成嵌入。
 
         参数：
@@ -138,7 +138,7 @@ class ArkEmbedding(EmbeddingProvider):
             f"All {self.max_retries} embedding attempts failed. Last error: {last_error}"
         )
 
-    def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
+    def embed_text_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
         """为多个文本高效生成嵌入。
 
         尽可能使用批处理 API，对重复文本进行缓存。
@@ -211,7 +211,7 @@ class ArkEmbedding(EmbeddingProvider):
                     for j, text in enumerate(batch_texts):
                         idx = batch_indices[j]
                         try:
-                            results[idx] = self.embed(text)
+                            results[idx] = self.embed_text(text)
                         except Exception as e:
                             logger.error(f"单个嵌入也失败了：{e}")
                             # 作为最后手段返回零向量
@@ -227,11 +227,11 @@ class ArkEmbedding(EmbeddingProvider):
 
         便于 AURORA 的内部向量操作。
         """
-        return self.embed(text)
+        return self.embed_text(text)
 
     def embed_batch_numpy(self, texts: Sequence[str]) -> np.ndarray:
         """生成批量嵌入作为 numpy 数组。"""
-        embeddings = self.embed_batch(texts)
+        embeddings = self.embed_text_batch(texts)
         return np.stack(embeddings) if embeddings else np.array([], dtype=np.float32)
 
     @property

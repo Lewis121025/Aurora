@@ -38,6 +38,7 @@ from aurora.benchmarks.adapters.memoryagentbench import (
     TASK_TYPE_LRU,
     TASK_TYPE_CR,
 )
+from aurora.soul.models import Message, TextPart, messages_to_text
 from aurora.utils.time_utils import now_ts
 
 
@@ -64,6 +65,10 @@ User: Actually, I moved to San Francisco last month.
 Assistant: I've updated your location to San Francisco."""
 
 
+def _messages(text: str, *, role: str = "user") -> list[Message]:
+    return [Message(role=role, parts=(TextPart(text=text),))]
+
+
 # =============================================================================
 # Mock Memory Class
 # =============================================================================
@@ -80,8 +85,9 @@ class MockMemory:
         self._queries = []
         self._plot_counter = 0
 
-    def ingest(self, interaction_text: str, event_id: Optional[str] = None, **kwargs):
-        self._ingested.append(interaction_text)
+    def ingest(self, messages, event_id: Optional[str] = None, **kwargs):
+        rendered = messages_to_text(messages)
+        self._ingested.append(rendered)
 
         # Create a mock plot
         plot_id = event_id or f"plot_{self._plot_counter}"
@@ -89,12 +95,13 @@ class MockMemory:
 
         mock_plot = MagicMock()
         mock_plot.id = plot_id
-        mock_plot.text = interaction_text
+        mock_plot.messages = tuple(messages)
+        mock_plot.semantic_text = rendered
         mock_plot.ts = now_ts()
         self.plots[plot_id] = mock_plot
 
-    def query(self, text: str, k: int = 8, **kwargs):
-        self._queries.append(text)
+    def query(self, messages, k: int = 8, **kwargs):
+        self._queries.append(messages_to_text(messages))
 
         # Return mock trace
         trace = MagicMock()
@@ -336,7 +343,7 @@ class TestEvaluateAR:
         memory = MockMemory()
 
         # Pre-populate memory with the answer
-        memory.ingest("User: My name is Alice. Assistant: Hello Alice!")
+        memory.ingest(_messages("User: My name is Alice. Assistant: Hello Alice!"))
 
         instance = BenchmarkInstance(
             id="ar_002",
@@ -573,7 +580,7 @@ class TestAggregateResults:
         memory = MockMemory()
 
         # Add content to memory
-        memory.ingest("User: My name is Alice. Assistant: Nice to meet you!")
+        memory.ingest(_messages("User: My name is Alice. Assistant: Nice to meet you!"))
 
         instance = BenchmarkInstance(
             id="test_score",

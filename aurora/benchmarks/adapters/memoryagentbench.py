@@ -62,6 +62,7 @@ from aurora.integrations.llm.Prompt.qa_prompt import (
     build_qa_prompt,
     question_type_from_query_type,
 )
+from aurora.soul.models import Message, TextPart, messages_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +97,27 @@ SYSTEM_MARKER = "System:"
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+
+def _text_messages(text: str, *, role: str = "user") -> List[Message]:
+    return [Message(role=role, parts=(TextPart(text=str(text)),))]
+
+
+def _dialogue_messages(user_text: str, assistant_text: str = "") -> List[Message]:
+    messages = [Message(role="user", parts=(TextPart(text=str(user_text)),))]
+    if assistant_text:
+        messages.append(Message(role="assistant", parts=(TextPart(text=str(assistant_text)),)))
+    return messages
+
+
+def _plot_text(plot: Any) -> str:
+    semantic_text = getattr(plot, "semantic_text", None)
+    if semantic_text:
+        return str(semantic_text)
+    messages = getattr(plot, "messages", None)
+    if messages:
+        return messages_to_text(messages)
+    return ""
 
 
 def parse_conversation_turns(context: str) -> List[Dict[str, Any]]:
@@ -1341,8 +1363,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
                     memory.accept_interaction(
                         event_id=event_id,
                         session_id="benchmark_session",
-                        user_message=content,
-                        agent_message=assistant_response,
+                        messages=_dialogue_messages(content, assistant_response),
                     )
 
             elif has_ingest:
@@ -1357,12 +1378,8 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
                                 "text", ""
                             )
 
-                    interaction_text = f"User: {content}"
-                    if assistant_response:
-                        interaction_text += f"\nAssistant: {assistant_response}"
-
                     memory.ingest(
-                        interaction_text=interaction_text,
+                        messages=_dialogue_messages(content, assistant_response),
                         event_id=event_id,
                     )
 
@@ -1910,7 +1927,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         result = {}
 
         if hasattr(memory, "query"):
-            trace = memory.query(text=query_text, k=k)
+            trace = memory.query(messages=_text_messages(query_text), k=k)
 
             # Extract results based on trace type
             if hasattr(trace, "ranked"):
@@ -3575,14 +3592,14 @@ Provide concise answers that demonstrate understanding of the learned rules."""
         if kind == "plot" and hasattr(memory, "plots"):
             plot = memory.plots.get(node_id)
             if plot:
-                return str(plot.text)
+                return _plot_text(plot)
 
         elif kind == "story" and hasattr(memory, "stories"):
             story = memory.stories.get(node_id)
             if story:
                 plot_ids = list(getattr(story, "plot_ids", []))
                 plot_texts = [
-                    str(memory.plots[plot_id].text)
+                    _plot_text(memory.plots[plot_id])
                     for plot_id in plot_ids
                     if hasattr(memory, "plots") and plot_id in memory.plots
                 ]
@@ -3659,15 +3676,20 @@ Provide concise answers that demonstrate understanding of the learned rules."""
             score: float
             reasoning: str
 
-        user_prompt = MEMORYAGENTBENCH_JUDGE_USER_PROMPT.format(
+        judge_prompt = MEMORYAGENTBENCH_JUDGE_USER_PROMPT.format(
             question="Does the predicted answer correctly match the expected answer?",
             expected_answer=expected,
             predicted_answer=predicted,
         )
 
         result = self.llm.complete_json(
-            system=MEMORYAGENTBENCH_JUDGE_SYSTEM_PROMPT,
-            user=user_prompt,
+            messages=[
+                Message(
+                    role="system",
+                    parts=(TextPart(text=MEMORYAGENTBENCH_JUDGE_SYSTEM_PROMPT),),
+                ),
+                Message(role="user", parts=(TextPart(text=judge_prompt),)),
+            ],
             schema=JudgeResult,
             temperature=0.0,
         )

@@ -7,6 +7,7 @@ from typing import Any
 from aurora.integrations.llm.ark import ArkLLM
 from aurora.integrations.llm.bailian import BailianLLM
 from aurora.integrations.llm.schemas import MeaningFramePayloadV4
+from aurora.soul.models import Message, TextPart
 
 
 class _FakeMessage:
@@ -68,9 +69,16 @@ def test_bailian_complete_disables_thinking():
     fake_client = _FakeClient("hello")
     llm._client = fake_client
 
-    reply = llm.complete("hi", system="sys", max_tokens=64, timeout_s=12.0)
+    reply = llm.complete(
+        [
+            Message(role="system", parts=(TextPart(text="sys"),)),
+            Message(role="user", parts=(TextPart(text="hi"),)),
+        ],
+        max_tokens=64,
+        timeout_s=12.0,
+    )
 
-    assert reply == "hello"
+    assert reply.parts[0].text == "hello"
     assert fake_client.calls[0]["extra_body"] == {"enable_thinking": False}
     assert fake_client.calls[0]["max_tokens"] == 64
     assert fake_client.calls[0]["timeout"] == 12.0
@@ -100,8 +108,10 @@ def test_bailian_complete_json_uses_structured_schema_and_no_thinking():
     llm._client = fake_client
 
     result = llm.complete_json(
-        system="sys",
-        user="user",
+        messages=[
+            Message(role="system", parts=(TextPart(text="sys"),)),
+            Message(role="user", parts=(TextPart(text="user"),)),
+        ],
         schema=MeaningFramePayloadV4,
         timeout_s=9.0,
     )

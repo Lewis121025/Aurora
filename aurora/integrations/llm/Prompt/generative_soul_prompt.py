@@ -58,11 +58,11 @@ def build_gen_soul_summary_user_prompt(
     *,
     current_mode: str,
     salient_axes: Sequence[str],
-    recent_texts: Sequence[str],
+    recent_semantic_texts: Sequence[str],
     pressure: float,
 ) -> str:
     """构建用于生成 Agent 自我认知总结的用户提示词"""
-    recent = "\n".join(f"- {text}" for text in recent_texts[-4:])
+    recent = "\n".join(f"- {text}" for text in recent_semantic_texts[-4:])
     return (
         f"当前模式: {current_mode}\n"
         f"叙事压力: {pressure:.3f}\n"

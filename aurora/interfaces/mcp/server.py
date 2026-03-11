@@ -23,11 +23,52 @@ import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, TYPE_CHECKING
 
+from aurora.interfaces.messages import parse_message_payloads
+
 if TYPE_CHECKING:
     from aurora.runtime.runtime import AuroraRuntime
     from aurora.runtime.results import PersistenceReceipt, QueryResult
 
 logger = logging.getLogger(__name__)
+
+MESSAGE_PART_SCHEMA: Dict[str, Any] = {
+    "oneOf": [
+        {
+            "type": "object",
+            "properties": {
+                "type": {"const": "text"},
+                "text": {"type": "string", "minLength": 1},
+            },
+            "required": ["type", "text"],
+        },
+        {
+            "type": "object",
+            "properties": {
+                "type": {"const": "image"},
+                "uri": {"type": "string", "minLength": 1},
+                "mime_type": {"type": "string"},
+            },
+            "required": ["type", "uri"],
+        },
+    ]
+}
+
+MESSAGE_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "role": {"type": "string", "enum": ["user", "assistant", "system", "self"]},
+        "actor": {"type": "string"},
+        "parts": {
+            "type": "array",
+            "items": MESSAGE_PART_SCHEMA,
+            "minItems": 1,
+        },
+    },
+    "required": ["role", "parts"],
+}
+
+def _parse_messages(raw: Any):
+    return parse_message_payloads(raw)
 
 
 # =============================================================================
@@ -51,26 +92,27 @@ AURORA_TOOLS = [
         parameters={
             "type": "object",
             "properties": {
-                "user_message": {
-                    "type": "string",
-                    "description": "用户的消息或输入",
-                },
-                "agent_message": {
-                    "type": "string",
-                    "description": "代理的响应或采取的行动",
-                },
-                "actors": {
+                "messages": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "参与者列表（例如 ['user', 'agent']）",
-                    "default": ["user", "agent"],
+                    "items": MESSAGE_SCHEMA,
+                    "description": "Aurora V6 结构化消息数组",
+                    "minItems": 1,
                 },
-                "context": {
+                "session_id": {
                     "type": "string",
-                    "description": "关于交互的其他上下文",
+                    "description": "会话标识符",
+                    "default": "mcp_session",
+                },
+                "event_id": {
+                    "type": "string",
+                    "description": "可选事件 ID",
+                },
+                "ts": {
+                    "type": "number",
+                    "description": "可选事件时间戳",
                 },
             },
-            "required": ["user_message", "agent_message"],
+            "required": ["messages"],
         },
     ),
     ToolDefinition(
@@ -79,9 +121,11 @@ AURORA_TOOLS = [
         parameters={
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "自然语言搜索查询",
+                "messages": {
+                    "type": "array",
+                    "items": MESSAGE_SCHEMA,
+                    "description": "Aurora V6 结构化查询消息数组",
+                    "minItems": 1,
                 },
                 "k": {
                     "type": "integer",
@@ -90,13 +134,17 @@ AURORA_TOOLS = [
                     "minimum": 1,
                     "maximum": 50,
                 },
+                "session_id": {
+                    "type": "string",
+                    "description": "可选会话标识符",
+                },
                 "kinds": {
                     "type": "array",
                     "items": {"type": "string", "enum": ["plot", "story", "theme"]},
                     "description": "要搜索的内存类型（默认: 全部）",
                 },
             },
-            "required": ["query"],
+            "required": ["messages"],
         },
     ),
     ToolDefinition(
@@ -268,17 +316,16 @@ class AuroraMCPServer:
         args: Dict[str, Any],
     ) -> Dict[str, Any]:
         """处理 save_memory 工具调用。"""
-        event_id = str(uuid.uuid4())
+        event_id = str(args.get("event_id") or uuid.uuid4())
         session_id = args.get("session_id", "mcp_session")
+        messages = _parse_messages(args["messages"])
 
         def _sync_ingest() -> "PersistenceReceipt":
             return self.runtime.accept_interaction(
                 event_id=event_id,
                 session_id=session_id,
-                user_message=args["user_message"],
-                agent_message=args["agent_message"],
-                actors=args.get("actors"),
-                context=args.get("context"),
+                messages=messages,
+                ts=args.get("ts"),
             )
 
         loop = asyncio.get_event_loop()
@@ -297,11 +344,15 @@ class AuroraMCPServer:
         args: Dict[str, Any],
     ) -> Dict[str, Any]:
         """处理 search_memory 工具调用。"""
-        query = args["query"]
+        messages = _parse_messages(args["messages"])
         k = args.get("k", 8)
 
         def _sync_query() -> "QueryResult":
-            return self.runtime.query(text=query, k=k, session_id=args.get("session_id"))
+            return self.runtime.query(
+                messages=messages,
+                k=k,
+                session_id=args.get("session_id"),
+            )
 
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _sync_query)
@@ -323,7 +374,7 @@ class AuroraMCPServer:
             )
 
         return {
-            "query": query,
+            "query": result.query,
             "hits": hits,
             "attractor_path_len": result.attractor_path_len,
             "overlay_hit_count": result.overlay_hit_count,

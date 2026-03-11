@@ -32,6 +32,7 @@ from aurora.benchmarks.adapters.locomo import (
     LOCOMOTurn,
     create_locomo_adapter,
 )
+from aurora.soul.models import Message, TextPart, messages_to_text
 from aurora.utils.time_utils import now_ts
 
 
@@ -84,6 +85,10 @@ MOCK_LOCOMO_QUESTIONS = [
 ]
 
 
+def _messages(text: str, *, role: str = "user") -> list[Message]:
+    return [Message(role=role, parts=(TextPart(text=text),))]
+
+
 # =============================================================================
 # Mock Memory Class
 # =============================================================================
@@ -103,8 +108,9 @@ class MockMemory:
         self.metric = None
         self.vindex = None
 
-    def ingest(self, interaction_text: str, actors=None, event_id=None, **kwargs):
-        self._ingested.append(interaction_text)
+    def ingest(self, messages, event_id=None, **kwargs):
+        rendered = messages_to_text(messages)
+        self._ingested.append(rendered)
 
         # Create a mock plot
         plot_id = event_id or f"plot_{self._plot_counter}"
@@ -112,12 +118,13 @@ class MockMemory:
 
         mock_plot = MagicMock()
         mock_plot.id = plot_id
-        mock_plot.text = interaction_text
+        mock_plot.messages = tuple(messages)
+        mock_plot.semantic_text = rendered
         mock_plot.ts = now_ts()
         self.plots[plot_id] = mock_plot
 
-    def query(self, text: str, k: int = 10, **kwargs):
-        self._queries.append(text)
+    def query(self, messages, k: int = 10, **kwargs):
+        self._queries.append(messages_to_text(messages))
 
         # Return mock trace
         trace = MagicMock()
@@ -347,7 +354,7 @@ class TestEvaluateQASingleHop:
         memory = MockMemory()
 
         # Pre-populate memory
-        memory.ingest("用户：Hello, my name is Alice.")
+        memory.ingest(_messages("用户：Hello, my name is Alice."))
 
         instance = BenchmarkInstance(
             id="q_001",
@@ -400,8 +407,8 @@ class TestEvaluateQAMultiHop:
         memory = MockMemory()
 
         # Pre-populate memory with related facts
-        memory.ingest("用户：I live in San Francisco.")
-        memory.ingest("用户：I work as an engineer.")
+        memory.ingest(_messages("用户：I live in San Francisco."))
+        memory.ingest(_messages("用户：I work as an engineer."))
 
         instance = BenchmarkInstance(
             id="q_003",
@@ -470,8 +477,8 @@ class TestEvaluateSummarization:
         memory = MockMemory()
 
         # Pre-populate memory
-        memory.ingest("用户：I went to Paris.")
-        memory.ingest("用户：Then I visited Rome.")
+        memory.ingest(_messages("用户：I went to Paris."))
+        memory.ingest(_messages("用户：Then I visited Rome."))
 
         instance = BenchmarkInstance(
             id="sum_001",

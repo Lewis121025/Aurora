@@ -177,6 +177,7 @@ from aurora.runtime.results import (
     StructuredMemoryContext,
 )
 from aurora.runtime.runtime import AuroraRuntime
+from aurora.soul.models import Message, TextPart, messages_to_text
 
 SOURCE_LABELS = {
     "wake": "清醒编码",
@@ -247,7 +248,7 @@ class StatusRecord:
 @dataclass(frozen=True)
 class TurnRecord:
     turn_no: int
-    user_message: str
+    user_text: str
     result: ChatTurnResult
     live_identity: dict[str, Any]
     live_summary: dict[str, Any]
@@ -293,7 +294,7 @@ def _entry_kind(title: str) -> str:
 def _turn_to_record(
     *,
     turn_no: int,
-    user_message: str,
+    user_text: str,
     result: ChatTurnResult,
     live_identity: dict[str, Any],
     live_summary: dict[str, Any],
@@ -301,7 +302,7 @@ def _turn_to_record(
 ) -> TurnRecord:
     return TurnRecord(
         turn_no=turn_no,
-        user_message=user_message,
+        user_text=user_text,
         result=result,
         live_identity=live_identity,
         live_summary=live_summary,
@@ -315,7 +316,7 @@ def build_turn_overview_block(record: TurnRecord) -> str:
     trace = record.result.retrieval_trace_summary
     lines = [
         f"回合：第 {record.turn_no:02d} 轮",
-        f"用户输入：{record.user_message}",
+        f"用户输入：{record.user_text}",
         f"事件 ID：{record.result.event_id}",
         f"当前模式：{record.result.memory_context.mode}",
         f"叙事压力：{record.result.memory_context.narrative_pressure:.3f}",
@@ -334,7 +335,10 @@ def build_turn_overview_block(record: TurnRecord) -> str:
     return "\n\n".join(
         [
             _section("回合总览", lines),
-            _section("Aurora 回复", _truncate_block(record.result.reply, limit=1200)),
+            _section(
+                "Aurora 回复",
+                _truncate_block(messages_to_text((record.result.reply_message,)), limit=1200),
+            ),
         ]
     )
 
@@ -342,8 +346,11 @@ def build_turn_overview_block(record: TurnRecord) -> str:
 def build_prompt_status_block(result: ChatTurnResult) -> str:
     return "\n\n".join(
         [
-            _section("送入 LLM 的 System Prompt", _truncate_block(result.system_prompt)),
-            _section("送入 LLM 的 User Prompt", _truncate_block(result.user_prompt, limit=2400)),
+            _section("送入 LLM 的结构化记忆简报", _truncate_block(result.rendered_memory_brief)),
+            _section(
+                "Aurora 回复载荷",
+                _truncate_block(messages_to_text((result.reply_message,), include_image_uris=True), limit=2400),
+            ),
         ]
     )
 
@@ -438,7 +445,7 @@ def build_turn_writeback_block(record: TurnRecord) -> str:
 def build_turn_status_block(
     *,
     turn_no: int,
-    user_message: str,
+    user_text: str,
     result: ChatTurnResult,
     live_identity: dict[str, Any],
     live_summary: dict[str, Any],
@@ -446,7 +453,7 @@ def build_turn_status_block(
 ) -> str:
     record = _turn_to_record(
         turn_no=turn_no,
-        user_message=user_message,
+        user_text=user_text,
         result=result,
         live_identity=live_identity,
         live_summary=live_summary,
@@ -518,7 +525,7 @@ def build_turn_index_block(
         marker = "›" if index == selected_index else " "
         mode = record.result.memory_context.mode
         lines.append(f"{marker} 第 {record.turn_no:02d} 轮")
-        lines.append(f"{_truncate_inline(record.user_message, limit=30)}")
+        lines.append(f"{_truncate_inline(record.user_text, limit=30)}")
         lines.append(
             f"模式 {mode} · 压力 {record.result.memory_context.narrative_pressure:.2f} · "
             f"命中 {len(record.result.memory_context.retrieval_hits)}"
@@ -1206,7 +1213,10 @@ class AuroraTerminalTUI(App[None]):
                 return
             query_text = " ".join(args)
             result = await asyncio.to_thread(
-                lambda: self.runtime.query(text=query_text, k=self.max_hits)
+                lambda: self.runtime.query(
+                    messages=[Message(role="user", parts=(TextPart(text=query_text),))],
+                    k=self.max_hits,
+                )
             )
             self._utility_panel = StatusRecord(
                 title="检索观察", body=build_query_status_block(result)
@@ -1248,7 +1258,7 @@ class AuroraTerminalTUI(App[None]):
             lines = []
             for event in self.runtime.recent_events(limit=limit):
                 lines.append(f"{event.seq}. {event.event_id} | 会话 {event.session_id} | 时间 {event.ts:.0f}")
-                lines.append(f"   用户：{str(event.payload.get('user_message', ''))[:120]}")
+                lines.append(f"   内容：{str(event.payload.get('search_text', ''))[:120]}")
             return "\n".join(lines or ["暂无事件"])
         if name == "plots":
             plots = sorted(self.runtime.mem.plots.values(), key=lambda plot: plot.ts, reverse=True)[
@@ -1256,7 +1266,7 @@ class AuroraTerminalTUI(App[None]):
             ]
             return (
                 "\n".join(
-                    f"{plot.id[:8]} | {SOURCE_LABELS.get(plot.source, plot.source)} | story {plot.story_id or '-'} | 张力 {plot.tension:.3f}\n  {plot.text[:140]}"
+                    f"{plot.id[:8]} | {SOURCE_LABELS.get(plot.source, plot.source)} | story {plot.story_id or '-'} | 张力 {plot.tension:.3f}\n  {plot.semantic_text[:140]}"
                     for plot in plots
                 )
                 or "暂无 plot"
@@ -1343,7 +1353,7 @@ class AuroraTerminalTUI(App[None]):
         placeholder_id = self._append_chat_entry("Aurora", "正在组织记忆与回复……")
         self._refresh_live_state()
         self._refresh_view()
-        self._run_turn(user_message=text, placeholder_id=placeholder_id)
+        self._run_turn(user_text=text, placeholder_id=placeholder_id)
 
     @on(Tabs.TabActivated, "#inspector-tabs")
     def on_tabs_tab_activated(self, event: Tabs.TabActivated) -> None:
@@ -1356,12 +1366,12 @@ class AuroraTerminalTUI(App[None]):
         self._refresh_view()
 
     @work(thread=True, exclusive=True)
-    def _run_turn(self, *, user_message: str, placeholder_id: str) -> None:
+    def _run_turn(self, *, user_text: str, placeholder_id: str) -> None:
         try:
             final_result: Optional[ChatTurnResult] = None
             for event in self.runtime.respond_stream(
                 session_id=self.session_id,
-                user_message=user_message,
+                user_messages=[Message(role="user", parts=(TextPart(text=user_text),))],
                 k=self.max_hits,
             ):
                 if event.kind == "status":
@@ -1376,7 +1386,7 @@ class AuroraTerminalTUI(App[None]):
             live_stats = self.runtime.get_stats()
             self.call_from_thread(
                 self._complete_turn,
-                user_message,
+                user_text,
                 placeholder_id,
                 final_result,
                 live_report,
@@ -1398,17 +1408,21 @@ class AuroraTerminalTUI(App[None]):
 
     def _complete_turn(
         self,
-        user_message: str,
+        user_text: str,
         placeholder_id: str,
         result: ChatTurnResult,
         live_report: dict[str, Any],
         live_stats: dict[str, Any],
     ) -> None:
         self.last_result = result
-        self._replace_chat_entry(placeholder_id, "Aurora", result.reply)
+        self._replace_chat_entry(
+            placeholder_id,
+            "Aurora",
+            messages_to_text((result.reply_message,)),
+        )
         record = _turn_to_record(
             turn_no=self.turn_count,
-            user_message=user_message,
+            user_text=user_text,
             result=result,
             live_identity=live_report["identity"],
             live_summary=live_report["narrative_summary"],

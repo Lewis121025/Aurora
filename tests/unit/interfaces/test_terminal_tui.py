@@ -11,6 +11,7 @@ from aurora.interfaces.terminal.tui import (
 )
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
+from aurora.soul.models import Message, TextPart
 from tests.helpers.query_router import build_test_llm
 
 
@@ -18,8 +19,8 @@ def _build_runtime(tmp_path) -> AuroraRuntime:
     return AuroraRuntime(
         settings=AuroraSettings(
             data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
+            content_embedding_provider="hash",
+            text_embedding_provider="hash",
             meaning_provider="heuristic",
             narrative_provider="heuristic",
         ),
@@ -27,24 +28,28 @@ def _build_runtime(tmp_path) -> AuroraRuntime:
     )
 
 
+def _messages(text: str) -> list[Message]:
+    return [Message(role="user", parts=(TextPart(text=text),))]
+
+
 def test_build_turn_status_block_contains_prompt_and_live_state(tmp_path) -> None:
     runtime = _build_runtime(tmp_path)
 
-    result = runtime.respond(session_id="tui", user_message="你记得我刚才说了什么吗？")
+    result = runtime.respond(session_id="tui", user_messages=_messages("你记得我刚才说了什么吗？"))
     report = runtime.get_identity()
     stats = runtime.get_stats()
 
     block = build_turn_status_block(
         turn_no=1,
-        user_message="你记得我刚才说了什么吗？",
+        user_text="你记得我刚才说了什么吗？",
         result=result,
         live_identity=report["identity"],
         live_summary=report["narrative_summary"],
         live_stats=stats,
     )
 
-    assert "送入 LLM 的 System Prompt" in block
-    assert "送入 LLM 的 User Prompt" in block
+    assert "结构化记忆简报" in block
+    assert "Aurora 回复载荷" in block
     assert "本轮记忆上下文" in block
     assert "写回后的实时状态" in block
     assert "当前模式：" in block
@@ -91,11 +96,11 @@ def test_run_observer_uses_tui(monkeypatch, tmp_path) -> None:
 def test_build_turn_index_block_marks_selected_turn(tmp_path) -> None:
     runtime = _build_runtime(tmp_path)
 
-    first = runtime.respond(session_id="tui", user_message="第一轮，记录一下我的语气。")
+    first = runtime.respond(session_id="tui", user_messages=_messages("第一轮，记录一下我的语气。"))
     first_report = runtime.get_identity()
     first_stats = runtime.get_stats()
 
-    second = runtime.respond(session_id="tui", user_message="第二轮，看看索引是不是更清楚。")
+    second = runtime.respond(session_id="tui", user_messages=_messages("第二轮，看看索引是不是更清楚。"))
     second_report = runtime.get_identity()
     second_stats = runtime.get_stats()
 
@@ -105,7 +110,7 @@ def test_build_turn_index_block_marks_selected_turn(tmp_path) -> None:
         [
             _turn_to_record(
                 turn_no=1,
-                user_message="第一轮，记录一下我的语气。",
+                user_text="第一轮，记录一下我的语气。",
                 result=first,
                 live_identity=first_report["identity"],
                 live_summary=first_report["narrative_summary"],
@@ -113,7 +118,7 @@ def test_build_turn_index_block_marks_selected_turn(tmp_path) -> None:
             ),
             _turn_to_record(
                 turn_no=2,
-                user_message="第二轮，看看索引是不是更清楚。",
+                user_text="第二轮，看看索引是不是更清楚。",
                 result=second,
                 live_identity=second_report["identity"],
                 live_summary=second_report["narrative_summary"],

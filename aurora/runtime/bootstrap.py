@@ -10,7 +10,7 @@ import logging
 import os
 from typing import Optional
 
-from aurora.integrations.embeddings.base import EmbeddingProvider
+from aurora.integrations.embeddings.base import ContentEmbeddingProvider, TextEmbeddingProvider
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.runtime.settings import AuroraSettings
 from aurora.soul.engine import AuroraSoul, SoulConfig
@@ -29,13 +29,13 @@ logger = logging.getLogger(__name__)
 
 
 def check_embedding_api_keys() -> None:
-    """检查环境变量中是否存在远程 Embedding 服务的 API Key，若无则提示将使用本地模型。"""
+    """检查远程 embedding 服务的 API Key，若无则提示将使用本地 provider。"""
     bailian_key = os.environ.get("AURORA_BAILIAN_EMBEDDING_API_KEY")
     ark_key = os.environ.get("AURORA_ARK_API_KEY")
     if bailian_key or ark_key:
         return
     logger.info(
-        "No remote embedding API key found. Aurora v5 will use LocalSemanticEmbedding unless you set AURORA_EMBEDDING_PROVIDER."
+        "No remote embedding API key found. Aurora V6 will use local/hash embedders unless you configure remote providers."
     )
 
 
@@ -72,22 +72,53 @@ def create_llm_provider(settings: AuroraSettings) -> Optional[LLMProvider]:
     return None
 
 
-def create_embedding_provider(
+def create_content_embedding_provider(
     settings: AuroraSettings, *, provider_override: Optional[str] = None
-) -> EmbeddingProvider:
-    """根据 settings 创建并返回 Embedding 提供者实例。支持缓存配置。"""
-    provider = provider_override or settings.embedding_provider
+) -> ContentEmbeddingProvider:
+    """创建多模态内容 embedding provider。"""
+    provider = provider_override or settings.content_embedding_provider
     if provider == "bailian":
         if not settings.bailian_embedding_api_key:
             raise ConfigurationError(
-                "Bailian embedding provider selected but AURORA_BAILIAN_EMBEDDING_API_KEY is not set"
+                "Bailian content embedding provider selected but AURORA_BAILIAN_EMBEDDING_API_KEY is not set"
             )
-        from aurora.integrations.embeddings.bailian import BailianEmbedding
+        from aurora.integrations.embeddings.bailian import BailianMultimodalEmbedding
 
-        return BailianEmbedding(
+        return BailianMultimodalEmbedding(
             api_key=settings.bailian_embedding_api_key,
-            model=settings.bailian_embedding_model,
-            base_url=settings.bailian_embedding_base_url,
+            model=settings.bailian_content_embedding_model,
+            base_url=settings.bailian_content_embedding_base_url,
+            dimension=settings.dim,
+            use_cache=settings.embedding_cache_enabled,
+            cache_size=settings.embedding_cache_size,
+        )
+
+    if provider == "hash":
+        from aurora.integrations.embeddings.hash import HashEmbedding
+
+        return HashEmbedding(dim=settings.dim)
+
+    from aurora.integrations.embeddings.local_semantic import LocalSemanticEmbedding
+
+    return LocalSemanticEmbedding(dim=settings.dim)
+
+
+def create_text_embedding_provider(
+    settings: AuroraSettings, *, provider_override: Optional[str] = None
+) -> TextEmbeddingProvider:
+    """创建文本 embedding provider，用于 axis/summary/fact 等 text-only 场景。"""
+    provider = provider_override or settings.text_embedding_provider or settings.content_embedding_provider
+    if provider == "bailian":
+        if not settings.bailian_embedding_api_key:
+            raise ConfigurationError(
+                "Bailian text embedding provider selected but AURORA_BAILIAN_EMBEDDING_API_KEY is not set"
+            )
+        from aurora.integrations.embeddings.bailian import BailianTextEmbedding
+
+        return BailianTextEmbedding(
+            api_key=settings.bailian_embedding_api_key,
+            model=settings.bailian_text_embedding_model,
+            base_url=settings.bailian_text_embedding_base_url,
             dimension=settings.dim,
             use_cache=settings.embedding_cache_enabled,
             cache_size=settings.embedding_cache_size,
@@ -96,7 +127,7 @@ def create_embedding_provider(
     if provider == "ark":
         if not settings.ark_api_key:
             raise ConfigurationError(
-                "Ark embedding provider selected but AURORA_ARK_API_KEY is not set"
+                "Ark text embedding provider selected but AURORA_ARK_API_KEY is not set"
             )
         from aurora.integrations.embeddings.ark import ArkEmbedding
 
@@ -108,14 +139,12 @@ def create_embedding_provider(
         )
 
     if provider == "hash":
-        # 基于分词和哈希的简易 Embedding，无需外部 API。
         from aurora.integrations.embeddings.hash import HashEmbedding
 
         return HashEmbedding(dim=settings.dim)
 
     from aurora.integrations.embeddings.local_semantic import LocalSemanticEmbedding
 
-    # 默认使用本地语义 Embedding。
     return LocalSemanticEmbedding(dim=settings.dim)
 
 
@@ -127,7 +156,7 @@ def build_memory_config(settings: AuroraSettings) -> SoulConfig:
         max_plots=settings.max_plots,
         kde_reservoir=settings.kde_reservoir,
         retrieval_kinds=("summary", "theme", "story", "plot"),
-        max_recent_texts=settings.max_recent_texts,
+        max_recent_semantic_texts=settings.max_recent_semantic_texts,
         profile_text=settings.profile_text,
         persona_axes_json=settings.persona_axes_json,
         axis_merge_every_events=settings.axis_merge_every_events,
@@ -196,12 +225,8 @@ def create_memory(*, settings: AuroraSettings, llm: Optional[LLMProvider] = None
     3. 语义提取器与叙事提供者注入。
     """
     cfg = build_memory_config(settings)
-    event_embedder = create_embedding_provider(settings)
-    # 轴 Embedding 可以与普通事件 Embedding 使用不同的模型/服务。
-    axis_embedder = create_embedding_provider(
-        settings,
-        provider_override=settings.axis_embedding_provider or settings.embedding_provider,
-    )
+    event_embedder = create_content_embedding_provider(settings)
+    axis_embedder = create_text_embedding_provider(settings)
     meaning_provider = create_meaning_provider(settings=settings, llm=llm)
     narrator = create_narrative_provider(settings=settings, llm=llm)
     query_analyzer = create_query_analyzer(settings=settings, llm=llm)

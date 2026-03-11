@@ -1,4 +1,4 @@
-"""Response context builders for Aurora V5."""
+"""Response context builders for Aurora V6."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from typing import Any, Iterable, List
 
 from aurora.integrations.llm.Prompt.response_prompt import (
     RESPONSE_SYSTEM_PROMPT,
-    build_response_user_prompt,
 )
 from aurora.runtime.results import (
     EvidenceRef,
@@ -15,12 +14,12 @@ from aurora.runtime.results import (
     RetrievalTraceSummary,
     StructuredMemoryContext,
 )
+from aurora.soul.models import Message, TextPart
 
 
 @dataclass(frozen=True)
 class ResponsePrompt:
-    system_prompt: str
-    user_prompt: str
+    messages: List[Message]
     rendered_memory_brief: str
 
 
@@ -102,13 +101,21 @@ class ResponseContextBuilder:
         return "\n".join(lines)
 
     @staticmethod
-    def build_prompt(*, user_message: str, rendered_memory_brief: str) -> ResponsePrompt:
+    def build_prompt(
+        *, user_messages: List[Message], rendered_memory_brief: str
+    ) -> ResponsePrompt:
+        guidance = (
+            "下面是当前用户的 Aurora Soul Brief。"
+            "只能把 brief 里的内容当作可引用的内部状态或记忆线索；不要把不存在的历史编造成记忆。\n\n"
+            f"Aurora Soul Brief:\n{rendered_memory_brief}\n\n"
+            "请结合下面这条用户输入直接回答。"
+        )
         return ResponsePrompt(
-            system_prompt=RESPONSE_SYSTEM_PROMPT,
-            user_prompt=build_response_user_prompt(
-                user_message=user_message,
-                rendered_memory_brief=rendered_memory_brief,
-            ),
+            messages=[
+                Message(role="system", parts=(TextPart(text=RESPONSE_SYSTEM_PROMPT),)),
+                Message(role="user", parts=(TextPart(text=guidance),)),
+                *user_messages,
+            ],
             rendered_memory_brief=rendered_memory_brief,
         )
 
@@ -145,7 +152,7 @@ class ResponseContextBuilder:
             plot = self._memory.plots.get(hit.id)
             if plot is None:
                 return f"plot:{hit.id} score={hit.score:.3f}"
-            return f"plot score={hit.score:.3f} source={plot.source} text={plot.text[:140]}"
+            return f"plot score={hit.score:.3f} source={plot.source} text={plot.semantic_text[:140]}"
         if hit.kind == "summary":
             summary = self._memory.summaries.get(hit.id)
             if summary is None:

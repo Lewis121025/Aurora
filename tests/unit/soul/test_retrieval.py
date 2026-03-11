@@ -66,9 +66,9 @@ class TestFieldRetrieverBasic:
 
         trace = retriever.retrieve(
             query_text="测试查询",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("测试查询"),
             state=identity_state,
-            kinds=["plot"],
+            kinds=("plot",),
             k=5,
         )
 
@@ -89,7 +89,7 @@ class TestFieldRetrieverBasic:
 
         trace = retriever.retrieve(
             query_text="测试",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("测试"),
             state=identity_state,
             kinds=("plot",),
             k=5,
@@ -107,12 +107,12 @@ class TestMeanShift:
         retriever, embedder, vindex, graph = retriever_setup
 
         # 创建查询嵌入
-        query = embedder.embed("测试查询")
+        query = embedder.embed_text("测试查询")
 
         # 从 vindex 创建候选项
         candidates = []
         for pid in ["plot_0", "plot_1", "plot_2"]:
-            emb = embedder.embed(f"测试文本{pid}")
+            emb = embedder.embed_text(f"测试文本{pid}")
             candidates.append((pid, emb, 1.0))
 
         # 运行均值漂移
@@ -127,10 +127,10 @@ class TestMeanShift:
         """测试均值漂移记录路径。"""
         retriever, embedder, vindex, graph = retriever_setup
 
-        query = embedder.embed("测试查询")
+        query = embedder.embed_text("测试查询")
 
         # 创建候选项
-        candidates = [(f"plot_{i}", embedder.embed(f"测试{i}"), 1.0) for i in range(3)]
+        candidates = [(f"plot_{i}", embedder.embed_text(f"测试{i}"), 1.0) for i in range(3)]
 
         path = retriever._mean_shift(query, candidates, steps=8)
 
@@ -186,7 +186,7 @@ class TestPageRank:
     ):
         retriever, embedder, vindex, graph = retriever_setup
 
-        query = embedder.embed("图记忆冲突测试")
+        query = embedder.embed_text("图记忆冲突测试")
         idx0 = vindex.ids.index("plot_0")
         idx1 = vindex.ids.index("plot_1")
         vindex.vecs[idx0] = query.astype(np.float32)
@@ -213,9 +213,9 @@ class TestPageRank:
 
         trace = retriever.retrieve(
             query_text="图记忆冲突测试",
-            embedder=embedder,
+            query_embedding=query,
             state=identity_state,
-            kinds=["plot"],
+            kinds=("plot",),
             k=3,
         )
 
@@ -232,9 +232,9 @@ class TestKindFiltering:
 
         trace = retriever.retrieve(
             query_text="测试",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("测试"),
             state=identity_state,
-            kinds=["plot"],
+            kinds=("plot",),
             k=5,
         )
 
@@ -255,9 +255,9 @@ class TestKindFiltering:
 
         trace = retriever.retrieve(
             query_text="测试",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("测试"),
             state=identity_state,
-            kinds=["plot", "story"],
+            kinds=("plot", "story"),
             k=10,
         )
 
@@ -286,9 +286,9 @@ class TestKindFiltering:
 
         trace = retriever.retrieve(
             query_text="story raw",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("story raw"),
             state=identity_state,
-            kinds=["story"],
+            kinds=("story",),
             k=5,
         )
 
@@ -306,9 +306,9 @@ class TestRetrievalTrace:
 
         trace = retriever.retrieve(
             query_text="测试查询文本",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("测试查询文本"),
             state=identity_state,
-            kinds=["plot"],
+            kinds=("plot",),
             k=5,
         )
 
@@ -321,9 +321,9 @@ class TestRetrievalTrace:
 
         trace = retriever.retrieve(
             query_text="测试",
-            embedder=embedder,
+            query_embedding=embedder.embed_text("测试"),
             state=identity_state,
-            kinds=["plot"],
+            kinds=("plot",),
             k=5,
         )
 

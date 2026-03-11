@@ -5,33 +5,26 @@ from typing import List, Sequence
 
 import numpy as np
 
+from aurora.soul.models import Message
 
-class EmbeddingProvider(ABC):
-    """嵌入提供者的基类。
 
-    所有嵌入提供者应返回 numpy 数组，以与
-    内存系统的向量操作兼容。
-    """
+class TextEmbeddingProvider(ABC):
+    """Embed plain text for axis compilation, fact extraction, and text-only analysis."""
 
     @abstractmethod
-    def embed(self, text: str) -> np.ndarray:
-        """为单个文本生成嵌入。
-
-        参数：
-            text: 要嵌入的文本
-
-        返回：
-            形状为 (dim,) 的 np.ndarray，dtype 为 float32
-        """
+    def embed_text(self, text: str) -> np.ndarray:
         raise NotImplementedError
 
-    def embed_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
-        """为多个文本生成嵌入。
+    def embed_text_batch(self, texts: Sequence[str]) -> List[np.ndarray]:
+        return [self.embed_text(text) for text in texts]
 
-        参数：
-            texts: 要嵌入的文本序列
 
-        返回：
-            np.ndarray 嵌入列表
-        """
-        return [self.embed(t) for t in texts]
+class ContentEmbeddingProvider(ABC):
+    """Embed structured multimodal message content into a shared vector space."""
+
+    @abstractmethod
+    def embed_content(self, messages: Sequence[Message]) -> np.ndarray:
+        raise NotImplementedError
+
+    def embed_content_batch(self, items: Sequence[Sequence[Message]]) -> List[np.ndarray]:
+        return [self.embed_content(messages) for messages in items]
