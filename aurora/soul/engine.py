@@ -20,6 +20,7 @@ from aurora.integrations.embeddings.base import EmbeddingProvider
 from aurora.integrations.embeddings.local_semantic import LocalSemanticEmbedding
 from aurora.soul.graph_ops import GraphDreamOperator, GraphRepairOperator
 from aurora.soul.graph_views import GraphViewBuilder, GraphViewStats
+from aurora.soul.query import BaseQueryAnalyzer, MissingQueryAnalyzer
 from aurora.soul.extractors import (
     CombinatorialNarrativeProvider,
     HeuristicMeaningProvider,
@@ -38,6 +39,7 @@ from aurora.soul.models import (
     Plot,
     PsychologicalSchema,
     RetrievalTrace,
+    Summary,
     StoryArc,
     Theme,
     clamp,
@@ -53,11 +55,12 @@ from aurora.soul.retrieval import (
     OnlineKDE,
     VectorIndex,
 )
+from aurora.utils.id_utils import det_id
 from aurora.utils.math_utils import cosine_sim
 from aurora.utils.time_utils import now_ts
 
 # 系统版本标识
-SOUL_MEMORY_STATE_VERSION = "aurora-soul-memory-v4"
+SOUL_MEMORY_STATE_VERSION = "aurora-soul-memory-v5"
 
 
 def moving_average(old: float, new: float, rate: float) -> float:
@@ -199,7 +202,7 @@ class SoulConfig:
     architecture_mode: Literal["graph_first"] = "graph_first"
     max_plots: int = 5000  # 最大情节存储量
     kde_reservoir: int = 4096  # KDE 采样蓄水池大小
-    retrieval_kinds: Tuple[str, ...] = ("theme", "story", "plot")  # 检索类型
+    retrieval_kinds: Tuple[str, ...] = ("summary", "theme", "story", "plot")  # 检索类型
     max_recent_texts: int = 12  # 最近文本历史保留数
     profile_text: str = ""  # 初始人设文本
     persona_axes_json: Optional[str] = None  # 预设人设轴 JSON
@@ -262,7 +265,9 @@ class SoulConfig:
             architecture_mode="graph_first",
             max_plots=int(data.get("max_plots", 5000)),
             kde_reservoir=int(data.get("kde_reservoir", 4096)),
-            retrieval_kinds=tuple(data.get("retrieval_kinds", ("theme", "story", "plot"))),
+            retrieval_kinds=tuple(
+                data.get("retrieval_kinds", ("summary", "theme", "story", "plot"))
+            ),
             max_recent_texts=int(data.get("max_recent_texts", 12)),
             profile_text=str(data.get("profile_text", "")),
             persona_axes_json=data.get("persona_axes_json"),
@@ -286,6 +291,7 @@ class GraphProjectionState:
     vindex: VectorIndex
     retriever: FieldRetriever
     plots: Dict[str, Plot]
+    summaries: Dict[str, Summary]
     stories: Dict[str, StoryArc]
     themes: Dict[str, Theme]
     anchor_nodes: Dict[str, Dict[str, Any]]
@@ -309,6 +315,7 @@ class AuroraSoul:
         axis_embedder: Optional[EmbeddingProvider] = None,
         meaning_provider: Optional[MeaningProvider] = None,
         narrator: Optional[NarrativeProvider] = None,
+        query_analyzer: Optional[BaseQueryAnalyzer] = None,
         bootstrap: bool = True,
     ) -> None:
         self.cfg = cfg
@@ -339,7 +346,12 @@ class AuroraSoul:
         self.metric = LowRankMetric(dim=cfg.dim, rank=cfg.metric_rank, seed=seed)
         self.graph = MemoryGraph()
         self.vindex = VectorIndex(dim=cfg.dim)
-        self.retriever = FieldRetriever(metric=self.metric, vindex=self.vindex, graph=self.graph)
+        self.retriever = FieldRetriever(
+            metric=self.metric,
+            vindex=self.vindex,
+            graph=self.graph,
+            query_analyzer=query_analyzer or MissingQueryAnalyzer(),
+        )
         self.consolidator = SchemaConsolidator(
             every_events=cfg.axis_merge_every_events,
             budget=cfg.persona_axis_budget,
@@ -347,6 +359,7 @@ class AuroraSoul:
 
         # 状态数据初始化
         self.plots: Dict[str, Plot] = {}
+        self.summaries: Dict[str, Summary] = {}
         self.stories: Dict[str, StoryArc] = {}
         self.themes: Dict[str, Theme] = {}
         self.modes: Dict[str, IdentityMode] = {}
@@ -529,6 +542,7 @@ class AuroraSoul:
         metrics: Dict[str, Any] = {
             "authoritative": {
                 "plot_count": len(self.plots),
+                "summary_count": len(self.summaries),
                 "story_count": len(self.stories),
                 "theme_count": len(self.themes),
                 "core_anchor_count": len(self.core_anchor_ids),
@@ -579,6 +593,7 @@ class AuroraSoul:
             vindex=self.vindex,
             retriever=self.retriever,
             plots=self.plots,
+            summaries=self.summaries,
             stories=self.stories,
             themes=self.themes,
             anchor_nodes=self.anchor_nodes,
@@ -782,6 +797,24 @@ class AuroraSoul:
             anchor_nodes=anchor_nodes,
             core_anchor_ids=core_anchor_ids,
         )
+
+    def _store_summary(self, summary: Summary) -> None:
+        self.summaries[summary.id] = summary
+        self.graph.add_node(summary.id, "summary", summary)
+        if summary.embedding.size == self.cfg.dim:
+            self.vindex.add(summary.id, l2_normalize(summary.embedding), kind="summary")
+        self._refresh_graph_metrics()
+
+    def remove_plot_from_hot_state(self, plot_id: str) -> None:
+        plot = self.plots.pop(plot_id, None)
+        if plot is None:
+            return
+        self.vindex.remove(plot_id)
+        self.graph.remove_node(plot_id)
+        for story in self.stories.values():
+            if plot_id in story.plot_ids:
+                story.plot_ids = [item for item in story.plot_ids if item != plot_id]
+        self._refresh_graph_metrics()
 
     def _redundancy(self, emb: np.ndarray) -> float:
         """计算输入向量相对于现有情节的冗余度（最高余弦相似度）"""
@@ -1097,6 +1130,7 @@ class AuroraSoul:
         self,
         interaction_text: str,
         *,
+        event_id: Optional[str] = None,
         actors: Optional[Sequence[str]] = None,
         context_text: Optional[str] = None,
         source: Literal["wake", "dream", "repair", "mode"] = "wake",
@@ -1120,6 +1154,7 @@ class AuroraSoul:
         )
         plot = Plot(
             id=plot_id or str(uuid.uuid4()),
+            event_id=event_id,
             ts=event_ts,
             text=interaction_text,
             actors=tuple(actors) if actors else ("user", "agent"),
@@ -1155,6 +1190,304 @@ class AuroraSoul:
         )
 
         return self._ingest_graph_first(plot, frame, dissonance)
+
+    def refresh_materialized_views(self) -> None:
+        self._refresh_materialized_views(force=True)
+
+    def project_interaction_event(
+        self,
+        *,
+        event_id: str,
+        user_message: str,
+        agent_message: str,
+        actors: Optional[Sequence[str]],
+        context_text: Optional[str],
+        ts: float,
+    ) -> Plot:
+        plot_id = det_id("plot", event_id)
+        existing = self.plots.get(plot_id)
+        if existing is not None:
+            return existing
+        return self.ingest(
+            f"USER: {user_message}\nAURORA: {agent_message}",
+            event_id=event_id,
+            actors=actors or ("user", "agent"),
+            context_text=context_text or user_message,
+            source="wake",
+            ts=ts,
+            plot_id=plot_id,
+        )
+
+    def apply_projected_event(self, *, event_type: str, event_id: str, payload: Dict[str, Any]) -> Optional[str]:
+        if event_type == "interaction":
+            plot = self.project_interaction_event(
+                event_id=event_id,
+                user_message=str(payload.get("user_message", "")),
+                agent_message=str(payload.get("agent_message", "")),
+                actors=cast(Optional[Sequence[str]], payload.get("actors")),
+                context_text=cast(Optional[str], payload.get("context")),
+                ts=float(payload.get("ts", now_ts())),
+            )
+            return plot.id
+        if event_type in {"dream", "repair"}:
+            return self._apply_generated_plot_event(event_type=event_type, event_id=event_id, payload=payload)
+        if event_type == "compaction":
+            summary = self._apply_compaction_event(event_id=event_id, payload=payload)
+            return summary.id
+        raise ValueError(f"Unsupported projected event type: {event_type}")
+
+    def _apply_generated_plot_event(
+        self,
+        *,
+        event_type: str,
+        event_id: str,
+        payload: Dict[str, Any],
+    ) -> str:
+        source = cast(Literal["dream", "repair"], event_type)
+        plot_id = det_id("plot", event_id)
+        existing = self.plots.get(plot_id)
+        if existing is not None:
+            return existing.id
+        confidence = 0.34 if source == "dream" else 0.72
+        evidence_weight = 0.20 if source == "dream" else 0.35
+        plot = self.ingest(
+            str(payload.get("text", "")),
+            event_id=event_id,
+            actors=("self",),
+            source=source,
+            confidence=confidence,
+            evidence_weight=evidence_weight,
+            ts=float(payload.get("ts", now_ts())),
+            plot_id=plot_id,
+        )
+        source_plot_ids = [str(item) for item in payload.get("source_plot_ids", [])]
+        link_type = "dreams_about" if source == "dream" else "resolves"
+        reverse_type = "dreamed_by" if source == "dream" else "resolved_by"
+        link_weight = max(0.05, float(payload.get("score", 0.1)))
+        for source_plot_id in source_plot_ids:
+            if source_plot_id not in self.plots:
+                continue
+            self.graph.ensure_edge(
+                plot.id,
+                source_plot_id,
+                link_type,
+                weight=link_weight,
+                confidence=plot.confidence,
+                provenance=f"{source}_event",
+            )
+            self.graph.ensure_edge(
+                source_plot_id,
+                plot.id,
+                reverse_type,
+                weight=link_weight,
+                confidence=self.plots[source_plot_id].confidence,
+                provenance=f"{source}_event",
+            )
+        if source == "dream":
+            self.identity.dream_count += 1
+        else:
+            self.identity.repair_count += 1
+            self.identity.narrative_log.append(str(payload.get("text", "")))
+        self._refresh_graph_metrics()
+        return plot.id
+
+    def _apply_compaction_event(self, *, event_id: str, payload: Dict[str, Any]) -> Summary:
+        summary_id = det_id("summary", event_id)
+        existing = self.summaries.get(summary_id)
+        if existing is not None:
+            return existing
+        text = str(payload.get("text", ""))
+        embedding = self.event_embedder.embed(text)
+        summary = Summary(
+            id=summary_id,
+            event_id=event_id,
+            created_ts=float(payload.get("created_ts", now_ts())),
+            updated_ts=float(payload.get("updated_ts", payload.get("created_ts", now_ts()))),
+            text=text,
+            embedding=embedding,
+            source_plot_ids=[str(item) for item in payload.get("source_plot_ids", [])],
+            source_event_ids=[str(item) for item in payload.get("source_event_ids", [])],
+            tags=[str(item) for item in payload.get("tags", [])],
+            fact_keys=[str(item) for item in payload.get("fact_keys", [])],
+            start_ts=float(payload["start_ts"]) if payload.get("start_ts") is not None else None,
+            end_ts=float(payload["end_ts"]) if payload.get("end_ts") is not None else None,
+        )
+        self._store_summary(summary)
+        for story_id in [str(item) for item in payload.get("story_ids", [])]:
+            if story_id in self.stories:
+                self.graph.ensure_edge(
+                    summary.id,
+                    story_id,
+                    "summarizes_story",
+                    weight=0.5,
+                    confidence=0.9,
+                    provenance="compaction",
+                )
+        for theme_id in [str(item) for item in payload.get("theme_ids", [])]:
+            if theme_id in self.themes:
+                self.graph.ensure_edge(
+                    summary.id,
+                    theme_id,
+                    "summarizes_theme",
+                    weight=0.5,
+                    confidence=0.9,
+                    provenance="compaction",
+                )
+        for plot_id in summary.source_plot_ids:
+            self.remove_plot_from_hot_state(plot_id)
+        self.refresh_materialized_views()
+        return summary
+
+    def plan_repair_events(self, *, limit: int = 1) -> List[Dict[str, Any]]:
+        targets = self.repair_operator.find_targets(
+            graph=self.graph,
+            plots=self.plots,
+            anchor_ids=self.core_anchor_ids,
+            limit=limit,
+        )
+        planned: List[Dict[str, Any]] = []
+        for target in targets:
+            target_plots = [self.plots[plot_id] for plot_id in target.plot_ids if plot_id in self.plots]
+            if not target_plots:
+                continue
+            salient_axes = sorted(
+                (
+                    (
+                        axis_name,
+                        float(
+                            np.mean(
+                                [
+                                    abs(plot.frame.axis_evidence.get(axis_name, 0.0))
+                                    for plot in target_plots
+                                ]
+                            )
+                        ),
+                    )
+                    for axis_name in self._axis_names()
+                ),
+                key=lambda item: item[1],
+                reverse=True,
+            )
+            text = self.narrator.compose_repair(
+                "integrate",
+                self.identity,
+                self.identity,
+                target.score,
+                [axis_name for axis_name, score in salient_axes[:3] if score > 0.0],
+                " / ".join(plot.text[:96] for plot in target_plots[:2]),
+                self.schema,
+            )
+            planned.append(
+                {
+                    "text": text,
+                    "score": float(target.score),
+                    "source_plot_ids": [plot.id for plot in target_plots],
+                    "source_event_ids": [plot.event_id for plot in target_plots if plot.event_id],
+                    "ts": now_ts(),
+                }
+            )
+        return planned
+
+    def plan_dream_events(self, *, n: int = 2) -> List[Dict[str, Any]]:
+        candidates = self.dream_operator.propose(
+            graph=self.graph,
+            plots=self.plots,
+            samples=self.cfg.dream_walk_samples,
+            steps=self.cfg.dream_walk_steps,
+        )
+        fallback = candidates[: max(1, n)] if candidates else []
+        chosen = [
+            candidate for candidate in candidates if candidate.score >= self.cfg.dream_persist_threshold
+        ]
+        if not chosen:
+            chosen = fallback
+        planned: List[Dict[str, Any]] = []
+        for candidate in chosen[:n]:
+            operator = "integration" if candidate.resonance >= 0.35 else "counterfactual"
+            text = self.narrator.compose_dream(
+                operator,
+                candidate.tags,
+                self.identity,
+                self.schema,
+            )
+            member_plots = [self.plots[plot_id] for plot_id in candidate.plot_ids if plot_id in self.plots]
+            planned.append(
+                {
+                    "text": text,
+                    "score": float(candidate.score),
+                    "source_plot_ids": [plot.id for plot in member_plots],
+                    "source_event_ids": [plot.event_id for plot in member_plots if plot.event_id],
+                    "tags": list(candidate.tags),
+                    "ts": now_ts(),
+                }
+            )
+        return planned
+
+    def plan_compaction_events(
+        self,
+        *,
+        cold_age_s: float,
+        mass_threshold: float,
+        group_min_size: int,
+    ) -> List[Dict[str, Any]]:
+        self.refresh_materialized_views()
+        now = now_ts()
+        candidates = [
+            plot
+            for plot in self.plots.values()
+            if plot.event_id
+            and now - plot.ts >= cold_age_s
+            and plot.mass() < mass_threshold
+            and plot.tension < 0.40
+            and plot.contradiction < 0.35
+            and plot.id not in self.core_anchor_ids
+            and all(
+                self.graph.kind(neighbor_id) != "anchor"
+                for neighbor_id in self.graph.g.predecessors(plot.id)
+                if neighbor_id in self.graph.g
+            )
+        ]
+        if len(candidates) < group_min_size:
+            return []
+        grouped: Dict[str, List[Plot]] = {}
+        for plot in candidates:
+            group_key = plot.story_id or plot.theme_id or f"time:{int(plot.ts // max(cold_age_s, 1.0))}"
+            grouped.setdefault(group_key, []).append(plot)
+        planned: List[Dict[str, Any]] = []
+        for group in grouped.values():
+            if len(group) < group_min_size:
+                continue
+            group.sort(key=lambda item: item.ts)
+            tags: List[str] = []
+            fact_keys: List[str] = []
+            for plot in group:
+                for tag in plot.frame.tags:
+                    if tag not in tags:
+                        tags.append(tag)
+                for fact_key in plot.fact_keys:
+                    if fact_key not in fact_keys:
+                        fact_keys.append(fact_key)
+            story_ids = sorted({plot.story_id for plot in group if plot.story_id})
+            theme_ids = sorted({plot.theme_id for plot in group if plot.theme_id})
+            snippets = " / ".join(plot.text[:64] for plot in group[:3])
+            label = "、".join(tags[:4]) if tags else "旧记忆片段"
+            text = f"[Summary] {label}。{snippets}"
+            planned.append(
+                {
+                    "text": text,
+                    "source_plot_ids": [plot.id for plot in group],
+                    "source_event_ids": [plot.event_id for plot in group if plot.event_id],
+                    "tags": tags[:12],
+                    "fact_keys": fact_keys[:16],
+                    "story_ids": story_ids,
+                    "theme_ids": theme_ids,
+                    "start_ts": float(group[0].ts),
+                    "end_ts": float(group[-1].ts),
+                    "created_ts": now,
+                    "updated_ts": now,
+                }
+            )
+        return planned
 
     def dream(self, n: int = 2) -> List[Plot]:
         """执行 graph-first 梦境演练循环。"""
@@ -1305,6 +1638,10 @@ class AuroraSoul:
             "graph": self.graph.to_state_dict(),
             "vindex": self.vindex.to_state_dict(),
             "plots": {plot_id: plot.to_state_dict() for plot_id, plot in self.plots.items()},
+            "summaries": {
+                summary_id: summary.to_state_dict()
+                for summary_id, summary in self.summaries.items()
+            },
             "stories": {
                 story_id: story.to_state_dict() for story_id, story in self.stories.items()
             },
@@ -1338,6 +1675,7 @@ class AuroraSoul:
         axis_embedder: Optional[EmbeddingProvider] = None,
         meaning_provider: Optional[MeaningProvider] = None,
         narrator: Optional[NarrativeProvider] = None,
+        query_analyzer: Optional[BaseQueryAnalyzer] = None,
     ) -> "AuroraSoul":
         """从状态数据恢复灵魂引擎"""
         if data.get("schema_version") != SOUL_MEMORY_STATE_VERSION:
@@ -1350,6 +1688,7 @@ class AuroraSoul:
             axis_embedder=axis_embedder,
             meaning_provider=meaning_provider,
             narrator=narrator,
+            query_analyzer=query_analyzer,
             bootstrap=False,
         )
         # 恢复各个组件状态
@@ -1358,6 +1697,10 @@ class AuroraSoul:
         obj.vindex = VectorIndex.from_state_dict(data["vindex"])
         obj.plots = {
             plot_id: Plot.from_state_dict(item) for plot_id, item in data.get("plots", {}).items()
+        }
+        obj.summaries = {
+            summary_id: Summary.from_state_dict(item)
+            for summary_id, item in data.get("summaries", {}).items()
         }
         obj.stories = {
             story_id: StoryArc.from_state_dict(item)
@@ -1371,6 +1714,8 @@ class AuroraSoul:
         # 重建图节点
         for plot_id, plot in obj.plots.items():
             obj.graph.add_node(plot_id, "plot", plot)
+        for summary_id, summary in obj.summaries.items():
+            obj.graph.add_node(summary_id, "summary", summary)
         for story_id, story in obj.stories.items():
             obj.graph.add_node(story_id, "story", story)
         for theme_id, theme in obj.themes.items():
@@ -1389,7 +1734,12 @@ class AuroraSoul:
         if not obj.core_anchor_ids:
             obj._bootstrap_core_anchors()
         obj.graph.restore_edges(data["graph"])
-        obj.retriever = FieldRetriever(metric=obj.metric, vindex=obj.vindex, graph=obj.graph)
+        obj.retriever = FieldRetriever(
+            metric=obj.metric,
+            vindex=obj.vindex,
+            graph=obj.graph,
+            query_analyzer=query_analyzer or MissingQueryAnalyzer(),
+        )
         obj.schema = PsychologicalSchema.from_state_dict(data["schema"])
         for axis in obj.schema.all_axes().values():
             if (

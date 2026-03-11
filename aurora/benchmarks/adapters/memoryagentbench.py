@@ -58,7 +58,10 @@ from aurora.integrations.llm.Prompt.memoryagentbench_prompt import (
     MEMORYAGENTBENCH_JUDGE_SYSTEM_PROMPT,
     MEMORYAGENTBENCH_JUDGE_USER_PROMPT,
 )
-from aurora.integrations.llm.Prompt.qa_prompt import build_qa_prompt, detect_question_type
+from aurora.integrations.llm.Prompt.qa_prompt import (
+    build_qa_prompt,
+    question_type_from_query_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1314,7 +1317,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         turns = instance.conversation_history
 
         # Check memory type and call appropriate method
-        has_ingest_interaction = hasattr(memory, "ingest_interaction")
+        has_accept_interaction = hasattr(memory, "accept_interaction")
         has_ingest = hasattr(memory, "ingest")
 
         for i, turn in enumerate(turns):
@@ -1322,7 +1325,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
             content = turn.get("content") or turn.get("text", "")
             role = turn.get("role") or turn.get("speaker", "user")
 
-            if has_ingest_interaction:
+            if has_accept_interaction:
                 # AuroraRuntime style
                 if role == "user":
                     # Look for next assistant response
@@ -1335,7 +1338,7 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
                                 "text", ""
                             )
 
-                    memory.ingest_interaction(
+                    memory.accept_interaction(
                         event_id=event_id,
                         session_id="benchmark_session",
                         user_message=content,
@@ -1970,14 +1973,24 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         # Try LLM-based answer extraction
         if self.llm is not None:
             try:
-                return self._llm_extract_answer(question, context_texts)
+                return self._llm_extract_answer(
+                    question,
+                    context_texts,
+                    query_type=getattr(query_result.get("raw_trace"), "query_type", None),
+                )
             except Exception as e:
                 logger.debug(f"LLM extraction failed: {e}")
 
         # Fallback: heuristic-based extraction with scores
         return self._heuristic_extract_answer(question, context_texts, context_scores)
 
-    def _llm_extract_answer(self, question: str, context: List[str]) -> str:
+    def _llm_extract_answer(
+        self,
+        question: str,
+        context: List[str],
+        *,
+        query_type: Any = None,
+    ) -> str:
         """Use LLM to extract precise answer from context.
 
         Supports both English and Chinese questions/answers.
@@ -1992,8 +2005,8 @@ class MemoryAgentBenchAdapter(BenchmarkAdapter):
         """
         context_text = "\n\n".join(context[:5])
 
-        # Detect question type and build prompt
-        qtype = detect_question_type(question)
+        # Reuse the main retrieval chain's query type instead of analyzing again.
+        qtype = question_type_from_query_type(query_type)
         base_prompt = build_qa_prompt(
             question=question,
             context=context_text,

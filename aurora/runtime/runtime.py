@@ -1,8 +1,4 @@
-"""
-aurora/runtime/runtime.py
-运行时核心模块：负责整合底层灵魂引擎、持久化存储、大模型接口以及响应构建逻辑。
-它管理着 Agent 的生命周期，包括启动加载、交互写回、梦境演变以及检索。
-"""
+"""Aurora V5 runtime: event-sourced CQRS with durable workers and overlay queries."""
 
 from __future__ import annotations
 
@@ -13,232 +9,303 @@ import time
 import uuid
 from typing import Any, Dict, Iterator, List, Optional, Sequence, Tuple
 
-from aurora.system.errors import ConfigurationError
 from aurora.integrations.llm.provider import LLMProvider
-from aurora.integrations.storage.doc_store import Document, SQLiteDocStore
-from aurora.integrations.storage.event_log import Event, SQLiteEventLog
+from aurora.integrations.storage.runtime_store import (
+    ProjectionStatus,
+    SQLiteRuntimeStore,
+    StoredEvent,
+    StoredJob,
+)
 from aurora.integrations.storage.snapshot import Snapshot, SnapshotStore
 from aurora.runtime.bootstrap import (
     check_embedding_api_keys,
     create_embedding_provider,
     create_llm_provider,
     create_meaning_provider,
-    create_narrative_provider,
     create_memory,
+    create_narrative_provider,
+    create_query_analyzer,
 )
 from aurora.runtime.response_context import ResponseContextBuilder
 from aurora.runtime.results import (
     ChatStreamEvent,
     ChatTimings,
     ChatTurnResult,
-    IngestResult,
+    PersistenceReceipt,
     QueryHit,
     QueryResult,
-    StructuredMemoryContext,
 )
 from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
 from aurora.soul.engine import AuroraSoul
+from aurora.system.errors import ConfigurationError
 
 logger = logging.getLogger(__name__)
 
-# 运行时架构版本标识
-RUNTIME_SCHEMA_VERSION = "aurora-runtime-v4"
+RUNTIME_SCHEMA_VERSION = "aurora-runtime-v5"
+SYSTEM_SESSION_ID = "__aurora_system__"
 
 
 class AuroraRuntime:
-    """
-    Aurora 运行时：这是整个系统的中枢。
-    它不仅持有 AuroraSoul 引擎，还负责与数据库（SQLite）、大模型 API 的具体通信。
-    """
-
     def __init__(self, *, settings: AuroraSettings, llm: Optional[LLMProvider] = None):
         self.settings = settings
         self.llm = llm if llm is not None else create_llm_provider(settings)
 
-        # 启动前自检
         check_embedding_api_keys()
-        self._lock = threading.RLock()  # 确保多线程下的内存状态安全
+        self._lock = threading.RLock()
+        self._closed = False
+        self._stop = threading.Event()
+        self._scheduler_thread: Optional[threading.Thread] = None
+        self._worker_threads: List[threading.Thread] = []
+        self._loaded_snapshot_seq = 0
+        self._last_projected_seq = 0
 
-        # 初始化持久化存储
         os.makedirs(self.settings.data_dir, exist_ok=True)
-        # 1. 事件日志：记录原始交互流（Source of Truth）
-        self.event_log = SQLiteEventLog(
-            os.path.join(self.settings.data_dir, self.settings.event_log_filename)
+        self.store = SQLiteRuntimeStore(
+            os.path.join(self.settings.data_dir, self.settings.runtime_db_filename)
         )
-        # 2. 文档存储：存储解析后的情节、结果快照等
-        self.doc_store = SQLiteDocStore(os.path.join(self.settings.data_dir, "docs.sqlite3"))
-        # 3. 快照存储：存储序列化后的引擎完整状态
         self.snapshots = SnapshotStore(
             os.path.join(self.settings.data_dir, self.settings.snapshot_dirname)
         )
-
-        self.last_seq = 0
-        self._loaded_snapshot_seq = 0
-        self._closed = False
-        self._background_stop = threading.Event()
-        self._background_thread: Optional[threading.Thread] = None
-        self._background_interval_s = max(0.0, float(self.settings.evolve_every_seconds))
-        self._background_telemetry: Dict[str, Any] = {
-            "enabled": bool(self.settings.background_evolver_enabled)
-            and self._background_interval_s > 0.0,
-            "interval_s": self._background_interval_s,
-            "running": False,
-            "last_run_ts": None,
-            "last_duration_ms": None,
-            "cycles": 0,
-            "last_error": None,
-            "last_mutation_count": 0,
-        }
-        # 从快照加载引擎，若无则初始化
         self.mem = self._load_or_init()
         self.response_contexts = ResponseContextBuilder(memory=self.mem)
 
-        # 检查版本兼容性并重放未同步的日志
-        self._ensure_v4_doc_store()
-        replayed = self._replay()
-        if replayed > 0 and self.last_seq > self._loaded_snapshot_seq:
-            self._snapshot()
-        self._start_background_evolver()
-
-    def _memory_mutation_token(self) -> Tuple[Any, ...]:
-        return (
-            len(self.mem.plots),
-            len(self.mem.stories),
-            len(self.mem.themes),
-            int(self.mem.step),
-            int(self.mem.identity.dream_count),
-            int(self.mem.identity.repair_count),
-            int(self.mem.identity.mode_change_count),
-            int(getattr(self.mem.graph, "edge_version", 0)),
-        )
-
-    def _snapshot_if_authoritative_mutation(self, before: Tuple[Any, ...], after: Tuple[Any, ...]) -> bool:
-        if before == after:
-            return False
-        self._snapshot()
-        return True
-
-    def _background_evolver_enabled(self) -> bool:
-        return bool(self.settings.background_evolver_enabled) and self._background_interval_s > 0.0
-
-    def _start_background_evolver(self) -> None:
-        if not self._background_evolver_enabled():
-            self._background_telemetry["enabled"] = False
-            self._background_telemetry["running"] = False
-            return
-        self._background_telemetry["enabled"] = True
-        if self._background_thread is not None and self._background_thread.is_alive():
-            return
-        self._background_stop.clear()
-        self._background_thread = threading.Thread(
-            target=self._background_evolver_loop,
-            name="aurora-background-evolver",
-            daemon=True,
-        )
-        self._background_thread.start()
-
-    def _background_evolver_loop(self) -> None:
-        self._background_telemetry["running"] = True
-        try:
-            while not self._background_stop.wait(self._background_interval_s):
-                started = time.perf_counter()
-                try:
-                    with self._lock:
-                        before = self._memory_mutation_token()
-                        evolved = self.mem.evolve(dreams=self.settings.dreams_per_evolve)
-                        after = self._memory_mutation_token()
-                        changed = self._snapshot_if_authoritative_mutation(before, after)
-                    self._background_telemetry["last_error"] = None
-                    self._background_telemetry["last_mutation_count"] = len(evolved) if changed else 0
-                except Exception as exc:
-                    logger.exception("background evolver failed")
-                    self._background_telemetry["last_error"] = str(exc)
-                    self._background_telemetry["last_mutation_count"] = 0
-                finally:
-                    self._background_telemetry["last_run_ts"] = time.time()
-                    self._background_telemetry["last_duration_ms"] = round(
-                        (time.perf_counter() - started) * 1000.0, 3
-                    )
-                    self._background_telemetry["cycles"] = int(
-                        self._background_telemetry.get("cycles", 0)
-                    ) + 1
-        finally:
-            self._background_telemetry["running"] = False
+        self._replay_projected_events()
+        self._start_workers()
+        self._start_scheduler()
 
     def _load_or_init(self) -> AuroraSoul:
-        """从最新快照恢复系统状态，或根据配置新建引擎。"""
         try:
             latest = self.snapshots.latest()
         except ValueError as exc:
-            raise ConfigurationError(str(exc).replace("V2", "Aurora Soul V4")) from exc
-
-        if latest is not None:
-            _seq, snap = latest
-            self.last_seq = snap.last_seq
-            self._loaded_snapshot_seq = snap.last_seq
-            # 恢复时重新配置 Provider
-            event_embedder = create_embedding_provider(self.settings)
-            axis_embedder = create_embedding_provider(
-                self.settings,
-                provider_override=self.settings.axis_embedding_provider
-                or self.settings.embedding_provider,
+            raise ConfigurationError(str(exc).replace("V2", "Aurora Soul V5")) from exc
+        if latest is None:
+            return create_memory(settings=self.settings, llm=self.llm)
+        _seq, snap = latest
+        self._loaded_snapshot_seq = snap.last_seq
+        self._last_projected_seq = snap.last_seq
+        event_embedder = create_embedding_provider(self.settings)
+        axis_embedder = create_embedding_provider(
+            self.settings,
+            provider_override=self.settings.axis_embedding_provider or self.settings.embedding_provider,
+        )
+        meaning_provider = create_meaning_provider(settings=self.settings, llm=self.llm)
+        narrator = create_narrative_provider(settings=self.settings, llm=self.llm)
+        query_analyzer = create_query_analyzer(settings=self.settings, llm=self.llm)
+        try:
+            return AuroraSoul.from_state_dict(
+                snap.state,
+                event_embedder=event_embedder,
+                axis_embedder=axis_embedder,
+                meaning_provider=meaning_provider,
+                narrator=narrator,
+                query_analyzer=query_analyzer,
             )
-            meaning_provider = create_meaning_provider(settings=self.settings, llm=self.llm)
-            narrator = create_narrative_provider(settings=self.settings, llm=self.llm)
-            try:
-                return AuroraSoul.from_state_dict(
-                    snap.state,
-                    event_embedder=event_embedder,
-                    axis_embedder=axis_embedder,
-                    meaning_provider=meaning_provider,
-                    narrator=narrator,
-                )
-            except ValueError as exc:
-                raise ConfigurationError(str(exc)) from exc
-        return create_memory(settings=self.settings, llm=self.llm)
+        except ValueError as exc:
+            raise ConfigurationError(str(exc)) from exc
 
-    def _ensure_v4_doc_store(self) -> None:
-        """强制检查数据一致性，防止 v3 版本的数据污染 v4 系统。"""
-        for kind in ("plot", "ingest_result"):
-            if self.doc_store.has_body_field_mismatch(
-                kind=kind,
-                field="runtime_schema_version",
-                expected=RUNTIME_SCHEMA_VERSION,
-            ):
-                raise ConfigurationError(
-                    f"Detected legacy v3 documents in {self.settings.data_dir}/docs.sqlite3. "
-                    f"Aurora Soul v4 requires a fresh data directory, for example {DEFAULT_DATA_DIR!r}."
-                )
+    def _snapshot(self) -> None:
+        self.snapshots.save(Snapshot(last_seq=self._last_projected_seq, state=self.mem.to_state_dict()))
 
-    def _ensure_v4_event_payload(self, payload: Dict[str, Any]) -> None:
-        """检查单条事件的架构版本。"""
-        if payload.get("runtime_schema_version") != RUNTIME_SCHEMA_VERSION:
-            raise ConfigurationError(
-                f"Detected legacy v3 event payloads in {self.settings.data_dir}. "
-                "Aurora Soul v4 requires a fresh data directory."
+    def _maybe_snapshot(self) -> None:
+        threshold = int(self.settings.snapshot_every_projected_events)
+        if threshold <= 0:
+            return
+        if self._last_projected_seq <= 0:
+            return
+        if self._last_projected_seq % threshold == 0:
+            self._snapshot()
+
+    def _replay_projected_events(self) -> None:
+        target_seq = int(self.store.get_runtime_state().get("last_projected_seq", 0))
+        if target_seq <= self._loaded_snapshot_seq:
+            self._last_projected_seq = max(self._last_projected_seq, target_seq)
+            return
+        for event in self.store.iter_projected_events(after_seq=self._loaded_snapshot_seq):
+            with self._lock:
+                self._apply_event_to_memory(event)
+            self._last_projected_seq = max(self._last_projected_seq, event.seq)
+
+    def _start_workers(self) -> None:
+        worker_count = max(1, int(self.settings.worker_count))
+        for index in range(worker_count):
+            worker_id = f"aurora-worker-{index + 1}"
+            thread = threading.Thread(
+                target=self._worker_loop,
+                args=(worker_id,),
+                name=worker_id,
+                daemon=True,
             )
+            thread.start()
+            self._worker_threads.append(thread)
 
-    def _replay(self) -> int:
-        """重放日志逻辑：将快照之后产生的事件重新喂给内存引擎，保持内存与日志同步。"""
-        replayed = 0
-        for seq, event in self.event_log.iter_events(after_seq=self.last_seq):
-            if event.type != "interaction":
+    def _start_scheduler(self) -> None:
+        self._scheduler_thread = threading.Thread(
+            target=self._scheduler_loop,
+            name="aurora-scheduler",
+            daemon=True,
+        )
+        self._scheduler_thread.start()
+
+    def _scheduler_loop(self) -> None:
+        next_evolve_ts = time.time() + max(1.0, float(self.settings.evolve_every_seconds))
+        next_fade_ts = time.time() + max(1.0, float(self.settings.fade_every_seconds))
+        sleep_s = max(0.05, float(self.settings.job_poll_interval_ms) / 1000.0)
+        while not self._stop.wait(sleep_s):
+            now = time.time()
+            if now >= next_evolve_ts:
+                bucket = int(now // max(1.0, float(self.settings.evolve_every_seconds)))
+                self.store.enqueue_job(
+                    job_type="run_evolve",
+                    payload={"dreams": int(self.settings.dreams_per_evolve)},
+                    max_attempts=self.settings.job_retry_limit,
+                    dedupe_key=f"run_evolve:{bucket}",
+                )
+                next_evolve_ts = now + max(1.0, float(self.settings.evolve_every_seconds))
+            if now >= next_fade_ts:
+                bucket = int(now // max(1.0, float(self.settings.fade_every_seconds)))
+                self.store.enqueue_job(
+                    job_type="run_fading",
+                    payload={
+                        "cold_age_s": float(self.settings.fade_cold_age_s),
+                        "mass_threshold": float(self.settings.fade_mass_threshold),
+                        "group_min_size": int(self.settings.fade_group_min_size),
+                    },
+                    max_attempts=self.settings.job_retry_limit,
+                    dedupe_key=f"run_fading:{bucket}",
+                )
+                next_fade_ts = now + max(1.0, float(self.settings.fade_every_seconds))
+
+    def _worker_loop(self, worker_id: str) -> None:
+        poll_s = max(0.05, float(self.settings.job_poll_interval_ms) / 1000.0)
+        while not self._stop.wait(poll_s):
+            jobs = self.store.claim_jobs(
+                worker_id=worker_id,
+                limit=1,
+                lease_seconds=float(self.settings.job_lease_seconds),
+            )
+            if not jobs:
                 continue
-            self._ensure_v4_event_payload(event.payload)
-            self._apply_interaction(
-                event_id=event.id,
-                user_message=str(event.payload.get("user_message", "")),
-                agent_message=str(event.payload.get("agent_message", "")),
-                context=event.payload.get("context"),
-                actors=event.payload.get("actors"),
-                ts=event.ts,
-                persist=False,  # 重放时不重复持久化
-            )
-            self.last_seq = seq
-            replayed += 1
-        return replayed
+            for job in jobs:
+                try:
+                    self._process_job(job)
+                except Exception as exc:  # pragma: no cover
+                    logger.exception("worker failed processing job %s", job.job_id)
+                    if job.event_id:
+                        self.store.mark_projection_failed(event_id=job.event_id, error=str(exc))
+                    self.store.fail_job(job_id=job.job_id, error=str(exc))
 
-    def ingest_interaction(
+    def _process_job(self, job: StoredJob) -> None:
+        if job.job_type.startswith("project_"):
+            self._process_projection_job(job)
+            return
+        if job.job_type == "run_evolve":
+            self._process_run_evolve(job)
+            return
+        if job.job_type == "run_fading":
+            self._process_run_fading(job)
+            return
+        raise ValueError(f"Unknown job type: {job.job_type}")
+
+    def _process_projection_job(self, job: StoredJob) -> None:
+        if job.event_id is None:
+            raise RuntimeError(f"Projection job {job.job_id} missing event_id")
+        projection = self.store.get_projection_status(job.event_id)
+        if projection is not None and projection.status == "projected":
+            self.store.complete_job(job.job_id)
+            return
+        event = self.store.get_event(job.event_id)
+        if event is None:
+            raise RuntimeError(f"Missing event {job.event_id}")
+        self.store.mark_projecting(job.event_id)
+        with self._lock:
+            node_id, node_kind = self._apply_event_to_memory(event)
+            self._last_projected_seq = max(self._last_projected_seq, event.seq)
+            self._maybe_snapshot()
+        self.store.mark_projected(
+            event_id=job.event_id,
+            event_seq=event.seq,
+            node_id=node_id,
+            node_kind=node_kind,
+        )
+        self.store.complete_job(job.job_id)
+
+    def _process_run_evolve(self, job: StoredJob) -> None:
+        dreams = int(job.payload.get("dreams", self.settings.dreams_per_evolve))
+        with self._lock:
+            repair_events = self.mem.plan_repair_events(limit=1)
+            dream_events = self.mem.plan_dream_events(n=dreams)
+        for payload in repair_events:
+            event_id = f"evt_repair_{uuid.uuid4().hex}"
+            payload = {**payload, "runtime_schema_version": RUNTIME_SCHEMA_VERSION, "search_text": payload["text"]}
+            self.store.append_event_and_enqueue(
+                event_id=event_id,
+                event_type="repair",
+                session_id=SYSTEM_SESSION_ID,
+                ts=float(payload.get("ts", time.time())),
+                payload=payload,
+                search_text=str(payload["text"]),
+                job_type="project_repair",
+                job_payload={},
+                max_attempts=self.settings.job_retry_limit,
+                dedupe_key=event_id,
+            )
+        for payload in dream_events:
+            event_id = f"evt_dream_{uuid.uuid4().hex}"
+            payload = {**payload, "runtime_schema_version": RUNTIME_SCHEMA_VERSION, "search_text": payload["text"]}
+            self.store.append_event_and_enqueue(
+                event_id=event_id,
+                event_type="dream",
+                session_id=SYSTEM_SESSION_ID,
+                ts=float(payload.get("ts", time.time())),
+                payload=payload,
+                search_text=str(payload["text"]),
+                job_type="project_dream",
+                job_payload={},
+                max_attempts=self.settings.job_retry_limit,
+                dedupe_key=event_id,
+            )
+        self.store.update_runtime_state(last_evolve_ts=time.time())
+        self.store.complete_job(job.job_id)
+
+    def _process_run_fading(self, job: StoredJob) -> None:
+        with self._lock:
+            plans = self.mem.plan_compaction_events(
+                cold_age_s=float(job.payload.get("cold_age_s", self.settings.fade_cold_age_s)),
+                mass_threshold=float(job.payload.get("mass_threshold", self.settings.fade_mass_threshold)),
+                group_min_size=int(job.payload.get("group_min_size", self.settings.fade_group_min_size)),
+            )
+        for payload in plans:
+            event_id = f"evt_compaction_{uuid.uuid4().hex}"
+            payload = {**payload, "runtime_schema_version": RUNTIME_SCHEMA_VERSION, "search_text": payload["text"]}
+            self.store.append_event_and_enqueue(
+                event_id=event_id,
+                event_type="compaction",
+                session_id=SYSTEM_SESSION_ID,
+                ts=float(payload.get("created_ts", time.time())),
+                payload=payload,
+                search_text=str(payload["text"]),
+                job_type="project_compaction",
+                job_payload={},
+                max_attempts=self.settings.job_retry_limit,
+                dedupe_key=event_id,
+            )
+        self.store.update_runtime_state(last_fade_ts=time.time())
+        self.store.complete_job(job.job_id)
+
+    def _apply_event_to_memory(self, event: StoredEvent) -> Tuple[Optional[str], Optional[str]]:
+        payload = dict(event.payload)
+        payload.setdefault("ts", event.ts)
+        node_id = self.mem.apply_projected_event(
+            event_type=event.event_type,
+            event_id=event.event_id,
+            payload=payload,
+        )
+        node_kind = {"compaction": "summary", "interaction": "plot", "dream": "plot", "repair": "plot"}[
+            event.event_type
+        ]
+        return node_id, node_kind
+
+    def accept_interaction(
         self,
         *,
         event_id: str,
@@ -248,200 +315,153 @@ class AuroraRuntime:
         actors: Optional[Sequence[str]] = None,
         context: Optional[str] = None,
         ts: Optional[float] = None,
-    ) -> IngestResult:
-        """
-        交互摄入流程：
-        1. 检查去重。
-        2. 写入事件日志。
-        3. 喂给灵魂引擎。
-        4. 定期触发系统快照。
-        """
-        event_ts = ts or time.time()
-        with self._lock:
-            existing_seq = self.event_log.get_seq_by_id(event_id)
-            if existing_seq is not None:
-                return self._load_existing_ingest_result(event_id)
-
-            payload = self._build_event_payload(
-                user_message=user_message,
-                agent_message=agent_message,
-                actors=actors,
-                context=context,
-            )
-            seq = self.event_log.append(
-                Event(
-                    id=event_id,
-                    ts=event_ts,
-                    session_id=session_id,
-                    type="interaction",
-                    payload=payload,
-                )
-            )
-            result = self._apply_interaction(
-                event_id=event_id,
-                user_message=user_message,
-                agent_message=agent_message,
-                context=context,
-                actors=actors,
-                ts=event_ts,
-                persist=True,
-            )
-            self.last_seq = max(self.last_seq, seq)
-            if (
-                self.settings.snapshot_every_events > 0
-                and self.last_seq % self.settings.snapshot_every_events == 0
-            ):
-                self._snapshot()
-            return result
-
-    def _build_event_payload(
-        self,
-        *,
-        user_message: str,
-        agent_message: str,
-        actors: Optional[Sequence[str]],
-        context: Optional[str],
-    ) -> Dict[str, Any]:
-        """构建事件载荷字典。"""
-        return {
+    ) -> PersistenceReceipt:
+        event_ts = float(ts or time.time())
+        payload = {
             "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
             "user_message": user_message,
             "agent_message": agent_message,
             "actors": list(actors) if actors else ["user", "agent"],
             "context": context,
+            "ts": event_ts,
         }
+        search_text = f"USER: {user_message}\nAURORA: {agent_message}"
+        if context:
+            search_text += f"\nCONTEXT: {context}"
+        payload["search_text"] = search_text
+        event, job = self.store.append_event_and_enqueue(
+            event_id=event_id,
+            event_type="interaction",
+            session_id=session_id,
+            ts=event_ts,
+            payload=payload,
+            search_text=search_text,
+            job_type="project_interaction",
+            job_payload={},
+            max_attempts=self.settings.job_retry_limit,
+            dedupe_key=event_id,
+        )
+        return PersistenceReceipt(
+            event_id=event.event_id,
+            job_id=job.job_id,
+            status="accepted",
+            accepted_at=event.ts,
+            projection_status="accepted",
+        )
 
-    def _interaction_text(self, *, user_message: str, agent_message: str) -> str:
-        """将对话双方消息合并为单段文本，供引擎分析含义。"""
-        return f"USER: {user_message}\nAURORA: {agent_message}"
+    def _graph_query_hits(self, *, text: str, k: int) -> Tuple[List[QueryHit], Any]:
+        with self._lock:
+            trace = self.mem.query(text, k=max(k * 2, 8))
+            hits: List[QueryHit] = []
+            for node_id, score, kind in trace.ranked:
+                snippet, metadata = self._snippet_for(node_id=node_id, kind=kind)
+                hits.append(
+                    QueryHit(
+                        id=node_id,
+                        kind=kind,  # type: ignore[arg-type]
+                        score=float(score),
+                        snippet=snippet,
+                        metadata=metadata,
+                    )
+                )
+        return hits, trace
 
-    def _apply_interaction(
+    def _merge_hits(
         self,
         *,
-        event_id: str,
-        user_message: str,
-        agent_message: str,
-        context: Optional[str],
-        actors: Optional[Sequence[str]],
-        ts: float,
-        persist: bool,
-    ) -> IngestResult:
-        """内部逻辑：调用 soul 引擎执行真正的摄入与身份计算。"""
-        plot = self.mem.ingest(
-            self._interaction_text(user_message=user_message, agent_message=agent_message),
-            actors=actors or ("user", "agent"),
-            context_text=context or user_message,
-            source="wake",
-            ts=ts,
-        )
-        result = IngestResult(
-            event_id=event_id,
-            plot_id=plot.id,
-            story_id=plot.story_id,
-            mode=self.mem.identity.current_mode_label,
-            source=plot.source,
-            tension=float(plot.tension),
-            contradiction=float(plot.contradiction),
-            active_energy=float(self.mem.identity.active_energy),
-            repressed_energy=float(self.mem.identity.repressed_energy),
-        )
-        if persist:
-            self._persist_interaction_artifacts(event_id=event_id, ts=ts, plot=plot, result=result)
-        return result
-
-    def _persist_interaction_artifacts(
-        self, *, event_id: str, ts: float, plot: Any, result: IngestResult
-    ) -> None:
-        """将摄入产物（情节和结果）保存到文档存储中。"""
-        self.doc_store.upsert(
-            Document(
-                id=plot.id,
-                kind="plot",
-                ts=ts,
-                body={
-                    "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
-                    "plot_id": plot.id,
-                    "story_id": plot.story_id,
-                    "text": plot.text,
-                    "source": plot.source,
-                    "mode": self.mem.identity.current_mode_label,
-                    "tags": list(plot.frame.tags),
-                    "tension": float(plot.tension),
-                    "contradiction": float(plot.contradiction),
-                },
+        graph_hits: List[QueryHit],
+        overlay_hits: List[QueryHit],
+        limit: int,
+    ) -> List[QueryHit]:
+        graph_max = max((hit.score for hit in graph_hits), default=1.0) or 1.0
+        represented_event_ids = {
+            event_id
+            for hit in graph_hits
+            for event_id in self._graph_hit_event_ids(hit)
+        }
+        merged: List[QueryHit] = []
+        for hit in graph_hits:
+            merged.append(
+                QueryHit(
+                    id=hit.id,
+                    kind=hit.kind,
+                    score=min(1.5, hit.score / graph_max),
+                    snippet=hit.snippet,
+                    metadata=hit.metadata,
+                )
             )
-        )
-        self.doc_store.upsert(
-            Document(
-                id=f"ingest:{event_id}",
-                kind="ingest_result",
-                ts=ts,
-                body={
-                    "runtime_schema_version": RUNTIME_SCHEMA_VERSION,
-                    "event_id": result.event_id,
-                    "plot_id": result.plot_id,
-                    "story_id": result.story_id,
-                    "mode": result.mode,
-                    "source": result.source,
-                    "tension": result.tension,
-                    "contradiction": result.contradiction,
-                    "active_energy": result.active_energy,
-                    "repressed_energy": result.repressed_energy,
-                },
-            )
-        )
+        for hit in overlay_hits:
+            if hit.id in represented_event_ids:
+                continue
+            merged.append(hit)
+        merged.sort(key=lambda item: item.score, reverse=True)
+        return merged[:limit]
 
-    def _snapshot(self) -> None:
-        """执行全量系统快照。"""
-        snap = Snapshot(last_seq=self.last_seq, state=self.mem.to_state_dict())
-        self.snapshots.save(snap)
+    def _graph_hit_event_ids(self, hit: QueryHit) -> List[str]:
+        if hit.kind == "plot":
+            plot = self.mem.plots.get(hit.id)
+            return [plot.event_id] if plot is not None and plot.event_id else []
+        if hit.kind == "summary":
+            summary = self.mem.summaries.get(hit.id)
+            return list(summary.source_event_ids) if summary is not None else []
+        return []
 
-    def _load_existing_ingest_result(self, event_id: str) -> IngestResult:
-        """从文档库加载已有的摄入结果。"""
-        doc = self.doc_store.get(f"ingest:{event_id}")
-        if doc is None:
-            return IngestResult(
-                event_id=event_id,
-                plot_id="",
-                story_id=None,
-                mode=self.mem.identity.current_mode_label,
-                source="wake",
-                tension=0.0,
-                contradiction=0.0,
-                active_energy=float(self.mem.identity.active_energy),
-                repressed_energy=float(self.mem.identity.repressed_energy),
+    def _overlay_query_hits(self, *, text: str, k: int, session_id: Optional[str]) -> List[QueryHit]:
+        hits = self.store.search_overlay_events(
+            query_text=text,
+            limit=max(k * 2, self.settings.overlay_search_limit),
+            session_id=session_id,
+        )
+        return [
+            QueryHit(
+                id=hit.event_id,
+                kind="event",
+                score=float(hit.score),
+                snippet=hit.snippet,
+                metadata={"projection_status": hit.projection_status, "session_id": hit.session_id},
             )
-        body = doc.body
-        return IngestResult(
-            event_id=event_id,
-            plot_id=str(body.get("plot_id", "")),
-            story_id=body.get("story_id"),
-            mode=str(body.get("mode", self.mem.identity.current_mode_label)),
-            source=str(body.get("source", "wake")),
-            tension=float(body.get("tension", 0.0)),
-            contradiction=float(body.get("contradiction", 0.0)),
-            active_energy=float(body.get("active_energy", self.mem.identity.active_energy)),
-            repressed_energy=float(
-                body.get("repressed_energy", self.mem.identity.repressed_energy)
-            ),
+            for hit in hits
+        ]
+
+    def query(self, *, text: str, k: int = 8, session_id: Optional[str] = None) -> QueryResult:
+        graph_hits, trace = self._graph_query_hits(text=text, k=k)
+        overlay_hits = self._overlay_query_hits(text=text, k=k, session_id=session_id)
+        merged = self._merge_hits(graph_hits=graph_hits, overlay_hits=overlay_hits, limit=k)
+        return QueryResult(
+            query=text,
+            attractor_path_len=len(trace.attractor_path),
+            overlay_hit_count=len(overlay_hits),
+            hits=merged,
         )
 
     def build_response_context(
-        self, *, user_message: str, k: int = 6
-    ) -> tuple[StructuredMemoryContext, Any]:
-        """检索并构建当前对话所需的记忆上下文。"""
-        with self._lock:
-            trace = self.mem.query(user_message, k=k)
-            context = self.response_contexts.build(trace=trace, max_items=k)
-            summary = self.response_contexts.summarize_trace(trace)
+        self,
+        *,
+        session_id: str,
+        user_message: str,
+        k: int = 6,
+    ) -> tuple[Any, Any]:
+        graph_hits, trace = self._graph_query_hits(text=user_message, k=k)
+        overlay_hits = self._overlay_query_hits(text=user_message, k=k, session_id=session_id)
+        merged = self._merge_hits(graph_hits=graph_hits, overlay_hits=overlay_hits, limit=k)
+        context = self.response_contexts.build(hits=merged, max_items=k)
+        summary = self.response_contexts.trace_summary(
+            query=user_message,
+            attractor_path_len=len(trace.attractor_path),
+            graph_kinds=[kind for _, _, kind in trace.ranked],
+            overlay_hit_count=len(overlay_hits),
+            query_type=trace.query_type.name if trace.query_type is not None else None,
+            time_relation=trace.time_range.relation if trace.time_range is not None else None,
+            time_start=trace.time_range.start if trace.time_range is not None else None,
+            time_end=trace.time_range.end if trace.time_range is not None else None,
+            time_anchor_event=trace.time_range.anchor_event if trace.time_range is not None else None,
+        )
         return context, summary
 
     def _response_llm_timeout_s(self) -> float:
-        """交互式回复链路采用更短超时，避免终端长时间挂起。"""
         return min(float(self.settings.llm_timeout), 10.0)
 
     def _response_llm_max_retries(self) -> int:
-        """回复链路默认快速失败，必要时由 runtime 自身生成降级回复。"""
         return 1
 
     def respond_stream(
@@ -455,18 +475,16 @@ class AuroraRuntime:
         k: int = 6,
         ts: Optional[float] = None,
     ) -> Iterator[ChatStreamEvent]:
-        """
-        流式对话主流程：
-        1. 检索：获取记忆上下文。
-        2. 生成：流式调用 LLM 生成回复。
-        3. 摄入：将用户输入和生成回复作为新的情节存回记忆。
-        """
         total_started = time.perf_counter()
-        resolved_event_id = event_id or f"evt_resp_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        resolved_event_id = event_id or f"evt_turn_{uuid.uuid4().hex}"
 
         yield ChatStreamEvent(kind="status", stage="retrieval", text="正在检索记忆")
         retrieval_started = time.perf_counter()
-        memory_context, trace_summary = self.build_response_context(user_message=user_message, k=k)
+        memory_context, trace_summary = self.build_response_context(
+            session_id=session_id,
+            user_message=user_message,
+            k=k,
+        )
         retrieval_ms = (time.perf_counter() - retrieval_started) * 1000.0
 
         prompt = self.response_contexts.build_prompt(
@@ -478,64 +496,51 @@ class AuroraRuntime:
         generation_started = time.perf_counter()
         llm_error: Optional[str] = None
         reply_parts: List[str] = []
-        if self.llm is None:
-            llm_error = "llm_not_configured"
-            reply = self._build_response_fallback(
-                memory_context=memory_context,
-                user_message=user_message,
-                reason=llm_error,
-            )
-            yield ChatStreamEvent(
-                kind="status", stage="generation", text="未配置语言模型，使用系统降级回复"
-            )
-            yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
-        else:
-            try:
-                # 调用流式 LLM 提供者
-                for chunk in self.llm.stream_complete(
-                    prompt.user_prompt,
-                    system=prompt.system_prompt,
-                    temperature=0.3,
-                    max_tokens=400,
-                    timeout_s=self._response_llm_timeout_s(),
-                    max_retries=self._response_llm_max_retries(),
-                ):
-                    if not chunk:
-                        continue
-                    reply_parts.append(chunk)
-                    yield ChatStreamEvent(kind="reply_delta", stage="generation", text=chunk)
-                reply = "".join(reply_parts).strip()
-                if not reply:
-                    llm_error = "empty_stream_response"
-                    reply = self._build_response_fallback(
-                        memory_context=memory_context,
-                        user_message=user_message,
-                        reason=llm_error,
-                    )
-                    yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
-            except Exception as exc:
-                llm_error = str(exc)
-                reply = "".join(reply_parts).strip()
-                if reply:
-                    yield ChatStreamEvent(
-                        kind="status", stage="generation", text="流式生成中断，保留已生成内容"
-                    )
-                else:
-                    reply = self._build_response_fallback(
-                        memory_context=memory_context,
-                        user_message=user_message,
-                        reason=llm_error,
-                    )
-                    yield ChatStreamEvent(
-                        kind="status", stage="generation", text="生成失败，已切换到降级回复"
-                    )
-                    yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
+        assert self.llm is not None
+        try:
+            for chunk in self.llm.stream_complete(
+                prompt.user_prompt,
+                system=prompt.system_prompt,
+                temperature=0.3,
+                max_tokens=400,
+                timeout_s=self._response_llm_timeout_s(),
+                max_retries=self._response_llm_max_retries(),
+            ):
+                if not chunk:
+                    continue
+                reply_parts.append(chunk)
+                yield ChatStreamEvent(kind="reply_delta", stage="generation", text=chunk)
+            reply = "".join(reply_parts).strip()
+            if not reply:
+                llm_error = "empty_stream_response"
+                reply = self._build_response_fallback(
+                    memory_context=memory_context,
+                    user_message=user_message,
+                    reason=llm_error,
+                )
+                yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
+        except Exception as exc:
+            llm_error = str(exc)
+            partial = "".join(reply_parts).strip()
+            if partial:
+                reply = partial
+                yield ChatStreamEvent(
+                    kind="status",
+                    stage="generation",
+                    text="流式生成中断，保留已生成内容",
+                )
+            else:
+                reply = self._build_response_fallback(
+                    memory_context=memory_context,
+                    user_message=user_message,
+                    reason=llm_error,
+                )
+                yield ChatStreamEvent(kind="reply_delta", stage="generation", text=reply)
         generation_ms = (time.perf_counter() - generation_started) * 1000.0
 
-        yield ChatStreamEvent(kind="status", stage="ingest", text="正在写回记忆")
-        ingest_started = time.perf_counter()
-        # 此时将 LLM 的回复摄入引擎，作为其“说出过的话”
-        ingest_result = self.ingest_interaction(
+        yield ChatStreamEvent(kind="status", stage="persist_accept", text="已接收，后台整合中")
+        persist_started = time.perf_counter()
+        receipt = self.accept_interaction(
             event_id=resolved_event_id,
             session_id=session_id,
             user_message=user_message,
@@ -544,7 +549,7 @@ class AuroraRuntime:
             context=context,
             ts=ts,
         )
-        ingest_ms = (time.perf_counter() - ingest_started) * 1000.0
+        persist_ms = (time.perf_counter() - persist_started) * 1000.0
 
         total_ms = (time.perf_counter() - total_started) * 1000.0
         yield ChatStreamEvent(
@@ -558,11 +563,11 @@ class AuroraRuntime:
                 system_prompt=prompt.system_prompt,
                 user_prompt=prompt.user_prompt,
                 retrieval_trace_summary=trace_summary,
-                ingest_result=ingest_result,
+                persistence=receipt,
                 timings=ChatTimings(
                     retrieval_ms=retrieval_ms,
                     generation_ms=generation_ms,
-                    ingest_ms=ingest_ms,
+                    persist_ms=persist_ms,
                     total_ms=total_ms,
                 ),
                 llm_error=llm_error,
@@ -580,23 +585,25 @@ class AuroraRuntime:
         k: int = 6,
         ts: Optional[float] = None,
     ) -> ChatTurnResult:
-        """非流式对话流程。逻辑与 respond_stream 类似，但阻塞等待全部结果。"""
         total_started = time.perf_counter()
-        resolved_event_id = event_id or f"evt_resp_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-
+        resolved_event_id = event_id or f"evt_turn_{uuid.uuid4().hex}"
         retrieval_started = time.perf_counter()
-        memory_context, trace_summary = self.build_response_context(user_message=user_message, k=k)
+        memory_context, trace_summary = self.build_response_context(
+            session_id=session_id,
+            user_message=user_message,
+            k=k,
+        )
         retrieval_ms = (time.perf_counter() - retrieval_started) * 1000.0
-
         prompt = self.response_contexts.build_prompt(
             user_message=user_message,
             rendered_memory_brief=self.response_contexts.render_memory_brief(memory_context),
         )
-
         generation_started = time.perf_counter()
         llm_error: Optional[str] = None
         reply = self._generate_reply(
-            prompt=prompt, memory_context=memory_context, user_message=user_message
+            prompt=prompt,
+            memory_context=memory_context,
+            user_message=user_message,
         )
         if reply.startswith("__LLM_ERROR__:"):
             llm_error = reply.removeprefix("__LLM_ERROR__:")
@@ -606,9 +613,8 @@ class AuroraRuntime:
                 reason=llm_error,
             )
         generation_ms = (time.perf_counter() - generation_started) * 1000.0
-
-        ingest_started = time.perf_counter()
-        ingest_result = self.ingest_interaction(
+        persist_started = time.perf_counter()
+        receipt = self.accept_interaction(
             event_id=resolved_event_id,
             session_id=session_id,
             user_message=user_message,
@@ -617,8 +623,7 @@ class AuroraRuntime:
             context=context,
             ts=ts,
         )
-        ingest_ms = (time.perf_counter() - ingest_started) * 1000.0
-
+        persist_ms = (time.perf_counter() - persist_started) * 1000.0
         total_ms = (time.perf_counter() - total_started) * 1000.0
         return ChatTurnResult(
             reply=reply,
@@ -628,22 +633,18 @@ class AuroraRuntime:
             system_prompt=prompt.system_prompt,
             user_prompt=prompt.user_prompt,
             retrieval_trace_summary=trace_summary,
-            ingest_result=ingest_result,
+            persistence=receipt,
             timings=ChatTimings(
                 retrieval_ms=retrieval_ms,
                 generation_ms=generation_ms,
-                ingest_ms=ingest_ms,
+                persist_ms=persist_ms,
                 total_ms=total_ms,
             ),
             llm_error=llm_error,
         )
 
-    def _generate_reply(
-        self, *, prompt: Any, memory_context: StructuredMemoryContext, user_message: str
-    ) -> str:
-        """调用 LLM 进行文本补全。"""
-        if self.llm is None:
-            return "__LLM_ERROR__:llm_not_configured"
+    def _generate_reply(self, *, prompt: Any, memory_context: Any, user_message: str) -> str:
+        assert self.llm is not None
         try:
             return self.llm.complete(
                 prompt.user_prompt,
@@ -657,81 +658,13 @@ class AuroraRuntime:
             return f"__LLM_ERROR__:{exc}"
 
     @staticmethod
-    def _build_response_fallback(
-        *,
-        memory_context: StructuredMemoryContext,
-        user_message: str,
-        reason: Optional[str] = None,
-    ) -> str:
-        """当 LLM 不可用时，利用灵魂引擎状态构建一个降级回复。"""
-        if reason == "llm_not_configured":
-            prefix = "当前还没有配置语言模型。"
-        else:
-            prefix = "这轮语言模型调用失败了。"
+    def _build_response_fallback(*, memory_context: Any, user_message: str, reason: Optional[str] = None) -> str:
+        prefix = "这轮语言模型调用失败了。"
         if memory_context.narrative_summary is not None:
-            return (
-                prefix
-                + f"我现在还能稳住的内部状态是：{memory_context.narrative_summary.current_mode}。"
-            )
-        return (
-            f"{prefix} 当前没有足够稳定的 soul-memory 线索来回答。"
-            f"我会先把这轮对话记住：{user_message[:80]}"
-        )
-
-    def query(self, *, text: str, k: int = 8) -> QueryResult:
-        """显式记忆查询接口。"""
-        with self._lock:
-            trace = self.mem.query(text, k=k)
-            hits: List[QueryHit] = []
-            for node_id, score, kind in trace.ranked:
-                snippet = self._snippet_for(node_id=node_id, kind=kind)
-                metadata: Optional[Dict[str, str]] = None
-                if kind == "plot":
-                    plot = self.mem.plots.get(node_id)
-                    if plot is not None:
-                        metadata = {"source": plot.source, "story_id": plot.story_id or ""}
-                hits.append(
-                    QueryHit(
-                        id=node_id,
-                        kind=kind,
-                        score=float(score),
-                        snippet=snippet,
-                        metadata=metadata,
-                    )
-                )
-        return QueryResult(query=text, attractor_path_len=len(trace.attractor_path), hits=hits)
-
-    def _snippet_for(self, *, node_id: str, kind: str) -> str:
-        """根据节点 ID 和类型获取可显示的文本片段。"""
-        if kind == "plot":
-            plot = self.mem.plots.get(node_id)
-            return "" if plot is None else plot.text[:240]
-        if kind == "story":
-            story = self.mem.stories.get(node_id)
-            if story is None:
-                return ""
-            return f"plots={len(story.plot_ids)} status={story.status} unresolved={story.unresolved_energy:.3f}"
-        theme = self.mem.themes.get(node_id)
-        if theme is None:
-            return ""
-        return (theme.name or theme.description)[:240]
-
-    def feedback(self, *, query_text: str, chosen_id: str, success: bool) -> None:
-        """用户检索反馈接口：微调度量学习和图置信度。"""
-        with self._lock:
-            self.mem.feedback_retrieval(query_text=query_text, chosen_id=chosen_id, success=success)
-
-    def evolve(self, *, dreams: Optional[int] = None) -> List[Any]:
-        """强制触发系统演化（做梦）。"""
-        with self._lock:
-            before = self._memory_mutation_token()
-            evolved = self.mem.evolve(dreams=dreams or self.settings.dreams_per_evolve)
-            after = self._memory_mutation_token()
-            self._snapshot_if_authoritative_mutation(before, after)
-            return evolved
+            return prefix + f"我当前还能稳住的内部状态是：{memory_context.narrative_summary.current_mode}。"
+        return f"{prefix} 当前没有足够稳定的线索来回答。我会先接收这轮对话：{user_message[:80]}"
 
     def get_identity(self) -> Dict[str, Any]:
-        """获取当前 Agent 的身份和叙事摘要。"""
         with self._lock:
             identity = self.mem.snapshot_identity()
             summary = self.mem.narrative_summary()
@@ -740,11 +673,33 @@ class AuroraRuntime:
                 "narrative_summary": summary.to_state_dict(),
             }
 
+    def get_event_status(self, event_id: str) -> Dict[str, Any]:
+        event = self.store.get_event(event_id)
+        if event is None:
+            raise KeyError(event_id)
+        projection = self.store.get_projection_status(event_id)
+        job = self.store.get_job_by_event(event_id)
+        return {
+            "event_id": event.event_id,
+            "event_type": event.event_type,
+            "session_id": event.session_id,
+            "accepted_at": event.ts,
+            "projection": None if projection is None else projection.__dict__,
+            "job": None if job is None else job.__dict__,
+        }
+
+    def get_job_status(self, job_id: str) -> Dict[str, Any]:
+        job = self.store.get_job(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        return job.__dict__
+
     def get_stats(self) -> Dict[str, Any]:
-        """获取运行时统计数据。"""
+        runtime_state = self.store.get_runtime_state()
         with self._lock:
             return {
                 "plot_count": len(self.mem.plots),
+                "summary_count": len(self.mem.summaries),
                 "story_count": len(self.mem.stories),
                 "theme_count": len(self.mem.themes),
                 "architecture_mode": self.mem.cfg.architecture_mode,
@@ -755,17 +710,67 @@ class AuroraRuntime:
                 "active_energy": self.mem.identity.active_energy,
                 "repressed_energy": self.mem.identity.repressed_energy,
                 "graph_metrics": dict(self.mem.graph_metrics),
-                "background_evolver": dict(self._background_telemetry),
+                "queue_depth": self.store.queue_depth(),
+                "oldest_pending_age_s": self.store.oldest_pending_age(),
+                "last_projected_seq": int(runtime_state.get("last_projected_seq", 0)),
+                "last_fade_ts": runtime_state.get("last_fade_ts"),
+                "last_evolve_ts": runtime_state.get("last_evolve_ts"),
             }
 
+    def recent_events(self, *, limit: int = 20) -> List[StoredEvent]:
+        events = list(self.store.iter_events())
+        return events[-max(1, limit) :]
+
+    def feedback(self, *, query_text: str, chosen_id: str, success: bool) -> None:
+        with self._lock:
+            if chosen_id.startswith("evt_"):
+                return
+            self.mem.feedback_retrieval(query_text=query_text, chosen_id=chosen_id, success=success)
+
+    def wait_for_idle(self, timeout: float = 5.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.store.queue_depth() == 0:
+                return True
+            time.sleep(0.05)
+        return False
+
     def close(self) -> None:
-        """关闭 runtime 持有的后台线程和存储句柄。"""
         if self._closed:
             return
         self._closed = True
-        self._background_stop.set()
-        thread = self._background_thread
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=max(1.0, min(5.0, self._background_interval_s + 0.2)))
-        self.event_log.close()
-        self.doc_store.close()
+        self._stop.set()
+        if self._scheduler_thread is not None and self._scheduler_thread.is_alive():
+            self._scheduler_thread.join(timeout=2.0)
+        for thread in self._worker_threads:
+            if thread.is_alive():
+                thread.join(timeout=2.0)
+        self.store.close()
+
+    def _snippet_for(self, *, node_id: str, kind: str) -> Tuple[str, Optional[Dict[str, str]]]:
+        if kind == "plot":
+            plot = self.mem.plots.get(node_id)
+            if plot is None:
+                return "", None
+            metadata = {"source": plot.source, "story_id": plot.story_id or ""}
+            if plot.event_id:
+                metadata["event_id"] = plot.event_id
+            return plot.text[:240], metadata
+        if kind == "summary":
+            summary = self.mem.summaries.get(node_id)
+            if summary is None:
+                return "", None
+            metadata = {
+                "source_event_count": str(len(summary.source_event_ids)),
+                "source_plot_count": str(len(summary.source_plot_ids)),
+            }
+            return summary.text[:240], metadata
+        if kind == "story":
+            story = self.mem.stories.get(node_id)
+            if story is None:
+                return "", None
+            return f"plots={len(story.plot_ids)} status={story.status} unresolved={story.unresolved_energy:.3f}", None
+        theme = self.mem.themes.get(node_id)
+        if theme is None:
+            return "", None
+        return (theme.name or theme.description)[:240], None

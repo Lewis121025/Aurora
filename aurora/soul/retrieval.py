@@ -16,6 +16,7 @@ import networkx as nx
 import numpy as np
 
 from aurora.soul.query import (
+    BaseQueryAnalyzer,
     FACT_KEY_BOOST_MAX,
     FACTUAL_ATTRACTOR_WEIGHT,
     FACTUAL_PLOT_PRIORITY_BOOST,
@@ -23,7 +24,7 @@ from aurora.soul.query import (
     KEYWORD_MATCH_BOOST,
     KEYWORD_MATCH_MIN_RATIO,
     MULTI_HOP_EXTRA_PAGERANK_ITER,
-    QueryAnalyzer,
+    QueryAnalysis,
     QueryType,
     SINGLE_SESSION_USER_K_MULTIPLIER,
     TimeRange,
@@ -419,6 +420,7 @@ class QueryPlan:
     effective_attractor_weight: float
     direct_weight: float
     query_keywords: List[str]
+    aggregation_entities: List[str]
     time_range: Optional[TimeRange]
     is_aggregation: bool
 
@@ -437,11 +439,18 @@ class FieldRetriever:
     5. 融合各路得分，并根据 IdentityState 进行性格偏置。
     """
 
-    def __init__(self, metric: LowRankMetric, vindex: VectorIndex, graph: MemoryGraph):
+    def __init__(
+        self,
+        metric: LowRankMetric,
+        vindex: VectorIndex,
+        graph: MemoryGraph,
+        *,
+        query_analyzer: BaseQueryAnalyzer,
+    ):
         self.metric = metric
         self.vindex = vindex
         self.graph = graph
-        self.query_analyzer = QueryAnalyzer()
+        self.query_analyzer = query_analyzer
         self.time_extractor = TimeRangeExtractor()
         self.fact_extractor = FactExtractor()
 
@@ -529,16 +538,15 @@ class FieldRetriever:
         query_type: Optional[QueryType],
     ) -> QueryPlan:
         """根据查询内容构建执行计划"""
-        detected_type = (
-            query_type if query_type is not None else self.query_analyzer.classify(query_text)
-        )
+        analysis = self.query_analyzer.analyze(query_text)
+        detected_type = query_type if query_type is not None else analysis.query_type
 
         effective_k = int(k)
         effective_max_iter = int(max_iter)
         effective_reseed_k = int(reseed_k)
 
         # 针对不同类型的查询调整检索深度
-        if detected_type == QueryType.MULTI_HOP:  # 多跳联想：增加迭代次数和结果数
+        if detected_type in {QueryType.MULTI_HOP, QueryType.CAUSAL}:  # 多关系推理：增加上下文广度
             effective_k = max(k, int(math.ceil(k * 1.5)))
             effective_max_iter += MULTI_HOP_EXTRA_PAGERANK_ITER
             effective_reseed_k = max(reseed_k, int(math.ceil(reseed_k * 1.2)))
@@ -559,23 +567,27 @@ class FieldRetriever:
             effective_reseed_k=effective_reseed_k,
             effective_attractor_weight=effective_attractor_weight,
             direct_weight=1.0 - effective_attractor_weight,
-            query_keywords=self.query_analyzer.extract_query_keywords(query_text)
-            if detected_type in {QueryType.USER_FACT, QueryType.FACTUAL}
-            else [],
-            time_range=self._extract_time_range(query_text, kinds, detected_type),
-            is_aggregation=self.query_analyzer.is_aggregation_query(query_text),
+            query_keywords=(
+                analysis.query_keywords if detected_type in {QueryType.USER_FACT, QueryType.FACTUAL} else []
+            ),
+            aggregation_entities=list(analysis.aggregation_entities),
+            time_range=self._extract_time_range(query_text, kinds, analysis),
+            is_aggregation=bool(analysis.is_aggregation),
         )
 
     def _extract_time_range(
         self,
         query_text: str,
         kinds: Sequence[str],
-        query_type: QueryType,
+        analysis: QueryAnalysis,
     ) -> Optional[TimeRange]:
         """针对时间相关查询，提取时间范围筛选器"""
-        if query_type != QueryType.TEMPORAL:
+        if analysis.query_type != QueryType.TEMPORAL:
             return None
-        return self.time_extractor.extract(query_text, self._build_events_timeline(kinds))
+        return self.time_extractor.extract(
+            self._build_events_timeline(kinds),
+            temporal_plan=analysis.temporal_plan,
+        )
 
     def _build_events_timeline(self, kinds: Sequence[str]) -> List[Tuple[str, float]]:
         timeline: List[Tuple[str, float]] = []
@@ -969,9 +981,8 @@ class FieldRetriever:
 
         # 4. 合并与排序
         keyword_ranked: List[Tuple[str, float, str]] = []
-        if plan.is_aggregation:
-            entities = self.query_analyzer.extract_aggregation_entities(query_text)
-            keyword_ranked = self._keyword_search(entities, kinds=kinds, max_results=100)
+        if plan.is_aggregation and plan.aggregation_entities:
+            keyword_ranked = self._keyword_search(plan.aggregation_entities, kinds=kinds, max_results=100)
 
         merged_scores: Dict[str, Tuple[float, str]] = {}
         for node_id, score, kind in enhanced_direct:

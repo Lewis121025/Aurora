@@ -10,18 +10,24 @@ from aurora.interfaces.terminal.tui import (
 )
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
+from tests.helpers.query_router import build_test_llm
 
 
-def test_build_turn_status_block_contains_prompt_and_live_state(tmp_path) -> None:
-    runtime = AuroraRuntime(
+def _build_runtime(tmp_path) -> AuroraRuntime:
+    return AuroraRuntime(
         settings=AuroraSettings(
             data_dir=str(tmp_path),
             embedding_provider="hash",
             axis_embedding_provider="hash",
             meaning_provider="heuristic",
             narrative_provider="heuristic",
-        )
+        ),
+        llm=build_test_llm(),
     )
+
+
+def test_build_turn_status_block_contains_prompt_and_live_state(tmp_path) -> None:
+    runtime = _build_runtime(tmp_path)
 
     result = runtime.respond(session_id="tui", user_message="你记得我刚才说了什么吗？")
     report = runtime.get_identity()
@@ -41,6 +47,7 @@ def test_build_turn_status_block_contains_prompt_and_live_state(tmp_path) -> Non
     assert "本轮记忆上下文" in block
     assert "写回后的实时状态" in block
     assert "当前模式：" in block
+    runtime.close()
 
 
 def test_run_observer_uses_tui(monkeypatch, tmp_path) -> None:
@@ -81,15 +88,7 @@ def test_run_observer_uses_tui(monkeypatch, tmp_path) -> None:
 
 
 def test_build_turn_index_block_marks_selected_turn(tmp_path) -> None:
-    runtime = AuroraRuntime(
-        settings=AuroraSettings(
-            data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
-            meaning_provider="heuristic",
-            narrative_provider="heuristic",
-        )
-    )
+    runtime = _build_runtime(tmp_path)
 
     first = runtime.respond(session_id="tui", user_message="第一轮，记录一下我的语气。")
     first_report = runtime.get_identity()
@@ -126,6 +125,7 @@ def test_build_turn_index_block_marks_selected_turn(tmp_path) -> None:
     assert "› 第 02 轮" in block
     assert "第一轮，记录一下我的语气" in block
     assert "模式" in block
+    runtime.close()
 
 
 def test_refresh_live_state_reuses_cached_runtime_state(tmp_path) -> None:
@@ -180,18 +180,11 @@ def test_refresh_live_state_reuses_cached_runtime_state(tmp_path) -> None:
 
 
 def test_header_text_hides_default_session_id(tmp_path) -> None:
-    runtime = AuroraRuntime(
-        settings=AuroraSettings(
-            data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
-            meaning_provider="heuristic",
-            narrative_provider="heuristic",
-        )
-    )
+    runtime = _build_runtime(tmp_path)
 
     default_tui = AuroraTerminalTUI(runtime, session_id="terminal_observer")
     custom_tui = AuroraTerminalTUI(runtime, session_id="custom-session")
 
     assert "terminal_observer" not in default_tui._header_text()
     assert "custom-session" in custom_tui._header_text()
+    runtime.close()

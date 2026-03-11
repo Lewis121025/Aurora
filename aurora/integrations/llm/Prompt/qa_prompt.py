@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Dict, Optional
 
-from aurora.soul.query import QueryAnalyzer, QueryType, SINGLE_SESSION_USER_MAX_CONTEXT
+from aurora.soul.query import QueryType, SINGLE_SESSION_USER_MAX_CONTEXT
 
 
 # 定义针对不同场景的 QA 提示词模板
@@ -140,45 +140,14 @@ QUESTION_TYPE_ALIASES: dict[str, str] = {
     "preference": "single-session-preference",
 }
 
-PREFERENCE_KEYWORDS = {
-    "喜欢",
-    "偏好",
-    "爱吃",
-    "最爱",
-    "热衷",
-    "preference",
-    "prefer",
-    "favorite",
-    "favourite",
-    "likes",
-    "like to",
-}
-
-KNOWLEDGE_UPDATE_KEYWORDS = {
-    "现在",
-    "目前",
-    "最新",
-    "最近",
-    "更新",
-    "changed",
-    "current",
-    "currently",
-    "latest",
-    "most recent",
-    "updated",
-    "now",
-}
-
-_QUERY_ANALYZER = QueryAnalyzer()
-
-
 def _normalize_question_type_hint(question_type_hint: Optional[str]) -> Optional[str]:
     if question_type_hint is None:
         return None
 
     normalized = question_type_hint.strip().lower()
     return QUESTION_TYPE_ALIASES.get(
-        normalized, normalized if normalized in QA_PROMPT_TEMPLATES else None
+        normalized,
+        normalized if normalized in QA_PROMPT_TEMPLATES else None,
     )
 
 
@@ -199,19 +168,11 @@ def _truncate_context(context: str, *, max_context_length: int, question_type: s
     return f"{context[:head_len]}{omitted_marker}{context[-tail_len:]}"
 
 
-def detect_question_type(question: str) -> str:
-    """根据问题内容选择最合适的 QA 提示词模板。"""
-    question_lower = question.lower()
-
-    if any(keyword in question_lower for keyword in KNOWLEDGE_UPDATE_KEYWORDS):
-        return "knowledge-update"
-    if any(keyword in question_lower for keyword in PREFERENCE_KEYWORDS):
-        return "single-session-preference"
-
-    query_type = _QUERY_ANALYZER.classify(question)
+def question_type_from_query_type(query_type: Optional[QueryType]) -> str:
+    """将主检索链路里的 QueryType 映射到 QA prompt 模板。"""
     if query_type is QueryType.TEMPORAL:
         return "temporal-reasoning"
-    if query_type is QueryType.MULTI_HOP:
+    if query_type in {QueryType.MULTI_HOP, QueryType.CAUSAL}:
         return "multi-session"
     if query_type is QueryType.USER_FACT:
         return "single-session-user"
@@ -226,9 +187,7 @@ def build_qa_prompt(
     max_context_length: int = SINGLE_SESSION_USER_MAX_CONTEXT,
 ) -> str:
     """构建适用于问答抽取的最终 prompt。"""
-    question_type = _normalize_question_type_hint(question_type_hint) or detect_question_type(
-        question
-    )
+    question_type = _normalize_question_type_hint(question_type_hint) or "single-session-assistant"
     template = QA_PROMPT_TEMPLATES.get(
         question_type, QA_PROMPT_TEMPLATES["single-session-assistant"]
     )

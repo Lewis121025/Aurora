@@ -541,6 +541,7 @@ class Plot:
     """
 
     id: str
+    event_id: Optional[str]
     ts: float
     text: str
     actors: Tuple[str, ...]
@@ -588,6 +589,7 @@ class Plot:
         """序列化"""
         return {
             "id": self.id,
+            "event_id": self.event_id,
             "ts": float(self.ts),
             "text": self.text,
             "actors": list(self.actors),
@@ -618,6 +620,7 @@ class Plot:
             embedding = np.zeros(0, dtype=np.float32)
         return cls(
             id=str(data["id"]),
+            event_id=str(data["event_id"]) if data.get("event_id") is not None else None,
             ts=float(data["ts"]),
             text=str(data["text"]),
             actors=tuple(data.get("actors", ())),
@@ -637,6 +640,69 @@ class Plot:
             fact_keys=[str(item) for item in data.get("fact_keys", [])],
             access_count=int(data.get("access_count", 0)),
             last_access_ts=float(data.get("last_access_ts", now_ts())),
+            status=_coerce_item_status(data.get("status", "active")),
+        )
+
+
+@dataclass
+class Summary:
+    """Compacted memory node produced by the fading loop."""
+
+    id: str
+    event_id: Optional[str]
+    created_ts: float
+    updated_ts: float
+    text: str
+    embedding: np.ndarray
+    source_plot_ids: List[str] = field(default_factory=list)
+    source_event_ids: List[str] = field(default_factory=list)
+    tags: List[str] = field(default_factory=list)
+    fact_keys: List[str] = field(default_factory=list)
+    start_ts: Optional[float] = None
+    end_ts: Optional[float] = None
+    status: Literal["active", "absorbed", "archived"] = "active"
+
+    def mass(self) -> float:
+        age = max(1.0, now_ts() - self.updated_ts)
+        freshness = 1.0 / math.log1p(age)
+        breadth = math.log1p(len(self.source_plot_ids) + len(self.source_event_ids) + 1)
+        return freshness * breadth
+
+    def to_state_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "event_id": self.event_id,
+            "created_ts": float(self.created_ts),
+            "updated_ts": float(self.updated_ts),
+            "text": self.text,
+            "embedding": vec_to_state(self.embedding),
+            "source_plot_ids": list(self.source_plot_ids),
+            "source_event_ids": list(self.source_event_ids),
+            "tags": list(self.tags),
+            "fact_keys": list(self.fact_keys),
+            "start_ts": self.start_ts,
+            "end_ts": self.end_ts,
+            "status": self.status,
+        }
+
+    @classmethod
+    def from_state_dict(cls, data: Dict[str, Any]) -> "Summary":
+        embedding = vec_from_state(data.get("embedding"))
+        if embedding is None:
+            embedding = np.zeros(0, dtype=np.float32)
+        return cls(
+            id=str(data["id"]),
+            event_id=str(data["event_id"]) if data.get("event_id") is not None else None,
+            created_ts=float(data["created_ts"]),
+            updated_ts=float(data["updated_ts"]),
+            text=str(data.get("text", "")),
+            embedding=embedding,
+            source_plot_ids=[str(item) for item in data.get("source_plot_ids", [])],
+            source_event_ids=[str(item) for item in data.get("source_event_ids", [])],
+            tags=[str(item) for item in data.get("tags", [])],
+            fact_keys=[str(item) for item in data.get("fact_keys", [])],
+            start_ts=float(data["start_ts"]) if data.get("start_ts") is not None else None,
+            end_ts=float(data["end_ts"]) if data.get("end_ts") is not None else None,
             status=_coerce_item_status(data.get("status", "active")),
         )
 

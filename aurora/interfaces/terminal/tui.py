@@ -309,7 +309,7 @@ def build_turn_overview_block(record: TurnRecord) -> str:
         "耗时："
         f"检索 {record.result.timings.retrieval_ms:.1f}ms | "
         f"生成 {record.result.timings.generation_ms:.1f}ms | "
-        f"写回 {record.result.timings.ingest_ms:.1f}ms | "
+        f"接收 {record.result.timings.persist_ms:.1f}ms | "
         f"总计 {record.result.timings.total_ms:.1f}ms",
         f"检索路径：长度 {trace.attractor_path_len} | 命中 {trace.hit_count} | 类型 {trace.query_type or '-'}",
     ]
@@ -389,15 +389,13 @@ def build_context_status_block(context: StructuredMemoryContext, rendered_memory
 
 
 def build_turn_writeback_block(record: TurnRecord) -> str:
-    ingest = record.result.ingest_result
+    receipt = record.result.persistence
     lines = [
-        f"模式：{ingest.mode}",
-        f"来源：{SOURCE_LABELS.get(ingest.source, ingest.source)}",
-        f"plot：{ingest.plot_id}",
-        f"story：{ingest.story_id or '-'}",
-        f"张力：{ingest.tension:.3f}",
-        f"矛盾：{ingest.contradiction:.3f}",
-        f"能量：活跃 {ingest.active_energy:.3f} / 压抑 {ingest.repressed_energy:.3f}",
+        f"事件：{receipt.event_id}",
+        f"任务：{receipt.job_id}",
+        f"接收状态：{receipt.status}",
+        f"投影状态：{receipt.projection_status}",
+        f"接收时间：{receipt.accepted_at:.3f}",
     ]
     live_lines = [
         f"当前模式：{record.live_identity['current_mode']}",
@@ -411,6 +409,7 @@ def build_turn_writeback_block(record: TurnRecord) -> str:
         f"模式变化 {record.live_identity['mode_change_count']}",
         "语料："
         f"plot {record.live_stats['plot_count']} | "
+        f"summary {record.live_stats.get('summary_count', 0)} | "
         f"story {record.live_stats['story_count']} | "
         f"theme {record.live_stats['theme_count']}",
     ]
@@ -483,7 +482,8 @@ def build_live_state_block(
         "",
         "记忆",
         f"plot {stats['plot_count']} · story {stats['story_count']}",
-        f"theme {stats['theme_count']} · 修复 {identity['repair_count']}",
+        f"summary {stats.get('summary_count', 0)} · theme {stats['theme_count']}",
+        f"修复 {identity['repair_count']}",
         f"梦整合 {identity['dream_count']} · 模式变化 {identity['mode_change_count']}",
         "",
         f"目录 {os.path.basename(data_dir.rstrip(os.sep)) or data_dir}",
@@ -536,23 +536,16 @@ def build_identity_status_block(report: dict[str, Any]) -> str:
 
 
 def build_stats_status_block(stats: dict[str, Any]) -> str:
-    background = stats.get("background_evolver", {})
     graph_metrics = stats.get("graph_metrics", {})
     lines = [
         f"架构模式：{stats.get('architecture_mode', '-')}",
         f"当前模式：{stats['current_mode']}",
         f"压力：{stats['pressure']:.3f}",
-        f"语料规模：plot {stats['plot_count']} | story {stats['story_count']} | theme {stats['theme_count']}",
+        f"语料规模：plot {stats['plot_count']} | summary {stats.get('summary_count', 0)} | story {stats['story_count']} | theme {stats['theme_count']}",
         f"修复：{stats['repair_count']} | 梦整合：{stats['dream_count']}",
         f"能量：活跃 {stats['active_energy']:.3f} / 压抑 {stats['repressed_energy']:.3f}",
+        f"队列：{stats.get('queue_depth', 0)} | 最老待处理 {stats.get('oldest_pending_age_s') or '-'}s",
     ]
-    if background:
-        lines.append(
-            "后台演化："
-            f"{'运行中' if background.get('running') else '空闲'} | "
-            f"周期 {background.get('interval_s', '-')}s | "
-            f"轮次 {background.get('cycles', 0)}"
-        )
     if graph_metrics:
         authoritative = graph_metrics.get("authoritative", {})
         if authoritative:
@@ -1239,10 +1232,8 @@ class AuroraTerminalTUI(App[None]):
     def _render_listing(self, *, name: str, limit: int) -> str:
         if name == "events":
             lines = []
-            for seq, event in self.runtime.event_log.iter_events(
-                after_seq=max(0, self.runtime.last_seq - limit)
-            ):
-                lines.append(f"{seq}. {event.id} | 会话 {event.session_id} | 时间 {event.ts:.0f}")
+            for event in self.runtime.recent_events(limit=limit):
+                lines.append(f"{event.seq}. {event.event_id} | 会话 {event.session_id} | 时间 {event.ts:.0f}")
                 lines.append(f"   用户：{str(event.payload.get('user_message', ''))[:120]}")
             return "\n".join(lines or ["暂无事件"])
         if name == "plots":
@@ -1384,7 +1375,7 @@ class AuroraTerminalTUI(App[None]):
         status_map = {
             "retrieval": "Aurora 正在检索记忆……",
             "generation": "Aurora 正在流式生成回复……",
-            "ingest": "Aurora 正在写回记忆……",
+            "persist_accept": "Aurora 已接收本轮记忆，后台正在整合……",
             "done": "Aurora 已完成当前回合。",
         }
         headline = status_map.get(event.stage, "Aurora 正在工作……")

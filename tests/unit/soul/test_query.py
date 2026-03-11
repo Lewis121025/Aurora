@@ -14,12 +14,19 @@ import time
 from aurora.integrations.embeddings.hash import HashEmbedding
 from aurora.soul.query import QueryType, TimeRange, TimeRangeExtractor
 from aurora.soul.retrieval import FieldRetriever, LowRankMetric, MemoryGraph, VectorIndex
+from tests.helpers.query_router import build_test_query_analyzer
 
 
 @pytest.fixture
 def time_extractor():
     """时间范围提取器夹具。"""
     return TimeRangeExtractor()
+
+
+@pytest.fixture
+def query_analyzer():
+    """查询分析器夹具。"""
+    return build_test_query_analyzer()
 
 
 @pytest.fixture
@@ -37,9 +44,10 @@ def events_timeline():
 class TestTimeRangeExtraction:
     """从查询中提取时间范围的测试。"""
 
-    def test_extract_first_anchor(self, time_extractor, events_timeline):
+    def test_extract_first_anchor(self, time_extractor, events_timeline, query_analyzer):
         """测试提取"first"时间锚点。"""
-        time_range = time_extractor.extract("最早学了什么？", events_timeline)
+        plan = query_analyzer.analyze("最早学了什么？").temporal_plan
+        time_range = time_extractor.extract(events_timeline, temporal_plan=plan)
 
         assert time_range.relation == "first"
         assert time_range.end is not None
@@ -48,9 +56,10 @@ class TestTimeRangeExtraction:
         earliest_ts = min(ts for _, ts in events_timeline)
         assert abs(time_range.end - (earliest_ts + 86400)) < 100  # 允许小的容差
 
-    def test_extract_last_anchor(self, time_extractor, events_timeline):
+    def test_extract_last_anchor(self, time_extractor, events_timeline, query_analyzer):
         """测试提取"last"时间锚点。"""
-        time_range = time_extractor.extract("最近学了什么？", events_timeline)
+        plan = query_analyzer.analyze("最近学了什么？").temporal_plan
+        time_range = time_extractor.extract(events_timeline, temporal_plan=plan)
 
         assert time_range.relation == "last"
         assert time_range.start is not None
@@ -59,34 +68,38 @@ class TestTimeRangeExtraction:
         latest_ts = max(ts for _, ts in events_timeline)
         assert abs(time_range.start - (latest_ts - 86400)) < 100
 
-    def test_extract_span_anchor(self, time_extractor, events_timeline):
+    def test_extract_span_anchor(self, time_extractor, events_timeline, query_analyzer):
         """测试提取"span"时间锚点。"""
-        time_range = time_extractor.extract("学习的历史", events_timeline)
+        plan = query_analyzer.analyze("学习的历史").temporal_plan
+        time_range = time_extractor.extract(events_timeline, temporal_plan=plan)
 
         assert time_range.relation == "span"
         # 跨度查询不过滤（需要完整范围）
         assert time_range.start is None
         assert time_range.end is None
 
-    def test_extract_no_anchor(self, time_extractor, events_timeline):
+    def test_extract_no_anchor(self, time_extractor, events_timeline, query_analyzer):
         """测试提取无时间锚点。"""
-        time_range = time_extractor.extract("学了什么？", events_timeline)
+        plan = query_analyzer.analyze("学了什么？").temporal_plan
+        time_range = time_extractor.extract(events_timeline, temporal_plan=plan)
 
         assert time_range.relation == "any"
         assert time_range.start is None
         assert time_range.end is None
 
-    def test_extract_relative_time_yesterday(self, time_extractor, events_timeline):
+    def test_extract_relative_time_yesterday(self, time_extractor, events_timeline, query_analyzer):
         """测试提取相对时间模式。"""
-        time_range = time_extractor.extract("昨天学了什么？", events_timeline)
+        plan = query_analyzer.analyze("昨天学了什么？").temporal_plan
+        time_range = time_extractor.extract(events_timeline, temporal_plan=plan)
 
         assert time_range.relation == "during"
         assert time_range.start is not None
         assert time_range.end is not None
 
-    def test_extract_without_timeline(self, time_extractor):
+    def test_extract_without_timeline(self, time_extractor, query_analyzer):
         """测试不带时间线的提取（应返回仅关系）。"""
-        time_range = time_extractor.extract("最早学了什么？", events_timeline=None)
+        plan = query_analyzer.analyze("最早学了什么？").temporal_plan
+        time_range = time_extractor.extract(events_timeline=None, temporal_plan=plan)
 
         assert time_range.relation == "first"
         # 没有时间线，无法解析特定时间戳
@@ -221,7 +234,12 @@ class TestTimeFilterIntegration:
                 },
             )
 
-        retriever = FieldRetriever(metric=metric, vindex=vindex, graph=graph)
+        retriever = FieldRetriever(
+            metric=metric,
+            vindex=vindex,
+            graph=graph,
+            query_analyzer=build_test_query_analyzer(),
+        )
 
         return retriever, embedder, vindex, graph
 
@@ -304,3 +322,31 @@ class TestTimeFilterIntegration:
             timestamps = [retriever._payload_ts(graph.payload(nid)) for nid, _, _ in trace.ranked]
             # 应有来自不同时间段的结果
             assert len(set(int(ts // 86400) for ts in timestamps)) >= 1
+
+
+class TestLLMQueryAnalyzer:
+    """LLM 查询路由测试。"""
+
+    @pytest.fixture
+    def analyzer(self):
+        return build_test_query_analyzer()
+
+    def test_causal_rephrase_is_not_downgraded_to_factual(self, analyzer) -> None:
+        query_type = analyzer.classify("帮我梳理一下这件事的来龙去脉")
+        assert query_type == QueryType.CAUSAL
+
+    def test_topic_word_timeline_does_not_force_temporal_mode(self, analyzer) -> None:
+        query_type = analyzer.classify("帮我回忆那部关于时间线的科幻电影")
+        assert query_type == QueryType.FACTUAL
+
+    def test_relative_temporal_query_emits_structured_temporal_plan(self, analyzer) -> None:
+        analysis = analyzer.analyze("昨天学了什么？")
+        assert analysis.query_type == QueryType.TEMPORAL
+        assert analysis.temporal_plan.relation == "during"
+        assert analysis.temporal_plan.relative_window == "yesterday"
+
+    def test_earliest_temporal_query_emits_ordering_plan(self, analyzer) -> None:
+        analysis = analyzer.analyze("最早学了什么？")
+        assert analysis.query_type == QueryType.TEMPORAL
+        assert analysis.temporal_plan.relation == "first"
+        assert analysis.temporal_plan.relative_window == "none"

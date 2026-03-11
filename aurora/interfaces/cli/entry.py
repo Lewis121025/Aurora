@@ -11,22 +11,8 @@ from aurora.runtime.settings import AuroraSettings, DEFAULT_DATA_DIR
 
 
 def _get_runtime(data_dir: Optional[str] = None) -> AuroraRuntime:
-    settings = AuroraSettings(
-        data_dir=data_dir or os.environ.get("AURORA_DATA_DIR", DEFAULT_DATA_DIR)
-    )
+    settings = AuroraSettings(data_dir=data_dir or os.environ.get("AURORA_DATA_DIR", DEFAULT_DATA_DIR))
     return AuroraRuntime(settings=settings)
-
-
-def _evolve_summary(items: list[object]) -> dict[str, int]:
-    dreams = 0
-    repairs = 0
-    for item in items:
-        source = getattr(item, "source", None)
-        if source == "dream":
-            dreams += 1
-        elif source == "repair":
-            repairs += 1
-    return {"dreams": dreams, "repairs": repairs, "total": dreams + repairs}
 
 
 def _close_runtime(runtime: object) -> None:
@@ -38,7 +24,7 @@ def _close_runtime(runtime: object) -> None:
 def _cmd_ingest(args: argparse.Namespace) -> None:
     runtime = _get_runtime(args.data_dir)
     try:
-        result = runtime.ingest_interaction(
+        receipt = runtime.accept_interaction(
             event_id=args.event_id or "evt_cli_ingest",
             session_id=args.session_id or "cli",
             user_message=args.user_message,
@@ -47,7 +33,7 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
             context=args.context,
             ts=args.ts,
         )
-        print(json.dumps(result.__dict__, ensure_ascii=False, indent=2))
+        print(json.dumps(receipt.__dict__, ensure_ascii=False, indent=2))
     finally:
         _close_runtime(runtime)
 
@@ -55,12 +41,13 @@ def _cmd_ingest(args: argparse.Namespace) -> None:
 def _cmd_query(args: argparse.Namespace) -> None:
     runtime = _get_runtime(args.data_dir)
     try:
-        result = runtime.query(text=args.query, k=args.k)
+        result = runtime.query(text=args.query, k=args.k, session_id=args.session_id)
         print(
             json.dumps(
                 {
                     "query": result.query,
                     "attractor_path_len": result.attractor_path_len,
+                    "overlay_hit_count": result.overlay_hit_count,
                     "hits": [hit.__dict__ for hit in result.hits],
                 },
                 ensure_ascii=False,
@@ -91,23 +78,10 @@ def _cmd_respond(args: argparse.Namespace) -> None:
                     "intuition": result.memory_context.intuition,
                     "salient_axes": result.memory_context.narrative_summary.salient_axes,
                     "retrieval_hits": result.memory_context.retrieval_hits,
+                    "overlay_hits": result.memory_context.overlay_hits,
+                    "persistence": result.persistence.__dict__,
                     "timings": result.timings.__dict__,
                 },
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
-    finally:
-        _close_runtime(runtime)
-
-
-def _cmd_evolve(args: argparse.Namespace) -> None:
-    runtime = _get_runtime(args.data_dir)
-    try:
-        evolved = runtime.evolve(dreams=args.dreams)
-        print(
-            json.dumps(
-                {**_evolve_summary(list(evolved)), **runtime.get_stats()},
                 ensure_ascii=False,
                 indent=2,
             )
@@ -148,6 +122,22 @@ def _cmd_stats(args: argparse.Namespace) -> None:
         _close_runtime(runtime)
 
 
+def _cmd_event(args: argparse.Namespace) -> None:
+    runtime = _get_runtime(args.data_dir)
+    try:
+        print(json.dumps(runtime.get_event_status(args.event_id), ensure_ascii=False, indent=2))
+    finally:
+        _close_runtime(runtime)
+
+
+def _cmd_job(args: argparse.Namespace) -> None:
+    runtime = _get_runtime(args.data_dir)
+    try:
+        print(json.dumps(runtime.get_job_status(args.job_id), ensure_ascii=False, indent=2))
+    finally:
+        _close_runtime(runtime)
+
+
 def _cmd_serve(args: argparse.Namespace) -> None:
     try:
         import uvicorn
@@ -174,7 +164,7 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     parser.add_argument("--data-dir", type=str, help="Data directory")
     sub = parser.add_subparsers(dest="cmd")
 
-    ingest_p = sub.add_parser("ingest", help="摄入一条交互")
+    ingest_p = sub.add_parser("ingest", help="接收一条交互并入队投影")
     ingest_p.add_argument("user_message")
     ingest_p.add_argument("agent_message")
     ingest_p.add_argument("--event-id")
@@ -183,11 +173,12 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     ingest_p.add_argument("--actors", nargs="*")
     ingest_p.add_argument("--ts", type=float)
 
-    query_p = sub.add_parser("query", help="查询 Aurora Soul")
+    query_p = sub.add_parser("query", help="查询 Aurora")
     query_p.add_argument("query")
     query_p.add_argument("-k", type=int, default=8)
+    query_p.add_argument("--session-id")
 
-    respond_p = sub.add_parser("respond", help="生成一轮回复")
+    respond_p = sub.add_parser("respond", help="生成一轮回复并异步持久化")
     respond_p.add_argument("user_message")
     respond_p.add_argument("--session-id")
     respond_p.add_argument("--context")
@@ -195,13 +186,16 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     respond_p.add_argument("-k", type=int, default=6)
     respond_p.add_argument("--ts", type=float)
 
-    evolve_p = sub.add_parser("evolve", help="触发梦整合/模式演化")
-    evolve_p.add_argument("--dreams", type=int, default=2)
-
     identity_p = sub.add_parser("identity", help="查看当前身份快照")
     identity_p.add_argument("--full", "-f", action="store_true")
 
-    sub.add_parser("stats", help="查看 soul-memory 统计")
+    sub.add_parser("stats", help="查看内存与队列统计")
+
+    event_p = sub.add_parser("event", help="查看事件投影状态")
+    event_p.add_argument("event_id")
+
+    job_p = sub.add_parser("job", help="查看任务状态")
+    job_p.add_argument("job_id")
 
     serve_p = sub.add_parser("serve", help="启动 API 服务器")
     serve_p.add_argument("--host", default="127.0.0.1")
@@ -223,12 +217,14 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
         _cmd_query(args)
     elif args.cmd == "respond":
         _cmd_respond(args)
-    elif args.cmd == "evolve":
-        _cmd_evolve(args)
     elif args.cmd == "identity":
         _cmd_identity(args)
     elif args.cmd == "stats":
         _cmd_stats(args)
+    elif args.cmd == "event":
+        _cmd_event(args)
+    elif args.cmd == "job":
+        _cmd_job(args)
     elif args.cmd == "serve":
         _cmd_serve(args)
     elif args.cmd == "observe":

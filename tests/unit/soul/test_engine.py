@@ -5,6 +5,7 @@ import numpy as np
 from aurora.integrations.embeddings.hash import HashEmbedding
 from aurora.soul.engine import AuroraSoul, SoulConfig
 from aurora.soul.extractors import CombinatorialNarrativeProvider, HeuristicMeaningProvider
+from tests.helpers.query_router import build_test_query_analyzer
 
 
 def build_memory(seed: int) -> AuroraSoul:
@@ -20,6 +21,7 @@ def build_memory(seed: int) -> AuroraSoul:
         axis_embedder=embedder,
         meaning_provider=HeuristicMeaningProvider(),
         narrator=CombinatorialNarrativeProvider(),
+        query_analyzer=build_test_query_analyzer(),
     )
 
 
@@ -41,6 +43,7 @@ def test_soul_memory_round_trip_preserves_identity_and_plots() -> None:
         axis_embedder=HashEmbedding(dim=64, seed=7),
         meaning_provider=HeuristicMeaningProvider(),
         narrator=CombinatorialNarrativeProvider(),
+        query_analyzer=build_test_query_analyzer(),
     )
 
     assert restored.identity.current_mode_label == mem.identity.current_mode_label
@@ -93,6 +96,7 @@ def test_restore_does_not_call_remote_bootstrap_hooks() -> None:
         axis_embedder=embedder,
         meaning_provider=HeuristicMeaningProvider(),
         narrator=CombinatorialNarrativeProvider(),
+        query_analyzer=build_test_query_analyzer(),
     )
     mem.ingest("你突然安静下来，让我有点不确定。", actors=("user", "agent"))
 
@@ -102,6 +106,7 @@ def test_restore_does_not_call_remote_bootstrap_hooks() -> None:
         axis_embedder=embedder,
         meaning_provider=BootstrapOnlyMeaning(),
         narrator=BootstrapOnlyNarrator(),
+        query_analyzer=build_test_query_analyzer(),
     )
 
     assert restored.identity.current_mode_label == mem.identity.current_mode_label
@@ -122,6 +127,7 @@ def test_restore_rejects_removed_architecture_modes() -> None:
             axis_embedder=HashEmbedding(dim=64, seed=21),
             meaning_provider=HeuristicMeaningProvider(),
             narrator=CombinatorialNarrativeProvider(),
+            query_analyzer=build_test_query_analyzer(),
         )
     except ValueError as exc:
         assert "Unsupported snapshot architecture_mode" in str(exc)

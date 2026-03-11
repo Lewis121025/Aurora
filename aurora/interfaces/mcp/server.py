@@ -46,7 +46,7 @@ class ToolDefinition:
 AURORA_TOOLS = [
     ToolDefinition(
         name="save_memory",
-        description="将内存交互保存到 Aurora。使用此功能记住重要信息、用户偏好、做出的决定或任何可能稍后有用的上下文。",
+        description="将内存交互写入 Aurora 事件日志并异步入队投影。",
         parameters={
             "type": "object",
             "properties": {
@@ -267,13 +267,11 @@ class AuroraMCPServer:
         args: Dict[str, Any],
     ) -> Dict[str, Any]:
         """处理 save_memory 工具调用。"""
-        # 生成事件 ID
         event_id = str(uuid.uuid4())
         session_id = args.get("session_id", "mcp_session")
 
-        # 在线程池中运行以避免阻塞
         def _sync_ingest():
-            return self.runtime.ingest_interaction(
+            return self.runtime.accept_interaction(
                 event_id=event_id,
                 session_id=session_id,
                 user_message=args["user_message"],
@@ -288,10 +286,9 @@ class AuroraMCPServer:
         return {
             "success": True,
             "event_id": event_id,
-            "plot_id": result.plot_id,
-            "story_id": result.story_id,
-            "mode": result.mode,
-            "tension": result.tension,
+            "job_id": result.job_id,
+            "status": result.status,
+            "projection_status": result.projection_status,
         }
 
     async def _handle_search_memory(
@@ -302,14 +299,12 @@ class AuroraMCPServer:
         query = args["query"]
         k = args.get("k", 8)
 
-        # 在线程池中运行
         def _sync_query():
-            return self.runtime.query(text=query, k=k)
+            return self.runtime.query(text=query, k=k, session_id=args.get("session_id"))
 
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, _sync_query)
 
-        # 如果指定，按类型过滤
         kinds_filter = set(args.get("kinds", [])) if args.get("kinds") else None
 
         hits = []
@@ -322,6 +317,7 @@ class AuroraMCPServer:
                     "kind": hit.kind,
                     "score": hit.score,
                     "snippet": hit.snippet,
+                    "metadata": hit.metadata,
                 }
             )
 
@@ -329,6 +325,7 @@ class AuroraMCPServer:
             "query": query,
             "hits": hits,
             "attractor_path_len": result.attractor_path_len,
+            "overlay_hit_count": result.overlay_hit_count,
         }
 
     async def _handle_get_identity(

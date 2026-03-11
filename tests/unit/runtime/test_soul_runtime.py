@@ -1,23 +1,16 @@
 from __future__ import annotations
 
-import json
-import threading
-import time
 from pathlib import Path
-from types import SimpleNamespace
 
-import pytest
-
-from aurora.integrations.storage.doc_store import Document, SQLiteDocStore
-from aurora.integrations.storage.event_log import Event, SQLiteEventLog
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.runtime.runtime import AuroraRuntime
 from aurora.runtime.settings import AuroraSettings
-from aurora.system.errors import ConfigurationError
+from tests.helpers.query_router import build_test_llm
 
 
 class CountingLLM(LLMProvider):
     def __init__(self) -> None:
+        self._inner = build_test_llm()
         self.complete_calls = 0
         self.complete_json_calls = 0
 
@@ -34,7 +27,16 @@ class CountingLLM(LLMProvider):
         max_retries=None,
     ) -> str:
         self.complete_calls += 1
-        return "我会陪你一起把这个问题展开。"
+        return self._inner.complete(
+            prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout_s=timeout_s,
+            stop=stop,
+            metadata=metadata,
+            max_retries=max_retries,
+        )
 
     def complete_json(
         self,
@@ -48,7 +50,15 @@ class CountingLLM(LLMProvider):
         max_retries=None,
     ):
         self.complete_json_calls += 1
-        raise AssertionError("heuristic v4 runtime path should not need auxiliary JSON LLM calls")
+        return self._inner.complete_json(
+            system=system,
+            user=user,
+            schema=schema,
+            temperature=temperature,
+            timeout_s=timeout_s,
+            metadata=metadata,
+            max_retries=max_retries,
+        )
 
 
 class StreamingLLM(CountingLLM):
@@ -65,236 +75,118 @@ class StreamingLLM(CountingLLM):
         max_retries=None,
     ):
         self.complete_calls += 1
-        yield "我会"
-        yield "陪你一起"
-        yield "把这个问题展开。"
+        yield from self._inner.stream_complete(
+            prompt,
+            system=system,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout_s=timeout_s,
+            stop=stop,
+            metadata=metadata,
+            max_retries=max_retries,
+        )
 
 
-def test_runtime_respond_uses_single_generation_call(tmp_path: Path) -> None:
-    llm = CountingLLM()
-    runtime = AuroraRuntime(
-        settings=AuroraSettings(
-            data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
-            meaning_provider="heuristic",
-            narrative_provider="heuristic",
-        ),
-        llm=llm,
+def _settings(tmp_path: Path) -> AuroraSettings:
+    return AuroraSettings(
+        data_dir=str(tmp_path),
+        embedding_provider="hash",
+        axis_embedding_provider="hash",
+        meaning_provider="heuristic",
+        narrative_provider="heuristic",
+        worker_count=1,
+        job_poll_interval_ms=25,
+        evolve_every_seconds=3600,
+        fade_every_seconds=3600,
     )
+
+
+def test_runtime_respond_returns_persistence_receipt(tmp_path: Path) -> None:
+    llm = CountingLLM()
+    runtime = AuroraRuntime(settings=_settings(tmp_path), llm=llm)
 
     result = runtime.respond(session_id="s1", user_message="你会什么")
 
     assert llm.complete_calls == 1
-    assert llm.complete_json_calls == 0
+    assert llm.complete_json_calls >= 1
+    assert result.reply.strip()
+    assert result.persistence.status == "accepted"
+    assert result.persistence.job_id
     assert result.memory_context.mode == result.memory_context.identity.current_mode
-    assert result.memory_context.identity is not None
-    assert result.ingest_result.mode == result.memory_context.identity.current_mode
+    runtime.close()
 
 
-def test_runtime_respond_stream_emits_reply_chunks_and_done(tmp_path: Path) -> None:
+def test_runtime_respond_stream_emits_persist_accept_stage(tmp_path: Path) -> None:
     llm = StreamingLLM()
-    runtime = AuroraRuntime(
-        settings=AuroraSettings(
-            data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
-            meaning_provider="heuristic",
-            narrative_provider="heuristic",
-        ),
-        llm=llm,
-    )
+    runtime = AuroraRuntime(settings=_settings(tmp_path), llm=llm)
 
     events = list(runtime.respond_stream(session_id="s1", user_message="你会什么"))
 
     assert llm.complete_calls == 1
-    assert [event.kind for event in events[:2]] == ["status", "status"]
     assert any(event.kind == "reply_delta" for event in events)
+    assert any(event.stage == "persist_accept" for event in events if event.kind == "status")
     assert events[-1].kind == "done"
     assert events[-1].result is not None
-    assert events[-1].result.reply == "我会陪你一起把这个问题展开。"
+    assert events[-1].result.reply.strip()
+    runtime.close()
+def test_accept_interaction_is_immediately_queryable_via_overlay(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(settings=_settings(tmp_path), llm=CountingLLM())
 
-
-def test_runtime_respond_without_llm_uses_runtime_fallback(tmp_path: Path) -> None:
-    runtime = AuroraRuntime(
-        settings=AuroraSettings(
-            data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
-            meaning_provider="heuristic",
-            narrative_provider="heuristic",
-            llm_provider=None,
-        )
+    receipt = runtime.accept_interaction(
+        event_id="evt_overlay",
+        session_id="chat",
+        user_message="我喜欢本地优先记忆",
+        agent_message="我会记住这个偏好",
     )
+    result = runtime.query(text="本地优先记忆", k=5, session_id="chat")
 
-    result = runtime.respond(session_id="s1", user_message="你在吗")
+    assert receipt.status == "accepted"
+    assert result.overlay_hit_count >= 1
+    assert any(hit.kind == "event" and hit.id == "evt_overlay" for hit in result.hits)
+    runtime.close()
 
-    assert result.llm_error == "llm_not_configured"
-    assert result.reply
-    assert "语言模型" in result.reply
 
+def test_projected_event_replaces_overlay_hit(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(settings=_settings(tmp_path), llm=CountingLLM())
 
-def test_runtime_rejects_legacy_snapshot(tmp_path: Path) -> None:
-    snapshots_dir = tmp_path / "snapshots"
-    snapshots_dir.mkdir(parents=True)
-    (snapshots_dir / "snapshot_1.json").write_text(
-        json.dumps({"last_seq": 1, "state": {"schema_version": "v3"}}),
-        encoding="utf-8",
+    runtime.accept_interaction(
+        event_id="evt_project",
+        session_id="chat",
+        user_message="我喜欢图优先记忆",
+        agent_message="我会记住图优先这个偏好",
     )
+    assert runtime.wait_for_idle(timeout=3.0)
 
-    with pytest.raises(ConfigurationError):
-        AuroraRuntime(
-            settings=AuroraSettings(
-                data_dir=str(tmp_path),
-                embedding_provider="hash",
-                axis_embedding_provider="hash",
-                meaning_provider="heuristic",
-                narrative_provider="heuristic",
-            )
-        )
+    result = runtime.query(text="图优先", k=5, session_id="chat")
+
+    assert any(hit.kind == "plot" for hit in result.hits)
+    assert not any(hit.kind == "event" and hit.id == "evt_project" for hit in result.hits)
+    runtime.close()
 
 
-def test_runtime_rejects_buried_legacy_docs(tmp_path: Path) -> None:
-    store = SQLiteDocStore(str(tmp_path / "docs.sqlite3"))
-    store.upsert(
-        Document(
-            id="plot_legacy",
-            kind="plot",
-            ts=1.0,
-            body={"runtime_schema_version": "aurora-runtime-v3"},
-        )
+def test_runtime_exposes_event_and_job_status(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(settings=_settings(tmp_path), llm=CountingLLM())
+
+    receipt = runtime.accept_interaction(
+        event_id="evt_status",
+        session_id="chat",
+        user_message="记录一下队列状态",
+        agent_message="收到",
     )
-    for index in range(6):
-        store.upsert(
-            Document(
-                id=f"plot_new_{index}",
-                kind="plot",
-                ts=100.0 + index,
-                body={"runtime_schema_version": "aurora-runtime-v4"},
-            )
-        )
-    store.close()
+    event_status = runtime.get_event_status("evt_status")
+    job_status = runtime.get_job_status(receipt.job_id)
 
-    with pytest.raises(ConfigurationError):
-        AuroraRuntime(
-            settings=AuroraSettings(
-                data_dir=str(tmp_path),
-                embedding_provider="hash",
-                axis_embedding_provider="hash",
-                meaning_provider="heuristic",
-                narrative_provider="heuristic",
-            )
-        )
+    assert event_status["event_id"] == "evt_status"
+    assert job_status["job_id"] == receipt.job_id
+    runtime.close()
 
 
-def test_runtime_replay_writes_bootstrap_snapshot(tmp_path: Path) -> None:
-    log = SQLiteEventLog(str(tmp_path / "events.sqlite3"))
-    log.append(
-        Event(
-            id="evt_bootstrap",
-            ts=1.0,
-            session_id="s1",
-            type="interaction",
-            payload={
-                "runtime_schema_version": "aurora-runtime-v4",
-                "user_message": "你今天看起来有点远。",
-                "agent_message": "我在这里，会继续听你说。",
-                "actors": ["user", "agent"],
-                "context": "你今天看起来有点远。",
-            },
-        )
-    )
-    log.close()
-
-    runtime = AuroraRuntime(
-        settings=AuroraSettings(
-            data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
-            meaning_provider="heuristic",
-            narrative_provider="heuristic",
-            snapshot_every_events=0,
-        )
-    )
-
-    snapshot_files = sorted((tmp_path / "snapshots").glob("snapshot_*.json"))
-    assert runtime.last_seq == 1
-    assert snapshot_files
-
-
-def test_runtime_stats_expose_architecture_mode_and_graph_metrics(tmp_path: Path) -> None:
-    runtime = AuroraRuntime(
-        settings=AuroraSettings(
-            data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
-            meaning_provider="heuristic",
-            narrative_provider="heuristic",
-        )
-    )
+def test_runtime_stats_expose_queue_and_summary_metrics(tmp_path: Path) -> None:
+    runtime = AuroraRuntime(settings=_settings(tmp_path), llm=CountingLLM())
 
     stats = runtime.get_stats()
 
     assert stats["architecture_mode"] == "graph_first"
-    assert isinstance(stats["graph_metrics"], dict)
-    assert isinstance(stats["background_evolver"], dict)
-
-
-def test_runtime_background_evolver_can_be_disabled(tmp_path: Path) -> None:
-    runtime = AuroraRuntime(
-        settings=AuroraSettings(
-            data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
-            meaning_provider="heuristic",
-            narrative_provider="heuristic",
-            background_evolver_enabled=False,
-            evolve_every_seconds=0.05,
-        )
-    )
-
-    stats = runtime.get_stats()
-
-    assert stats["background_evolver"]["enabled"] is False
-    assert runtime._background_thread is None
+    assert "summary_count" in stats
+    assert "queue_depth" in stats
     runtime.close()
-    runtime.close()
-
-
-def test_runtime_background_evolver_snapshots_authoritative_mutations(tmp_path: Path) -> None:
-    runtime = AuroraRuntime(
-        settings=AuroraSettings(
-            data_dir=str(tmp_path),
-            embedding_provider="hash",
-            axis_embedding_provider="hash",
-            meaning_provider="heuristic",
-            narrative_provider="heuristic",
-            evolve_every_seconds=0.05,
-            snapshot_every_events=0,
-        )
-    )
-    evolved = threading.Event()
-
-    def fake_evolve(*, dreams=None):
-        runtime.mem.step += 1
-        evolved.set()
-        return [SimpleNamespace(source="dream")]
-
-    runtime.mem.evolve = fake_evolve  # type: ignore[method-assign]
-
-    assert evolved.wait(timeout=1.0)
-
-    deadline = time.time() + 1.0
-    snapshot_files = []
-    while time.time() < deadline:
-        snapshot_files = sorted((tmp_path / "snapshots").glob("snapshot_*.json"))
-        if snapshot_files:
-            break
-        time.sleep(0.02)
-
-    runtime.close()
-    runtime.close()
-
-    assert snapshot_files
-    assert runtime._background_thread is not None
-    assert not runtime._background_thread.is_alive()

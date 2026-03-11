@@ -18,6 +18,7 @@ import pytest
 
 from aurora.integrations.embeddings.hash import HashEmbedding
 from aurora.soul.retrieval import FieldRetriever, LowRankMetric, MemoryGraph, VectorIndex
+from tests.helpers.query_router import build_test_query_analyzer
 
 
 @pytest.fixture
@@ -46,7 +47,12 @@ def retriever_setup():
         graph.ensure_edge(f"plot_{i}", f"plot_{i + 1}", "temporal")
         graph.ensure_edge(f"plot_{i + 1}", f"plot_{i}", "temporal")
 
-    retriever = FieldRetriever(metric=metric, vindex=vindex, graph=graph)
+    retriever = FieldRetriever(
+        metric=metric,
+        vindex=vindex,
+        graph=graph,
+        query_analyzer=build_test_query_analyzer(),
+    )
 
     return retriever, embedder, vindex, graph
 
@@ -73,7 +79,12 @@ class TestFieldRetrieverBasic:
         """测试使用空索引的 retrieve。"""
         vindex = VectorIndex(dim=64)
         graph = MemoryGraph()
-        retriever = FieldRetriever(metric=metric, vindex=vindex, graph=graph)
+        retriever = FieldRetriever(
+            metric=metric,
+            vindex=vindex,
+            graph=graph,
+            query_analyzer=build_test_query_analyzer(),
+        )
         embedder = HashEmbedding(dim=64, seed=42)
 
         trace = retriever.retrieve(

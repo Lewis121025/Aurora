@@ -14,6 +14,7 @@ from aurora.integrations.embeddings.base import EmbeddingProvider
 from aurora.integrations.llm.provider import LLMProvider
 from aurora.runtime.settings import AuroraSettings
 from aurora.soul.engine import AuroraSoul, SoulConfig
+from aurora.soul.query import QueryAnalyzer
 from aurora.soul.extractors import (
     CombinatorialNarrativeProvider,
     HeuristicMeaningProvider,
@@ -32,7 +33,7 @@ def check_embedding_api_keys() -> None:
     if bailian_key or ark_key:
         return
     logger.info(
-        "No remote embedding API key found. Aurora v4 will use LocalSemanticEmbedding unless you set AURORA_EMBEDDING_PROVIDER."
+        "No remote embedding API key found. Aurora v5 will use LocalSemanticEmbedding unless you set AURORA_EMBEDDING_PROVIDER."
     )
 
 
@@ -123,7 +124,7 @@ def build_memory_config(settings: AuroraSettings) -> SoulConfig:
         metric_rank=settings.metric_rank,
         max_plots=settings.max_plots,
         kde_reservoir=settings.kde_reservoir,
-        retrieval_kinds=("theme", "story", "plot"),
+        retrieval_kinds=("summary", "theme", "story", "plot"),
         max_recent_texts=settings.max_recent_texts,
         profile_text=settings.profile_text,
         persona_axes_json=settings.persona_axes_json,
@@ -169,6 +170,17 @@ def create_narrative_provider(*, settings: AuroraSettings, llm: Optional[LLMProv
     return CombinatorialNarrativeProvider()
 
 
+def create_query_analyzer(*, settings: AuroraSettings, llm: Optional[LLMProvider]) -> QueryAnalyzer:
+    """创建唯一主链路的 LLM query router。"""
+    if llm is None:
+        raise ConfigurationError("LLM query analyzer requires a live LLM provider")
+    return QueryAnalyzer(
+        llm=llm,
+        timeout_s=min(settings.llm_timeout, 5.0),
+        max_retries=1,
+    )
+
+
 def create_memory(*, settings: AuroraSettings, llm: Optional[LLMProvider] = None) -> AuroraSoul:
     """
     全量引导函数：根据配置初始化 AuroraSoul 引擎的所有依赖。
@@ -186,6 +198,7 @@ def create_memory(*, settings: AuroraSettings, llm: Optional[LLMProvider] = None
     )
     meaning_provider = create_meaning_provider(settings=settings, llm=llm)
     narrator = create_narrative_provider(settings=settings, llm=llm)
+    query_analyzer = create_query_analyzer(settings=settings, llm=llm)
 
     return AuroraSoul(
         cfg=cfg,
@@ -194,4 +207,5 @@ def create_memory(*, settings: AuroraSettings, llm: Optional[LLMProvider] = None
         axis_embedder=axis_embedder,
         meaning_provider=meaning_provider,
         narrator=narrator,
+        query_analyzer=query_analyzer,
     )

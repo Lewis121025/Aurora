@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import aurora.interfaces.cli.entry as cli
 
@@ -44,7 +43,6 @@ def test_cli_without_subcommand_enters_live_mode(monkeypatch):
         observed["max_hits"] = max_hits
 
     monkeypatch.setattr(cli, "run_observer", fake_run_observer)
-
     cli.main(["--data-dir", "./live-data"])
 
     assert observed == {
@@ -61,6 +59,7 @@ def test_cli_stats_closes_runtime(monkeypatch, capsys):
         def get_stats(self):
             return {
                 "plot_count": 1,
+                "summary_count": 0,
                 "story_count": 0,
                 "theme_count": 0,
                 "architecture_mode": "graph_first",
@@ -71,14 +70,17 @@ def test_cli_stats_closes_runtime(monkeypatch, capsys):
                 "active_energy": 0.2,
                 "repressed_energy": 0.1,
                 "graph_metrics": {},
-                "background_evolver": {},
+                "queue_depth": 0,
+                "oldest_pending_age_s": None,
+                "last_projected_seq": 0,
+                "last_fade_ts": None,
+                "last_evolve_ts": None,
             }
 
         def close(self):
             observed["closed"] += 1
 
     monkeypatch.setattr(cli, "_get_runtime", lambda data_dir=None: FakeRuntime())
-
     cli.main(["stats"])
 
     payload = json.loads(capsys.readouterr().out)
@@ -86,38 +88,20 @@ def test_cli_stats_closes_runtime(monkeypatch, capsys):
     assert observed["closed"] == 1
 
 
-def test_cli_evolve_reports_counts_and_closes_runtime(monkeypatch, capsys):
+def test_cli_job_command_reads_runtime_status(monkeypatch, capsys):
     observed = {"closed": 0}
 
     class FakeRuntime:
-        def evolve(self, *, dreams=None):
-            return [SimpleNamespace(source="dream"), SimpleNamespace(source="repair")]
-
-        def get_stats(self):
-            return {
-                "plot_count": 2,
-                "story_count": 0,
-                "theme_count": 0,
-                "architecture_mode": "graph_first",
-                "current_mode": "steady",
-                "pressure": 0.2,
-                "dream_count": 1,
-                "repair_count": 1,
-                "active_energy": 0.3,
-                "repressed_energy": 0.1,
-                "graph_metrics": {},
-                "background_evolver": {},
-            }
+        def get_job_status(self, job_id):
+            return {"job_id": job_id, "status": "queued", "job_type": "project_interaction"}
 
         def close(self):
             observed["closed"] += 1
 
     monkeypatch.setattr(cli, "_get_runtime", lambda data_dir=None: FakeRuntime())
-
-    cli.main(["evolve", "--dreams", "2"])
+    cli.main(["job", "job_123"])
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["dreams"] == 1
-    assert payload["repairs"] == 1
-    assert payload["total"] == 2
+    assert payload["job_id"] == "job_123"
+    assert payload["status"] == "queued"
     assert observed["closed"] == 1

@@ -95,7 +95,7 @@ runtime = AuroraRuntime(
     )
 )
 
-runtime.ingest_interaction(
+runtime.accept_interaction(
     event_id="evt_001",
     session_id="chat_main",
     user_message="我偏好本地优先、结构化的长期记忆。",
@@ -142,7 +142,7 @@ aurora
 aurora ingest "用户消息" "Agent 回复"
 aurora query "用户偏好什么"
 aurora respond "你记得我刚才说什么吗？"
-aurora evolve --dreams 2
+aurora job <job_id>
 aurora identity
 aurora stats
 aurora serve --port 8000
@@ -177,15 +177,16 @@ python scripts/runtime/observe.py --max-hits 8
 uvicorn aurora.interfaces.api.app:app --host 127.0.0.1 --port 8000
 ```
 
-当前主接口在 `/v4/*`：
+当前主接口在 `/v5/*`：
 
-- `POST /v4/ingest`
-- `POST /v4/query`
-- `POST /v4/respond`
-- `POST /v4/feedback`
-- `POST /v4/evolve`
-- `GET /v4/identity`
-- `GET /v4/stats`
+- `POST /v5/interactions`
+- `POST /v5/query`
+- `POST /v5/chat/replies`
+- `POST /v5/feedback`
+- `GET /v5/events/{event_id}`
+- `GET /v5/jobs/{job_id}`
+- `GET /v5/identity`
+- `GET /v5/stats`
 - `GET /healthz`
 
 ## MCP
@@ -205,8 +206,7 @@ server = create_mcp_server(runtime)
 
 `AuroraRuntime` 默认在 `data_dir` 下维护本地状态：
 
-- `events.sqlite3`
-- `docs.sqlite3`
+- `runtime.sqlite3`
 - `snapshots/`
 
 这意味着 Aurora 默认是本地优先、单用户、可重放的运行时，而不是纯内存 demo。

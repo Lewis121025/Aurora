@@ -5,17 +5,18 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
-SCHEMA_VERSION = "v4"
+SCHEMA_VERSION = "v5"
 
 
 class MemoryKind(str, Enum):
+    EVENT = "event"
     PLOT = "plot"
+    SUMMARY = "summary"
     STORY = "story"
     THEME = "theme"
 
 
-class IngestRequest(BaseModel):
+class AcceptedInteractionRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
     event_id: Optional[str] = None
@@ -32,9 +33,10 @@ class QueryRequest(BaseModel):
 
     text: str = Field(..., min_length=1)
     k: int = Field(default=8, ge=1, le=50)
+    session_id: Optional[str] = None
 
 
-class RespondRequest(BaseModel):
+class ReplyRequest(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
     session_id: str = "default"
@@ -54,27 +56,17 @@ class FeedbackRequest(BaseModel):
     success: bool
 
 
-class EvolveRequest(BaseModel):
-    model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
-
-    dreams: Optional[int] = Field(default=None, ge=0, le=8)
-
-
-class IngestResponse(BaseModel):
+class PersistenceReceiptResponse(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
     event_id: str
-    plot_id: str
-    story_id: Optional[str] = None
-    mode: str
-    source: Literal["wake", "dream", "repair", "mode"]
-    tension: float
-    contradiction: float
-    active_energy: float
-    repressed_energy: float
+    job_id: str
+    status: Literal["accepted"]
+    accepted_at: float
+    projection_status: Literal["accepted", "projecting", "projected", "failed"]
 
 
-class QueryHit(BaseModel):
+class QueryHitResponse(BaseModel):
     id: str
     kind: MemoryKind
     score: float
@@ -87,7 +79,8 @@ class QueryResponse(BaseModel):
 
     query: str
     attractor_path_len: int
-    hits: List[QueryHit]
+    overlay_hit_count: int
+    hits: List[QueryHitResponse]
 
 
 class EvidenceRef(BaseModel):
@@ -131,6 +124,7 @@ class StructuredMemoryContext(BaseModel):
     identity: IdentitySnapshotResponse
     narrative_summary: NarrativeSummaryResponse
     retrieval_hits: List[str] = Field(default_factory=list)
+    overlay_hits: List[str] = Field(default_factory=list)
     evidence_refs: List[EvidenceRef] = Field(default_factory=list)
 
 
@@ -140,6 +134,7 @@ class RetrievalTraceSummary(BaseModel):
     query: str
     attractor_path_len: int
     hit_count: int
+    overlay_hit_count: int
     ranked_kinds: List[str] = Field(default_factory=list)
     query_type: Optional[str] = None
     time_relation: Optional[str] = None
@@ -153,11 +148,11 @@ class ChatTimings(BaseModel):
 
     retrieval_ms: float
     generation_ms: float
-    ingest_ms: float
+    persist_ms: float
     total_ms: float
 
 
-class ChatTurnResponse(BaseModel):
+class ChatReplyAcceptedResponse(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
     reply: str
@@ -167,7 +162,7 @@ class ChatTurnResponse(BaseModel):
     system_prompt: str
     user_prompt: str
     retrieval_trace_summary: RetrievalTraceSummary
-    ingest_result: IngestResponse
+    persistence: PersistenceReceiptResponse
     timings: ChatTimings
     llm_error: Optional[str] = None
 
@@ -179,10 +174,41 @@ class IdentityResponse(BaseModel):
     narrative_summary: NarrativeSummaryResponse
 
 
+class EventStatusResponse(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
+
+    event_id: str
+    event_type: str
+    session_id: str
+    accepted_at: float
+    projection: Optional[Dict[str, Any]] = None
+    job: Optional[Dict[str, Any]] = None
+
+
+class JobStatusResponse(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
+
+    job_id: str
+    job_type: str
+    event_id: Optional[str] = None
+    payload: Dict[str, Any]
+    status: str
+    attempts: int
+    max_attempts: int
+    available_at: float
+    lease_owner: Optional[str] = None
+    lease_expires_at: Optional[float] = None
+    dedupe_key: Optional[str] = None
+    created_ts: float
+    updated_ts: float
+    last_error: Optional[str] = None
+
+
 class MemoryStatsResponse(BaseModel):
     model_config = ConfigDict(json_schema_extra={"version": SCHEMA_VERSION})
 
     plot_count: int
+    summary_count: int
     story_count: int
     theme_count: int
     architecture_mode: str
@@ -193,7 +219,11 @@ class MemoryStatsResponse(BaseModel):
     active_energy: float
     repressed_energy: float
     graph_metrics: Dict[str, Any] = Field(default_factory=dict)
-    background_evolver: Dict[str, Any] = Field(default_factory=dict)
+    queue_depth: int
+    oldest_pending_age_s: Optional[float] = None
+    last_projected_seq: int
+    last_fade_ts: Optional[float] = None
+    last_evolve_ts: Optional[float] = None
 
 
 class HealthResponse(BaseModel):

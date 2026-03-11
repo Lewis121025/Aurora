@@ -1,239 +1,25 @@
 """
 aurora/soul/query.py
-查询分析模块：负责解析用户的自然语言查询，识别查询意图（Intent）和时间范围。
-它定义了查询类型 (QueryType) 及其关联的启发式关键词库。
+查询分析模块：使用 LLM 结构化路由作为唯一主链路，
+为检索层提供查询意图、时间规划和聚合线索。
 """
 
 from __future__ import annotations
 
-import re
-from dataclasses import dataclass
+import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import List, Optional, Tuple
+from typing import List, Literal, Optional, Sequence, Tuple
 
-# 意图识别关键词库
-TEMPORAL_KEYWORDS = {
-    "什么时候",
-    "之前",
-    "之后",
-    "上次",
-    "最近",
-    "以前",
-    "后来",
-    "第一次",
-    "最后",
-    "多久",
-    "当时",
-    "那时",
-    "几点",
-    "几月",
-    "几号",
-    "哪天",
-    "哪年",
-    "历史",
-    "when",
-    "before",
-    "after",
-    "first",
-    "recently",
-    "earlier",
-    "later",
-    "next",
-    "yesterday",
-    "today",
-    "ago",
-    "since",
-    "until",
-    "during",
-    "history",
-    "timeline",
-    "chronological",
-}
+from pydantic import BaseModel, Field
 
-CAUSAL_KEYWORDS = {
-    "为什么",
-    "原因",
-    "因为",
-    "所以",
-    "导致",
-    "结果",
-    "因此",
-    "由于",
-    "怎么会",
-    "为何",
-    "何故",
-    "缘由",
-    "起因",
-    "影响",
-    "后果",
-    "why",
-    "because",
-    "cause",
-    "reason",
-    "result",
-    "therefore",
-    "hence",
-    "consequently",
-    "due to",
-    "leads to",
-    "effect",
-    "impact",
-    "outcome",
-}
-
-MULTI_HOP_KEYWORDS = {
-    "相关",
-    "关联",
-    "联系",
-    "连接",
-    "对比",
-    "比较",
-    "类似",
-    "相似",
-    "区别",
-    "所有",
-    "全部",
-    "总结",
-    "概括",
-    "归纳",
-    "涉及",
-    "包含",
-    "关系",
-    "related",
-    "connection",
-    "link",
-    "compare",
-    "contrast",
-    "similar",
-    "difference",
-    "all",
-    "every",
-    "summarize",
-    "overview",
-    "involve",
-    "contain",
-    "relationship",
-    "between",
-    "across",
-    "through",
-}
-
-AGGREGATION_KEYWORDS = {
-    "多少",
-    "几个",
-    "总数",
-    "总共",
-    "合计",
-    "一共",
-    "累计",
-    "汇总",
-    "总计",
-    "所有",
-    "全部",
-    "都",
-    "每",
-    "各",
-    "how many",
-    "how much",
-    "total",
-    "sum",
-    "count",
-    "all",
-    "every",
-    "each",
-    "aggregate",
-    "combined",
-    "together",
-    "altogether",
-    "in total",
-    "in all",
-    "number of",
-    "amount of",
-    "quantity of",
-}
+from aurora.integrations.llm.provider import LLMProvider
+from aurora.system.errors import ConfigurationError
 
 # 检索超参数
 MULTI_HOP_EXTRA_PAGERANK_ITER = 20
 
-RECENT_ANCHOR_KEYWORDS = {
-    "最近",
-    "上次",
-    "刚才",
-    "刚刚",
-    "近期",
-    "这段时间",
-    "最新",
-    "最后",
-    "recently",
-    "last time",
-    "just now",
-    "lately",
-    "latest",
-    "most recent",
-    "newest",
-    "current",
-    "last thing",
-    "last topic",
-    "last event",
-    "last item",
-    "the last",
-    "just talked",
-    "just mentioned",
-    "just discussed",
-    "just said",
-}
-
-EARLIEST_ANCHOR_KEYWORDS = {
-    "最早",
-    "一开始",
-    "起初",
-    "最初",
-    "开始时",
-    "第一次",
-    "首次",
-    "当初",
-    "最先",
-    "first",
-    "originally",
-    "initially",
-    "earliest",
-    "beginning",
-    "started",
-    "first time",
-    "at first",
-    "in the beginning",
-    "original",
-}
-
-SPAN_ANCHOR_KEYWORDS = {
-    "一直",
-    "从...到",
-    "之前...之后",
-    "历史",
-    "全部",
-    "所有时候",
-    "整个过程",
-    "历程",
-    "演变",
-    "发展过程",
-    "时间线",
-    "变化",
-    "throughout",
-    "over time",
-    "history",
-    "timeline",
-    "evolution",
-    "all along",
-    "from start",
-    "progression",
-    "across time",
-    "journey",
-    "before and after",
-    "development",
-    "changes over",
-}
-
-# 评分加成系数
 FACTUAL_PLOT_PRIORITY_BOOST = 0.15
 FACTUAL_SEMANTIC_WEIGHT = 0.90
 FACTUAL_ATTRACTOR_WEIGHT = 0.25
@@ -244,230 +30,28 @@ KEYWORD_MATCH_MIN_RATIO = 0.25
 USER_ROLE_PRIORITY_BOOST = 0.15
 FACT_KEY_BOOST_MAX = 0.15
 
-# 停用词库
-QUESTION_STOP_WORDS = {
-    "what",
-    "where",
-    "when",
-    "how",
-    "why",
-    "who",
-    "which",
-    "whose",
-    "whom",
-    "is",
-    "are",
-    "was",
-    "were",
-    "did",
-    "do",
-    "does",
-    "done",
-    "been",
-    "being",
-    "the",
-    "a",
-    "an",
-    "of",
-    "to",
-    "in",
-    "for",
-    "on",
-    "with",
-    "at",
-    "by",
-    "from",
-    "my",
-    "your",
-    "i",
-    "you",
-    "me",
-    "we",
-    "they",
-    "it",
-    "our",
-    "their",
-    "its",
-    "have",
-    "has",
-    "had",
-    "can",
-    "could",
-    "would",
-    "should",
-    "will",
-    "shall",
-    "about",
-    "that",
-    "this",
-    "these",
-    "those",
-    "there",
-    "here",
-    "什么",
-    "哪里",
-    "哪个",
-    "谁",
-    "怎么",
-    "为什么",
-    "是",
-    "的",
-    "了",
-    "吗",
-    "我",
-    "你",
-}
-
-
-# 聚合实体提取模式
-AGGREGATION_ENTITY_PATTERNS = {
-    "camping": ["camping", "camp", "tent", "campsite", "campground"],
-    "trip": ["trip", "travel", "visit", "vacation", "journey", "tour"],
-    "bike": ["bike", "bicycle", "cycling", "biking", "cycle", "cyclist"],
-    "game": ["game", "gaming", "play", "playing", "video game"],
-    "book": ["book", "books", "reading", "read", "novel", "library"],
-    "movie": ["movie", "film", "watch", "cinema", "theater", "theatre"],
-    "exercise": ["exercise", "workout", "gym", "fitness", "training", "sport"],
-    "meeting": ["meeting", "call", "appointment", "conference"],
-    "doctor": ["doctor", "appointment", "medical", "health", "hospital", "clinic"],
-    "art": ["art", "gallery", "museum", "exhibition", "exhibit", "painting", "sculpture"],
-    "event": ["event", "concert", "show", "performance", "festival"],
-    "model": ["model", "kit", "hobby", "craft", "build", "assemble"],
-    "clothing": ["clothing", "clothes", "shirt", "pants", "dress", "jacket", "outfit"],
-    "food": ["food", "meal", "restaurant", "dinner", "lunch", "breakfast", "eat"],
-    "work": ["work", "job", "project", "task", "assignment"],
-    "money": [
-        "money",
-        "spent",
-        "cost",
-        "price",
-        "paid",
-        "bought",
-        "purchase",
-        "$",
-        "dollar",
-        "dollars",
-    ],
-    "luxury": ["luxury", "expensive", "premium", "high-end"],
-    "expense": ["expense", "expenses", "spent", "spending", "cost", "costs"],
-    "hour": ["hour", "hours"],
-    "day": ["day", "days"],
-    "week": ["week", "weeks"],
-    "month": ["month", "months"],
-    "year": ["year", "years"],
-    "total": ["total", "all", "altogether", "sum", "combined"],
-    "different": ["different", "various", "unique", "distinct"],
-}
-
-AGGREGATION_STOP_WORDS = {
-    "what",
-    "where",
-    "when",
-    "how",
-    "why",
-    "who",
-    "which",
-    "whom",
-    "is",
-    "are",
-    "was",
-    "were",
-    "be",
-    "been",
-    "being",
-    "have",
-    "has",
-    "had",
-    "doing",
-    "the",
-    "a",
-    "an",
-    "this",
-    "that",
-    "i",
-    "me",
-    "my",
-    "we",
-    "us",
-    "our",
-    "you",
-    "your",
-    "to",
-    "of",
-    "in",
-    "for",
-    "on",
-    "with",
-    "at",
-    "by",
-    "from",
-    "and",
-    "but",
-    "or",
-    "so",
-    "many",
-    "much",
-    "some",
-    "any",
-    "can",
-    "could",
-    "will",
-    "would",
-    "total",
-    "number",
-    "count",
-}
-
-# 身份与用户事实识别库
-IDENTITY_KEYWORDS = {
-    "你是谁",
-    "你是怎样",
-    "你的性格",
-    "你的价值观",
-    "你的原生人格",
-    "你的前史",
-    "who are you",
-    "what are you",
-    "your personality",
-    "your values",
-    "your identity",
-    "your backstory",
-    "self narrative",
-    "self-model",
-}
-
-USER_FACT_KEYWORDS = {
-    "我",
-    "我的",
-    "我喜欢",
-    "我偏好",
-    "我之前",
-    "remember my",
-    "about me",
-    "my preference",
-    "my habit",
-    "my profile",
-}
-
 
 class QueryType(Enum):
     """查询类型枚举"""
 
-    FACTUAL = auto()  # 事实检索
-    TEMPORAL = auto()  # 时间检索
-    MULTI_HOP = auto()  # 多跳联想
-    CAUSAL = auto()  # 因果分析
-    USER_FACT = auto()  # 用户事实
-    IDENTITY = auto()  # 身份认知
+    FACTUAL = auto()
+    TEMPORAL = auto()
+    MULTI_HOP = auto()
+    CAUSAL = auto()
+    USER_FACT = auto()
+    IDENTITY = auto()
 
 
-class TimeAnchor(Enum):
-    """时间锚点类型"""
+TemporalRelation = Literal["any", "first", "last", "span", "during"]
+RelativeWindow = Literal["none", "today", "yesterday", "last_week", "last_month"]
 
-    RECENT = auto()  # 最近
-    EARLIEST = auto()  # 最早
-    SPAN = auto()  # 时间跨度
-    NONE = auto()
+
+@dataclass(frozen=True)
+class TemporalPlan:
+    """模型产出的时间规划。"""
+
+    relation: TemporalRelation = "any"
+    relative_window: RelativeWindow = "none"
 
 
 @dataclass(frozen=True)
@@ -480,7 +64,6 @@ class TimeRange:
     relation: str = "any"
 
     def to_state_dict(self) -> dict[str, object]:
-        """序列化"""
         return {
             "start": self.start,
             "end": self.end,
@@ -489,174 +72,277 @@ class TimeRange:
         }
 
 
-def _contains_any(query_lower: str, keywords: set[str]) -> bool:
-    """辅助函数：检查文本是否包含关键词集合中的任意项"""
-    return any(keyword in query_lower for keyword in keywords)
+@dataclass(frozen=True)
+class QueryAnalysis:
+    """结构化查询分析结果。"""
+
+    query_type: QueryType
+    temporal_plan: TemporalPlan = field(default_factory=TemporalPlan)
+    is_aggregation: bool = False
+    aggregation_entities: List[str] = field(default_factory=list)
+    query_keywords: List[str] = field(default_factory=list)
+    query_type_score: float = 0.0
+    temporal_score: float = 0.0
 
 
-class QueryAnalyzer:
-    """
-    查询分析器：分析查询文本并提取结构化意图。
-    """
+class TemporalPlanPayload(BaseModel):
+    """LLM 产出的结构化时间规划。"""
+
+    relation: TemporalRelation = "any"
+    relative_window: RelativeWindow = "none"
+
+
+class QueryRoutePayload(BaseModel):
+    """LLM query router 的结构化输出。"""
+
+    query_type: Literal["FACTUAL", "TEMPORAL", "MULTI_HOP", "CAUSAL", "USER_FACT", "IDENTITY"]
+    temporal_plan: TemporalPlanPayload = Field(default_factory=TemporalPlanPayload)
+    is_aggregation: bool = False
+    aggregation_entities: List[str] = Field(default_factory=list)
+    query_keywords: List[str] = Field(default_factory=list)
+    query_type_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+    temporal_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
+
+
+QUERY_ROUTER_SYSTEM_PROMPT = """You are Aurora's only query router.
+
+Classify the user's query for memory retrieval.
+
+Definitions:
+- FACTUAL: asks what happened, what something is, or concrete details.
+- TEMPORAL: asks about time, sequence, before/after, earliest/latest, or timeline order.
+- MULTI_HOP: asks to connect, compare, summarize, or combine multiple memories.
+- CAUSAL: asks why something happened, what led to it, or consequences.
+- USER_FACT: asks about the user's own profile, habits, preferences, personal history, or stated facts.
+- IDENTITY: asks about Aurora's own identity, personality, values, or self-model.
+
+Important disambiguation rules:
+- If time words are only the topic, do NOT mark TEMPORAL.
+  Example: "那部关于时间线的电影" is FACTUAL unless the user asks about order/time.
+- Only mark USER_FACT when the user is asking about themselves, not just using first-person wording in a normal factual question.
+- Set is_aggregation=true only when the query explicitly requires counting, listing all, summing, or combining multiple items.
+- temporal_plan.relation:
+  - any: no temporal filtering or ordering
+  - first: earliest / first / beginning
+  - last: latest / most recent / last
+  - span: full history / over time / before and after / whole timeline
+  - during: bounded relative slice such as today / yesterday / last week / last month
+- temporal_plan.relative_window:
+  - none: not needed
+  - today / yesterday / last_week / last_month: only for relation="during"
+- If query_type is not TEMPORAL, temporal_plan must be {"relation":"any","relative_window":"none"}.
+
+Return only valid JSON matching the schema."""
+
+
+def build_query_router_user_prompt(query_text: str) -> str:
+    return (
+        "Analyze the following user query for Aurora memory retrieval.\n\n"
+        f"Query:\n{query_text}\n\n"
+        "Return the structured routing result."
+    )
+
+
+QUERY_TYPE_BY_NAME = {
+    "FACTUAL": QueryType.FACTUAL,
+    "TEMPORAL": QueryType.TEMPORAL,
+    "MULTI_HOP": QueryType.MULTI_HOP,
+    "CAUSAL": QueryType.CAUSAL,
+    "USER_FACT": QueryType.USER_FACT,
+    "IDENTITY": QueryType.IDENTITY,
+}
+
+
+def _dedupe_nonempty(items: Sequence[str]) -> List[str]:
+    seen: set[str] = set()
+    cleaned: List[str] = []
+    for item in items:
+        text = item.strip()
+        if not text:
+            continue
+        if text in seen:
+            continue
+        seen.add(text)
+        cleaned.append(text)
+    return cleaned
+
+
+class BaseQueryAnalyzer(ABC):
+    """查询分析接口。"""
 
     def classify(self, query_text: str) -> QueryType:
-        """分类查询意图"""
-        query_lower = query_text.lower()
-        temporal_keywords = (
-            TEMPORAL_KEYWORDS
-            | EARLIEST_ANCHOR_KEYWORDS
-            | RECENT_ANCHOR_KEYWORDS
-            | SPAN_ANCHOR_KEYWORDS
-        )
+        return self.analyze(query_text).query_type
 
-        if _contains_any(query_lower, temporal_keywords):
-            return QueryType.TEMPORAL
-        if _contains_any(query_lower, IDENTITY_KEYWORDS):
-            return QueryType.IDENTITY
-        if _contains_any(query_lower, CAUSAL_KEYWORDS):
-            return QueryType.CAUSAL
-        if _contains_any(query_lower, USER_FACT_KEYWORDS):
-            return QueryType.USER_FACT
-        if _contains_any(query_lower, AGGREGATION_KEYWORDS) or _contains_any(
-            query_lower, MULTI_HOP_KEYWORDS
-        ):
-            return QueryType.MULTI_HOP
-        return QueryType.FACTUAL
+    def extract_temporal_plan(self, query_text: str) -> TemporalPlan:
+        return self.analyze(query_text).temporal_plan
 
     def is_aggregation_query(self, query_text: str) -> bool:
-        """是否为聚合/统计类查询"""
-        return _contains_any(query_text.lower(), AGGREGATION_KEYWORDS)
+        return self.analyze(query_text).is_aggregation
 
     def extract_aggregation_entities(self, query_text: str) -> List[str]:
-        """为聚合查询提取潜在的实体对象"""
-        query_lower = query_text.lower()
-        entities: List[str] = []
-
-        # 匹配预定义模式
-        for keywords in AGGREGATION_ENTITY_PATTERNS.values():
-            if any(keyword in query_lower for keyword in keywords):
-                entities.extend(keywords)
-
-        # 简单的正则分词补全
-        for word in re.findall(r"\b[a-z]+(?:-[a-z]+)?\b", query_lower):
-            if len(word) <= 2 or word in AGGREGATION_STOP_WORDS or word in entities:
-                continue
-            if len(word) >= 4:
-                entities.append(word)
-
-        # 去重
-        seen: set[str] = set()
-        unique_entities: List[str] = []
-        for entity in entities:
-            if entity in seen:
-                continue
-            seen.add(entity)
-            unique_entities.append(entity)
-        return unique_entities
+        return self.analyze(query_text).aggregation_entities
 
     def extract_query_keywords(self, query_text: str) -> List[str]:
-        """提取查询的核心关键词（去除停用词）"""
-        keywords: List[str] = []
-        for word in query_text.lower().split():
-            clean_word = word.strip("?.,!'\"()[]{}:;")
-            if len(clean_word) > 2 and clean_word not in QUESTION_STOP_WORDS:
-                keywords.append(clean_word)
-        return keywords
+        return self.analyze(query_text).query_keywords
 
-    def detect_time_anchor(self, query_text: str) -> TimeAnchor:
-        """检测时间锚点类型"""
-        query_lower = query_text.lower()
-        if _contains_any(query_lower, RECENT_ANCHOR_KEYWORDS):
-            return TimeAnchor.RECENT
-        if _contains_any(query_lower, EARLIEST_ANCHOR_KEYWORDS):
-            return TimeAnchor.EARLIEST
-        if _contains_any(query_lower, SPAN_ANCHOR_KEYWORDS):
-            return TimeAnchor.SPAN
-        return TimeAnchor.NONE
+    @abstractmethod
+    def analyze(self, query_text: str) -> QueryAnalysis:
+        raise NotImplementedError
+
+
+class MissingQueryAnalyzer(BaseQueryAnalyzer):
+    """显式表示 query analyzer 未配置。"""
+
+    def analyze(self, query_text: str) -> QueryAnalysis:
+        raise ConfigurationError(
+            "Aurora query routing requires a live LLM provider. Configure llm_provider or inject a query_analyzer."
+        )
+
+
+class LLMQueryAnalyzer(BaseQueryAnalyzer):
+    """基于 LLM 的结构化查询路由器。"""
+
+    def __init__(
+        self,
+        *,
+        llm: LLMProvider,
+        timeout_s: float = 5.0,
+        max_retries: int = 1,
+    ) -> None:
+        self._llm = llm
+        self._timeout_s = timeout_s
+        self._max_retries = max_retries
+
+    def analyze(self, query_text: str) -> QueryAnalysis:
+        text = query_text.strip()
+        if not text:
+            return QueryAnalysis(query_type=QueryType.FACTUAL)
+
+        payload = self._llm.complete_json(
+            system=QUERY_ROUTER_SYSTEM_PROMPT,
+            user=build_query_router_user_prompt(text),
+            schema=QueryRoutePayload,
+            temperature=0.0,
+            timeout_s=self._timeout_s,
+            metadata={"operation": "query_routing_v5"},
+            max_retries=self._max_retries,
+        )
+        query_type = QUERY_TYPE_BY_NAME[payload.query_type]
+        temporal_plan = TemporalPlan(
+            relation=payload.temporal_plan.relation,
+            relative_window=payload.temporal_plan.relative_window,
+        )
+        if query_type != QueryType.TEMPORAL:
+            temporal_plan = TemporalPlan()
+        return QueryAnalysis(
+            query_type=query_type,
+            temporal_plan=temporal_plan,
+            is_aggregation=bool(payload.is_aggregation or payload.aggregation_entities),
+            aggregation_entities=_dedupe_nonempty(payload.aggregation_entities),
+            query_keywords=_dedupe_nonempty(payload.query_keywords),
+            query_type_score=float(payload.query_type_confidence),
+            temporal_score=float(payload.temporal_confidence),
+        )
+
+
+class QueryAnalyzer(LLMQueryAnalyzer):
+    """Aurora 默认查询分析器。"""
 
 
 class TimeRangeExtractor:
-    """
-    时间范围提取器：将自然语言的时间描述（如“上周”）映射为绝对时间戳范围。
-    """
-
-    ANCHOR_PATTERNS = {
-        "first": list(EARLIEST_ANCHOR_KEYWORDS),
-        "last": list(RECENT_ANCHOR_KEYWORDS),
-        "span": list(SPAN_ANCHOR_KEYWORDS),
-    }
-    RELATIVE_PATTERNS = {
-        "last_week": r"(last week|上周|上星期)",
-        "last_month": r"(last month|上个月|上月)",
-        "yesterday": r"(yesterday|昨天)",
-        "today": r"(today|今天)",
-    }
+    """将模型产出的时间规划解析为绝对时间范围。"""
 
     def extract(
-        self, query: str, events_timeline: Optional[List[Tuple[str, float]]] = None
+        self,
+        events_timeline: Optional[List[Tuple[str, float]]] = None,
+        *,
+        temporal_plan: Optional[TemporalPlan] = None,
+        reference_ts: Optional[float] = None,
     ) -> TimeRange:
-        """解析查询并返回时间范围"""
-        query_lower = query.lower()
+        plan = temporal_plan or TemporalPlan()
         events_timeline = events_timeline or []
-
-        # 检查显式锚点（最早/最近）
-        for relation, keywords in self.ANCHOR_PATTERNS.items():
-            for keyword in keywords:
-                if keyword in query_lower:
-                    return self._resolve_anchor(relation, events_timeline)
-
-        # 检查相对时间（上周等）
-        for pattern_name, pattern in self.RELATIVE_PATTERNS.items():
-            if re.search(pattern, query_lower, re.IGNORECASE):
-                return self._resolve_relative_time(pattern_name, events_timeline)
-
+        relation = plan.relation
+        if relation == "any":
+            return TimeRange(relation="any")
+        if relation in {"first", "last", "span"}:
+            return self._resolve_ordered_relation(relation=relation, events_timeline=events_timeline)
+        if relation == "during":
+            return self._resolve_relative_window(
+                relative_window=plan.relative_window,
+                events_timeline=events_timeline,
+                reference_ts=reference_ts,
+            )
         return TimeRange(relation="any")
 
-    def _resolve_anchor(self, relation: str, events_timeline: List[Tuple[str, float]]) -> TimeRange:
-        """将抽象锚点转换为基于现有时间线的范围"""
+    def _resolve_ordered_relation(
+        self,
+        *,
+        relation: TemporalRelation,
+        events_timeline: List[Tuple[str, float]],
+    ) -> TimeRange:
         if not events_timeline:
-            return TimeRange(relation=relation)
+            if relation == "last":
+                return TimeRange(relation="last")
+            if relation == "first":
+                return TimeRange(relation="first")
+            if relation == "span":
+                return TimeRange(relation="span")
+            return TimeRange(relation="any")
 
         timestamps = [ts for _, ts in events_timeline]
         if relation == "first":
             earliest = min(timestamps)
-            return TimeRange(end=earliest + 86400, relation="first")  # 第一天
+            return TimeRange(end=earliest + 86400, relation="first")
         if relation == "last":
             latest = max(timestamps)
-            return TimeRange(start=latest - 86400, relation="last")  # 最后一天
+            return TimeRange(start=latest - 86400, relation="last")
         if relation == "span":
             return TimeRange(relation="span")
-        return TimeRange(relation=relation)
+        return TimeRange(relation="any")
 
-    def _resolve_relative_time(
-        self, pattern_name: str, events_timeline: List[Tuple[str, float]]
+    def _resolve_relative_window(
+        self,
+        *,
+        relative_window: RelativeWindow,
+        events_timeline: List[Tuple[str, float]],
+        reference_ts: Optional[float],
     ) -> TimeRange:
-        """解析相对时间词"""
-        if not events_timeline:
-            return TimeRange(relation="any")
-
-        latest_ts = max(ts for _, ts in events_timeline)
-        # 以记忆中最晚的时间点作为基准“现在”
-        if pattern_name == "yesterday":
-            return TimeRange(start=latest_ts - 2 * 86400, end=latest_ts - 86400, relation="during")
-        if pattern_name == "today":
-            return TimeRange(start=latest_ts - 86400, relation="during")
-        if pattern_name == "last_week":
+        anchor_ts = self._reference_ts(events_timeline=events_timeline, reference_ts=reference_ts)
+        if relative_window == "yesterday":
+            return TimeRange(start=anchor_ts - 2 * 86400, end=anchor_ts - 86400, relation="during")
+        if relative_window == "today":
+            return TimeRange(start=anchor_ts - 86400, relation="during")
+        if relative_window == "last_week":
             return TimeRange(
-                start=latest_ts - 14 * 86400, end=latest_ts - 7 * 86400, relation="during"
+                start=anchor_ts - 14 * 86400,
+                end=anchor_ts - 7 * 86400,
+                relation="during",
             )
-        if pattern_name == "last_month":
+        if relative_window == "last_month":
             return TimeRange(
-                start=latest_ts - 60 * 86400, end=latest_ts - 30 * 86400, relation="during"
+                start=anchor_ts - 60 * 86400,
+                end=anchor_ts - 30 * 86400,
+                relation="during",
             )
         return TimeRange(relation="any")
+
+    def _reference_ts(
+        self,
+        *,
+        events_timeline: List[Tuple[str, float]],
+        reference_ts: Optional[float],
+    ) -> float:
+        now_ts = float(reference_ts) if reference_ts is not None else time.time()
+        if not events_timeline:
+            return now_ts
+        latest_event_ts = max(ts for _, ts in events_timeline)
+        return max(now_ts, latest_event_ts)
 
     def filter_by_range(
         self,
         candidates: List[Tuple[str, float, float]],
         time_range: TimeRange,
     ) -> List[Tuple[str, float, float]]:
-        """应用时间范围过滤器过滤候选项"""
         if time_range.relation in {"any", "span"}:
             return candidates
 
