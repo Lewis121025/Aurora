@@ -50,8 +50,13 @@ def sample_next_wake(
 ) -> str:
     horizon = now + timedelta(hours=horizon_hours)
     current = now
+    
+    int_now = internal_intensity(arrival, 0.0)
+    int_horizon = internal_intensity(arrival, hours_between(horizon, now))
+    upper_bound = max(int_now, int_horizon)
+    
     while current < horizon:
-        upper = internal_intensity(arrival, hours_between(horizon, now))
+        upper = upper_bound
         wait_hours = rng.exponential(1.0 / max(upper, 1e-6))
         current = current + timedelta(hours=float(wait_hours))
         if current >= horizon:

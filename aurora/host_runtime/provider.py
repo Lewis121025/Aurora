@@ -16,6 +16,24 @@ _SYSTEM_PROMPT = (
 )
 
 
+def _map_verbosity(v: float) -> str:
+    if v < 0.2:
+        return "Exhausted/Silent. Keep it extremely brief."
+    if v < 0.5:
+        return "Calm. Speak concisely."
+    if v < 0.8:
+        return "Engaged. Converse normally."
+    return "Highly expressive. Share your thoughts."
+
+
+def _map_boundary(b: float) -> str:
+    if b < 0.3:
+        return "Defensive. Guard internal state strictly."
+    if b < 0.7:
+        return "Polite. Maintain clear boundaries."
+    return "Open. Willing to connect."
+
+
 class CollapseProvider(Protocol):
     def collapse(self, request: CollapseRequest) -> CollapseResult: ...
     def is_healthy(self) -> bool: ...
@@ -62,8 +80,10 @@ class OpenAICompatibleCollapseProvider:
                     "content": json.dumps(
                         {
                             "language": request.language,
-                            "boundary_budget": round(request.boundary_budget, 4),
-                            "verbosity_budget": round(request.verbosity_budget, 4),
+                            "boundary_state": _map_boundary(request.boundary_budget),
+                            "verbosity_state": _map_verbosity(request.verbosity_budget),
+                            "raw_boundary_budget": round(request.boundary_budget, 4),
+                            "raw_verbosity_budget": round(request.verbosity_budget, 4),
                             "released_traces": [item.text for item in request.released_traces],
                             "user_text": request.user_text,
                         },

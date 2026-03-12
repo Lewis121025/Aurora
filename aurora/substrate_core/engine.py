@@ -13,7 +13,7 @@ from aurora.core_math.dynamics import (
     advance_latent_ou, boundary_budget, prediction_error,
     update_metric, verbosity_budget,
 )
-from aurora.core_math.encoding import HashingEncoder
+from aurora.core_math.encoding import Encoder, HashingEncoder, SemanticEncoder
 from aurora.core_math.state import (
     ArrivalState, LatentState, MetricState, SEALED_STATE_VERSION,
     SealedState, SealedStateHeader, Spark,
@@ -27,7 +27,7 @@ from aurora.core_math.wake import (
 
 @dataclass(frozen=True)
 class AuroraSubstrateConfig:
-    latent_dim: int = 64
+    latent_dim: int = 512  # Updated to match bge-small-zh-v1.5
     metric_rank: int = 8
     rng_seed: int = 7
     sample_count: int = 3
@@ -35,9 +35,15 @@ class AuroraSubstrateConfig:
 
 
 class AuroraSubstrateCore:
-    def __init__(self, config: AuroraSubstrateConfig | None = None) -> None:
+    def __init__(self, config: AuroraSubstrateConfig | None = None, encoder: Encoder | None = None) -> None:
         self.config = config or AuroraSubstrateConfig()
-        self.encoder = HashingEncoder(dim=self.config.latent_dim, seed=self.config.rng_seed)
+        if encoder is None:
+            if self.config.latent_dim == 512:
+                self.encoder = SemanticEncoder()
+            else:
+                self.encoder = HashingEncoder(dim=self.config.latent_dim, seed=self.config.rng_seed)
+        else:
+            self.encoder = encoder
 
     def boot(self, now: datetime | None = None) -> bytes:
         start = now or utc_now()
