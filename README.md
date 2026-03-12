@@ -1,261 +1,104 @@
-# Aurora
+# Aurora Seed v1
 
-面向单用户 AI agent 的本地优先叙事记忆运行时。
+Aurora 现在是一个 **Mac-first、truthful black-box** 的长期陪伴 substrate。
 
-Aurora 的主线很简单：
+主线只有四层：
 
-`interfaces -> runtime -> soul -> integrations`
+`surface_api -> host_runtime -> substrate_core -> core_math`
 
-其中 `aurora.soul` 是唯一生产核心。历史研究代码和旧文档已迁移到 `legacy_research_stack` 分支。
+其中：
 
-## 它做什么
+- `substrate_core` 是唯一主体内核
+- `host_runtime` 只负责 opaque sealed blob、one-shot wake、provider 调用和完整性报告
+- 黑盒边界是软件级 `process-opaque`
+- 运行目标是 macOS 本机
 
-Aurora 不是把整段聊天历史直接塞进 prompt。
+## 原则
 
-它会把交互摄入为 `plot`，再逐步组织成 `story` 和 `theme`，在本地维护：
+- 不存在显式心理轴
+- 不存在派生叙事控制面
+- 不存在周期性后台任务编排
+- 记忆回忆基于能量采样
+- 不存在语义化 debug state
+- 黑盒边界是 **process-opaque**，不是硬件隔离
 
-- 结构化长期记忆
-- 可查询的向量与关系图
-- 身份状态、张力、修复、梦整合与模式涌现
-- 事件日志、派生文档和快照
-
-## 当前架构
+## 当前结构
 
 ```text
 aurora/
-├── soul/           # 唯一生产核心：记忆摄入、检索、演化
-├── runtime/        # 编排层：配置、装配、生命周期、响应流程
-├── interfaces/     # CLI / terminal / API / MCP
-├── integrations/   # embeddings / llm / storage
-├── benchmarks/     # 基准测试与适配器
-├── system/         # errors / version
-└── utils/          # 通用小工具
+├── core_math/       # 状态、动力学、能量采样、sealed blob
+├── substrate_core/  # boot / on_input / on_wake / health
+├── host_runtime/    # local opaque substrate client / provider / storage
+└── surface_api/     # HTTP + CLI
 ```
-
-几个最重要的文件：
-
-- [aurora/runtime/runtime.py](aurora/runtime/runtime.py)
-- [aurora/runtime/bootstrap.py](aurora/runtime/bootstrap.py)
-- [aurora/soul/engine.py](aurora/soul/engine.py)
-- [aurora/soul/retrieval.py](aurora/soul/retrieval.py)
-- [aurora/soul/models.py](aurora/soul/models.py)
-- [aurora/soul/query.py](aurora/soul/query.py)
-- [aurora/soul/facts.py](aurora/soul/facts.py)
-
-## 核心算法
-
-Aurora Soul 当前的主算法簇有 4 组：
-
-1. 记忆摄入  
-   `OnlineKDE + LowRankMetric + bounded local graph linking`
-
-2. 结构涌现  
-   `Louvain communities + StoryArc/Theme materialization`
-
-3. 场式检索  
-   `mean shift attractor tracing + personalized PageRank + contradiction inhibition + query/time/fact boost`
-
-4. 身份演化  
-   `contradiction scanning + GraphRepairOperator + GraphDreamOperator + schema consolidation`
 
 ## 安装
 
-基础安装：
-
 ```bash
 pip install -e .
-```
-
-常见可选依赖：
-
-```bash
-pip install -e '.[api]'
-pip install -e '.[bailian]'
-pip install -e '.[ark]'
 pip install -e '.[dev]'
 ```
 
-## 快速开始
+## Provider 配置
 
-### 1. 最小本地示例
-
-这套配置不依赖外部 API，适合确认运行链路。
-
-```python
-from aurora.runtime.runtime import AuroraRuntime
-from aurora.runtime.settings import AuroraSettings
-
-runtime = AuroraRuntime(
-    settings=AuroraSettings(
-        data_dir=".aurora",
-        embedding_provider="hash",
-        axis_embedding_provider="hash",
-        meaning_provider="heuristic",
-        narrative_provider="heuristic",
-    )
-)
-
-runtime.accept_interaction(
-    event_id="evt_001",
-    session_id="chat_main",
-    user_message="我偏好本地优先、结构化的长期记忆。",
-    agent_message="我会优先使用 plot、story、theme 的叙事结构来组织记忆。",
-)
-
-query = runtime.query(text="用户偏好什么样的记忆系统", k=5)
-print(query.hits[0].snippet if query.hits else "no hits")
-```
-
-### 2. 使用真实模型
-
-默认配置文件来自 `.env`，前缀是 `AURORA_`。常见生产配置可以这样写：
+Aurora Seed v1 优先读取通用 provider 变量：
 
 ```dotenv
-AURORA_DATA_DIR=.aurora
-
-AURORA_LLM_PROVIDER=bailian
-AURORA_EMBEDDING_PROVIDER=bailian
-AURORA_AXIS_EMBEDDING_PROVIDER=bailian
-
-AURORA_BAILIAN_LLM_API_KEY=your_llm_key
-AURORA_BAILIAN_EMBEDDING_API_KEY=your_embedding_key
-
-AURORA_BAILIAN_LLM_MODEL=qwen3.5-plus
-AURORA_BAILIAN_EMBEDDING_MODEL=text-embedding-v4
+AURORA_PROVIDER_NAME=openai-compatible
+AURORA_PROVIDER_BASE_URL=https://api.openai.com/v1
+AURORA_PROVIDER_MODEL=gpt-4o-mini
+AURORA_PROVIDER_API_KEY=your_api_key
 ```
 
-如果你不想在仓库根目录生成运行数据，把 `AURORA_DATA_DIR` 指到仓库外目录即可。
+如果这些变量缺失，会自动回落到现有百炼变量：
+
+```dotenv
+AURORA_BAILIAN_LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+AURORA_BAILIAN_LLM_MODEL=qwen3.5-plus
+AURORA_BAILIAN_LLM_API_KEY=your_bailian_key
+```
+
+本地运行数据默认写到 `.aurora_seed_v1/`。
 
 ## CLI
 
-安装后入口命令是 `aurora`。
-
-直接进入全屏终端对话模式。默认布局是左侧对话、右侧状态与 prompt 遥测：
+只保留三个命令：
 
 ```bash
-aurora
-```
-
-常用子命令：
-
-```bash
-aurora ingest "用户消息" "Agent 回复"
-aurora query "用户偏好什么"
-aurora respond "你记得我刚才说什么吗？"
-aurora job <job_id>
-aurora identity
-aurora stats
-aurora serve --port 8000
-aurora observe --max-hits 8
-```
-
-终端内常用命令：
-
-- `/identity`
-- `/stats`
-- `/context`
-- `/prompt`
-- `/query <text>`
-- `/events [n]`
-- `/plots [n]`
-- `/stories [n]`
-- `/themes [n]`
-- `/clear`
-- `/quit`
-
-也可以直接运行脚本入口：
-
-```bash
-python scripts/runtime/observe.py --max-hits 8
+aurora chat "你好"
+aurora health
+aurora integrity
 ```
 
 ## HTTP API
 
-安装 API 依赖后启动：
+只保留三个端点：
+
+- `POST /v1/input`
+- `GET /v1/healthz`
+- `GET /v1/integrity`
+
+启动：
 
 ```bash
-uvicorn aurora.interfaces.api.app:app --host 127.0.0.1 --port 8000
+uvicorn aurora.surface_api.app:app --host 127.0.0.1 --port 8000
 ```
 
-当前主接口在 `/v5/*`：
+## 完整性报告
 
-- `POST /v5/interactions`
-- `POST /v5/query`
-- `POST /v5/chat/replies`
-- `POST /v5/feedback`
-- `GET /v5/events/{event_id}`
-- `GET /v5/jobs/{job_id}`
-- `GET /v5/identity`
-- `GET /v5/stats`
-- `GET /healthz`
+`integrity` 是软件级完整性说明，不是硬件证明。它只报告：
 
-## MCP
+- 运行边界
+- substrate 传输方式
+- sealed state 版本
+- provider 配置指纹
+- 生成时间
 
-Aurora 可以把内存能力暴露成 MCP server：
-
-```python
-from aurora.interfaces.mcp.server import create_mcp_server
-from aurora.runtime.runtime import AuroraRuntime
-from aurora.runtime.settings import AuroraSettings
-
-runtime = AuroraRuntime(settings=AuroraSettings())
-server = create_mcp_server(runtime)
-```
-
-## 持久化
-
-`AuroraRuntime` 默认在 `data_dir` 下维护本地状态：
-
-- `runtime.sqlite3`
-- `snapshots/`
-
-这意味着 Aurora 默认是本地优先、单用户、可重放的运行时，而不是纯内存 demo。
-
-## 阅读顺序
-
-如果你第一次进仓库，推荐这样读：
-
-1. [aurora/runtime/settings.py](aurora/runtime/settings.py)
-2. [aurora/runtime/bootstrap.py](aurora/runtime/bootstrap.py)
-3. [aurora/runtime/runtime.py](aurora/runtime/runtime.py)
-4. [aurora/soul/engine.py](aurora/soul/engine.py)
-5. [aurora/soul/retrieval.py](aurora/soul/retrieval.py)
-6. [aurora/soul/models.py](aurora/soul/models.py)
-
-如果你是改算法，优先看：
-
-- [aurora/soul/engine.py](aurora/soul/engine.py)
-- [aurora/soul/retrieval.py](aurora/soul/retrieval.py)
-- [aurora/soul/query.py](aurora/soul/query.py)
-- [aurora/soul/facts.py](aurora/soul/facts.py)
-
-如果你是改 provider 或部署层，优先看：
-
-- [aurora/runtime/bootstrap.py](aurora/runtime/bootstrap.py)
-- [aurora/integrations/embeddings](aurora/integrations/embeddings)
-- [aurora/integrations/llm](aurora/integrations/llm)
-- [aurora/integrations/storage](aurora/integrations/storage)
-
-## 开发约定
-
-- 从具体模块导入，不依赖顶层聚合导出
-- `aurora/__init__.py` 只保留版本信息
-- `aurora.soul` 是唯一生产核心
-- 历史研究代码请切到 `legacy_research_stack` 分支查看
-
-基本回归：
+## 验证
 
 ```bash
-pytest tests -q
+pytest -q
+aurora health
+aurora integrity
+aurora chat "你好"
 ```
-
-## 文档
-
-- 文档总览见 [docs/README.md](docs/README.md)
-- 研究文档在 [docs/research](docs/research)
-- 架构决策在 [docs/adr](docs/adr)
-- 历史迁移/质量/旧研究文档已迁移到 `legacy_research_stack` 分支
-
-## 许可证
-
-Proprietary. All rights reserved.

@@ -1,1 +1,1 @@
-"""Test support package."""
+# Aurora Seed v1 test suite.

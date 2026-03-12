@@ -1,54 +1,29 @@
 [project]
 name = "aurora-memory"
-version = "0.2.0"
-description = "AURORA narrative memory — local-first runtime with coherence checking and self-narrative."
+version = "1.0.0"
+description = "Aurora Seed v1 - Mac-first substrate for a long-term digital soul."
 requires-python = ">=3.10"
-authors = [{name="AURORA Contributors"}]
+authors = [{ name = "AURORA Contributors" }]
 readme = "README.md"
-license = {text = "Proprietary"}
+license = { text = "Proprietary" }
 dependencies = [
   "numpy>=1.24",
   "scipy>=1.11",
-  "hnswlib>=0.8.0",
-  "python-igraph>=0.11",
   "pydantic>=2.6",
-  "pydantic-settings>=2.2",
-  "orjson>=3.9",
-  "textual>=8.1.0",
-]
-
-[project.optional-dependencies]
-api = [
   "fastapi>=0.110",
   "uvicorn>=0.27",
 ]
-bailian = [
-  "openai>=1.12",
-]
-ark = [
-  "openai>=1.12",
-  "volcengine-python-sdk[ark]",
-]
-benchmark = [
-  "datasets>=2.14",
-  "rouge-score>=0.1.2",
-]
+
+[project.optional-dependencies]
 dev = [
   "pytest>=8.0",
   "pytest-cov>=4.1",
   "mypy>=1.8",
   "ruff>=0.1",
-  "radon>=6.0",
-]
-production = [
-  "aurora-memory[api,bailian]",
-]
-all = [
-  "aurora-memory[api,bailian,ark,benchmark,dev]",
 ]
 
 [project.scripts]
-aurora = "aurora.interfaces.cli.entry:main"
+aurora = "aurora.surface_api.cli:main"
 
 [tool.ruff]
 line-length = 100

@@ -1,1 +1,1 @@
-"""Shared test helpers."""
+# Test helpers for Aurora Seed v1.
