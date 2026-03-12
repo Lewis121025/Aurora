@@ -1,12 +1,20 @@
 # Aurora
 
+这个分支 `legacy_research_stack` 是 Aurora 的旧代码与旧文档归档分支。
+
+- 这里保留的是 Mac-first Seed v1 重写之前的研究实现、实验接口、旧文档和旧测试
+- 默认只读，目的是留档与回看，不再作为当前主线继续演化
+- 当前正式主线请切回 `develop`
+
+下面的内容描述的是这条旧研究线本身，方便后续查档时快速定位。
+
 面向单用户 AI agent 的本地优先叙事记忆运行时。
 
 Aurora 的主线很简单：
 
 `interfaces -> runtime -> soul -> integrations`
 
-其中 `aurora.soul` 是唯一生产核心。历史研究代码和旧文档已迁移到 `legacy_research_stack` 分支。
+其中 `aurora.soul` 是这条旧研究线上的生产核心。
 
 ## 它做什么
 

@@ -1,15 +1,24 @@
 # 文档索引
 
-Aurora 现已收敛到单一路径的 `graph_first` 架构。当前分支只保留现行实现对应的文档；历史研究、迁移和旧设计文档已迁移到 `legacy_research_stack` 分支。
+这个分支是 Aurora 的旧研究线归档，所以这里的文档默认都是历史材料。
 
-## 当前有效文档
+## 快速定位
 
-- [README.md](/Users/lewis/Aurora/README.md)
-- [ADR 002: Graph-First Emergence](/Users/lewis/Aurora/docs/adr/002-graph-first-emergence.md)
-- [基准测试指南](/Users/lewis/Aurora/docs/research/benchmark_guide.md)
+- [README.md](/Users/lewis/Aurora/README.md)：这条旧研究线的总体说明
+- [docs/adr](/Users/lewis/Aurora/docs/adr)：当时的重要架构决策
+- [docs/research](/Users/lewis/Aurora/docs/research)：算法、基准、复盘与长文档
+- [scripts/runtime/observe.py](/Users/lewis/Aurora/scripts/runtime/observe.py)：旧终端观察入口
 
-当前 canonical 实现请直接以 [aurora/soul](/Users/lewis/Aurora/aurora/soul) 和 [aurora/runtime](/Users/lewis/Aurora/aurora/runtime) 为准。
+## 代码地图
 
-## 历史资料
+- [aurora/soul](/Users/lewis/Aurora/aurora/soul)：旧生产核心
+- [aurora/runtime](/Users/lewis/Aurora/aurora/runtime)：旧运行时编排
+- [aurora/interfaces](/Users/lewis/Aurora/aurora/interfaces)：旧 CLI / API / MCP / terminal
+- [aurora/integrations](/Users/lewis/Aurora/aurora/integrations)：旧模型与存储适配层
+- [aurora/benchmarks](/Users/lewis/Aurora/aurora/benchmarks)：旧基准适配器
 
-- 旧研究代码、迁移记录和废弃设计文档请切到 `legacy_research_stack` 分支查看。
+## 使用规则
+
+- 这条分支用于留档，不再作为当前主线开发基底
+- 旧文档和旧代码尽量保留原路径，避免破坏历史引用
+- 当前正式主线请回到 `develop`
