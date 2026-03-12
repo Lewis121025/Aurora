@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 
 from aurora.core_math.state import MetricState, cosine, normalize

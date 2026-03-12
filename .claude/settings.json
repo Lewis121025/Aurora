@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/lewis/My_Aurora -type f \\\\\\(-name *.ts -o -name *.tsx -o -name *.js -o -name *.jsx -o -name *.json -o -name *.md \\\\\\) -size 0)",
+      "Bash(python -m ruff check --select F401,F841 --output-format=text .)",
+      "Bash(uv run:*)",
+      "Bash(find . -type d -name \"__pycache__\" -exec rm -rf {} +)",
+      "Bash(find . -type f -name \"*.pyc\" -delete)",
+      "Bash(find aurora/benchmarks aurora/integrations aurora/interfaces aurora/lab aurora/privacy aurora/runtime aurora/scripts aurora/soul aurora/system aurora/utils -type f -name *.py)",
+      "Bash(for dir:*)",
+      "Bash(do echo:*)",
+      "Read(//Users/lewis/My_Aurora/**)",
+      "Bash(done)",
+      "Bash(find aurora:*)",
+      "Bash(grep -v \"warning: \\\\`VIRTUAL_ENV\")",
+      "Bash(git checkout:*)",
+      "Bash(pytest tests/ -v --collect-only)",
+      "Bash(uv sync:*)"
+    ]
+  }
+}
