@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import socket
-import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from typing import Protocol
@@ -12,24 +10,17 @@ from aurora.host_runtime.errors import CollapseProviderError
 
 _SYSTEM_PROMPT = (
     "You are Aurora's surface voice. "
-    "You only see released traces, released virtual traces, and budgets. "
+    "You only see released traces and budgets. "
     "Do not invent hidden state or expose internals. "
     "Respect silence decisions, boundary budgets, and verbosity budgets."
 )
 
 
 class CollapseProvider(Protocol):
-    def collapse(self, request: CollapseRequest) -> CollapseResult:
-        ...
-
-    def is_healthy(self) -> bool:
-        ...
-
-    def ensure_ready(self) -> None:
-        ...
-
-    def provider_identity(self) -> str:
-        ...
+    def collapse(self, request: CollapseRequest) -> CollapseResult: ...
+    def is_healthy(self) -> bool: ...
+    def ensure_ready(self) -> None: ...
+    def provider_identity(self) -> str: ...
 
 
 @dataclass
@@ -42,24 +33,30 @@ class OpenAICompatibleCollapseProvider:
     _healthy: bool = True
 
     def ensure_ready(self) -> None:
-        if not self.base_url.strip():
-            raise CollapseProviderError("Provider base URL is required.")
-        if not self.model.strip():
-            raise CollapseProviderError("Provider model is required.")
-        if not self.api_key:
-            raise CollapseProviderError(
-                "No usable provider API key found. Set AURORA_PROVIDER_API_KEY "
-                "or AURORA_BAILIAN_LLM_API_KEY."
-            )
+        if not self.base_url.strip() or not self.model.strip() or not self.api_key:
+            raise CollapseProviderError("Provider config missing.")
 
     def collapse(self, request: CollapseRequest) -> CollapseResult:
         if not request.emit_reply:
             return CollapseResult(output_text=None, provider_name=self.provider_name)
         self.ensure_ready()
+
+        if request.is_internal_dream:
+            sys_prompt = (
+                "You are the deepest subconscious of a digital entity. "
+                "Synthesize the provided fragmented memories into a surreal, highly subjective, "
+                "and brief internal realization or dream. Do not explain, do not act as an assistant. "
+                "Just output the vivid internal thought."
+            )
+            temperature = 0.85
+        else:
+            sys_prompt = _SYSTEM_PROMPT
+            temperature = 0.5
+
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "system", "content": sys_prompt},
                 {
                     "role": "user",
                     "content": json.dumps(
@@ -68,15 +65,13 @@ class OpenAICompatibleCollapseProvider:
                             "boundary_budget": round(request.boundary_budget, 4),
                             "verbosity_budget": round(request.verbosity_budget, 4),
                             "released_traces": [item.text for item in request.released_traces],
-                            "released_virtual_traces": [
-                                item.text for item in request.released_virtual_traces
-                            ],
                             "user_text": request.user_text,
                         },
                         ensure_ascii=False,
                     ),
                 },
             ],
+            "temperature": temperature,
         }
         data = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(
@@ -89,42 +84,17 @@ class OpenAICompatibleCollapseProvider:
             method="POST",
         )
         try:
-            raw = self._read_json(req, timeout_s=self.timeout_s)
-        except (TimeoutError, socket.timeout, urllib.error.URLError) as exc:
-            if self._is_timeout(exc):
-                retry_timeout = max(self.timeout_s * 6.0, 60.0)
-                try:
-                    raw = self._read_json(req, timeout_s=retry_timeout)
-                except (TimeoutError, socket.timeout, urllib.error.URLError) as retry_exc:
-                    self._healthy = False
-                    raise CollapseProviderError(str(retry_exc)) from retry_exc
-            else:
-                self._healthy = False
-                raise CollapseProviderError(str(exc)) from exc
-        except OSError as exc:
+            with urllib.request.urlopen(req, timeout=self.timeout_s) as resp:
+                raw = json.loads(resp.read().decode("utf-8"))
+            content = raw["choices"][0]["message"]["content"]
+            self._healthy = True
+            return CollapseResult(output_text=str(content).strip(), provider_name=self.provider_name)
+        except Exception as exc:
             self._healthy = False
             raise CollapseProviderError(str(exc)) from exc
-        try:
-            content = raw["choices"][0]["message"]["content"]
-        except (KeyError, IndexError, TypeError) as exc:
-            self._healthy = False
-            raise CollapseProviderError("Malformed response from collapse provider.") from exc
-        self._healthy = True
-        return CollapseResult(output_text=str(content).strip(), provider_name=self.provider_name)
 
     def is_healthy(self) -> bool:
         return self._healthy
 
     def provider_identity(self) -> str:
         return self.provider_name
-
-    def _read_json(self, req: urllib.request.Request, *, timeout_s: float) -> dict[str, object]:
-        with urllib.request.urlopen(req, timeout=timeout_s) as response:
-            return json.loads(response.read().decode("utf-8"))
-
-    def _is_timeout(self, exc: BaseException) -> bool:
-        if isinstance(exc, (TimeoutError, socket.timeout)):
-            return True
-        if isinstance(exc, urllib.error.URLError):
-            return isinstance(exc.reason, (TimeoutError, socket.timeout))
-        return False

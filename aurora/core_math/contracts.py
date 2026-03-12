@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
 
 
@@ -22,14 +21,22 @@ class WakeEnvelope:
 
 
 @dataclass(frozen=True)
+class FeedbackEnvelope:
+    event_id: str
+    output_text: str | None
+    timestamp: str
+    is_internal: bool = False
+
+
+@dataclass(frozen=True)
 class CollapseRequest:
     user_text: str
     released_traces: list[ReleasedTrace]
-    released_virtual_traces: list[ReleasedTrace]
     language: str
     emit_reply: bool
     boundary_budget: float
     verbosity_budget: float
+    is_internal_dream: bool = False
 
 
 @dataclass(frozen=True)
@@ -73,6 +80,8 @@ class SubstrateWakeResult:
     sealed_state: bytes
     next_wake_at: str | None
     health: HealthEnvelope
+    dream_request: CollapseRequest | None = None
+    event_id: str | None = None
 
 
 @dataclass(frozen=True)

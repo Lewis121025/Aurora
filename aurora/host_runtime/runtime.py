@@ -1,8 +1,8 @@
 from __future__ import annotations
-
 from datetime import datetime
 
 from aurora.core_math.contracts import (
+    FeedbackEnvelope,
     HealthEnvelope,
     InputEnvelope,
     InputOutcome,
@@ -45,21 +45,14 @@ class AuroraRuntime:
             self.store.save(self.substrate_client.boot(now=utc_now()))
 
     def handle_input(
-        self,
-        user_text: str,
-        *,
-        language: str = "auto",
-        when: datetime | None = None,
+        self, user_text: str, *, language: str = "auto", when: datetime | None = None
     ) -> InputOutcome:
         sealed = self.store.load()
-        envelope = InputEnvelope(
-            user_text=user_text,
-            timestamp=isoformat_utc(when or utc_now()),
-            language=language,
+        ts = when or utc_now()
+
+        result = self.substrate_client.on_input(
+            sealed, InputEnvelope(user_text=user_text, timestamp=isoformat_utc(ts), language=language)
         )
-        result = self.substrate_client.on_input(sealed, envelope)
-        self.store.save(result.sealed_state)
-        self.store.write_alarm(result.next_wake_at)
 
         if result.collapse_request.emit_reply:
             try:
@@ -68,10 +61,23 @@ class AuroraRuntime:
                 outcome = "emitted"
             except CollapseProviderError as exc:
                 self._last_error = str(exc)
+                self.store.save(result.sealed_state)
+                self.store.write_alarm(result.next_wake_at)
                 raise
         else:
             output_text = None
             outcome = "silence"
+
+        fb_env = FeedbackEnvelope(
+            event_id=result.event_id,
+            output_text=output_text,
+            timestamp=isoformat_utc(ts),
+            is_internal=False,
+        )
+        final_sealed = self.substrate_client.on_feedback(result.sealed_state, fb_env)
+
+        self.store.save(final_sealed)
+        self.store.write_alarm(result.next_wake_at)
         self._last_error = None
         return InputOutcome(
             event_id=result.event_id,
@@ -82,26 +88,35 @@ class AuroraRuntime:
 
     def process_wake(self, when: datetime | None = None) -> str | None:
         sealed = self.store.load()
-        result = self.substrate_client.on_wake(
-            sealed,
-            WakeEnvelope(timestamp=isoformat_utc(when or utc_now())),
-        )
-        self.store.save(result.sealed_state)
+        ts = when or utc_now()
+
+        result = self.substrate_client.on_wake(sealed, WakeEnvelope(timestamp=isoformat_utc(ts)))
+        current_sealed = result.sealed_state
+
+        if result.dream_request and result.event_id:
+            try:
+                collapse = self.provider.collapse(result.dream_request)
+                if collapse.output_text:
+                    fb_env = FeedbackEnvelope(
+                        event_id=result.event_id,
+                        output_text=collapse.output_text,
+                        timestamp=isoformat_utc(ts),
+                        is_internal=True,
+                    )
+                    current_sealed = self.substrate_client.on_feedback(current_sealed, fb_env)
+            except CollapseProviderError as exc:
+                self._last_error = str(exc)
+
+        self.store.save(current_sealed)
         self.store.write_alarm(result.next_wake_at)
-        self._last_error = None
         return result.next_wake_at
 
     def health(self) -> HealthEnvelope:
-        sealed = self.store.load()
         return self.substrate_client.health_snapshot(
-            sealed,
-            last_error=self._last_error,
-            provider_healthy=self.provider.is_healthy(),
+            self.store.load(), self._last_error, self.provider.is_healthy()
         )
 
     def integrity(self) -> IntegrityEnvelope:
-        sealed = self.store.load()
         return self.substrate_client.integrity_report(
-            sealed,
-            config_fingerprint=self.settings.provider_fingerprint(),
+            self.store.load(), self.settings.provider_fingerprint()
         )

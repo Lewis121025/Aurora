@@ -19,18 +19,18 @@ def test_ou_advance_is_reproducible_with_fixed_seed() -> None:
 def test_metric_update_stays_spd() -> None:
     metric = MetricState.isotropic(dim=10, rank=4)
     for idx in range(20):
-        gradient = np.zeros(10, dtype=np.float64)
-        gradient[idx % 10] = 1.0
-        metric = update_metric(metric, gradient, lr=0.05)
+        cue = np.zeros(10, dtype=np.float64)
+        cue[idx % 10] = 1.0
+        metric = update_metric(metric, cue, error=0.5)
         eigvals = np.linalg.eigvalsh(metric.matrix())
         assert np.all(eigvals > 0.0)
 
 
 def test_repeated_direction_breaks_symmetry() -> None:
     metric = MetricState.isotropic(dim=12, rank=4)
-    gradient = np.zeros(12, dtype=np.float64)
-    gradient[0] = 1.0
+    cue = np.zeros(12, dtype=np.float64)
+    cue[0] = 1.0
     for _ in range(40):
-        metric = update_metric(metric, gradient, lr=0.08)
+        metric = update_metric(metric, cue, error=0.8)
     eigvals = np.sort(np.linalg.eigvalsh(metric.matrix()))[::-1]
     assert eigvals[0] > eigvals[1]

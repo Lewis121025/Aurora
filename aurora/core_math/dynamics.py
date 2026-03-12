@@ -1,12 +1,29 @@
 from __future__ import annotations
-
 import numpy as np
-
 from aurora.core_math.state import MetricState, cosine, normalize
 
 
 def sigmoid(x: float) -> float:
     return float(1.0 / (1.0 + np.exp(-x)))
+
+
+def prediction_error(cue: np.ndarray, latent: np.ndarray) -> float:
+    return float(max(0.0, 1.0 - cosine(cue, normalize(latent))))
+
+
+def update_metric(metric: MetricState, cue: np.ndarray, error: float, lr: float = 0.05) -> MetricState:
+    """空间折叠：极大惊奇会瞬间拉伸空间矩阵，形成不可见的引力黑洞"""
+    dim = metric.dim
+    plasticity = float(np.clip(lr + 2.0 * (error ** 2), 0.01, 1.5))
+    centered_outer = np.outer(cue, cue)
+    centered_outer -= np.trace(centered_outer) / float(dim) * np.eye(dim)
+
+    full = metric.matrix() + plasticity * centered_outer
+    eigvals, eigvecs = np.linalg.eigh(full)
+    order = np.argsort(np.abs(eigvals - 1.0))[::-1]
+    chosen = order[:metric.lambdas.shape[0]]
+    lambdas = np.clip(eigvals[chosen] - 1.0, -0.95, 12.0)
+    return MetricState(dim=dim, basis=eigvecs[:, chosen], lambdas=lambdas)
 
 
 def advance_latent_ou(
@@ -20,43 +37,10 @@ def advance_latent_ou(
     if dt_hours <= 0.0:
         return vector.copy()
     exp_term = float(np.exp(-drift * dt_hours))
-    stationary = temperature / max(drift, 1e-6)
-    variance = stationary * (1.0 - np.exp(-2.0 * drift * dt_hours))
-    diffusion = metric.matrix()
-    chol = np.linalg.cholesky(diffusion + 1e-6 * np.eye(metric.dim))
+    variance = (temperature / drift) * (1.0 - np.exp(-2.0 * drift * dt_hours))
+    chol = np.linalg.cholesky(metric.matrix() + 1e-6 * np.eye(metric.dim))
     noise = chol @ rng.normal(size=metric.dim)
-    return exp_term * vector + np.sqrt(max(variance, 1e-8)) * noise
-
-
-def anisotropic_gradient(
-    cue_embedding: np.ndarray,
-    latent_vector: np.ndarray,
-    sampled_embeddings: list[np.ndarray],
-) -> np.ndarray:
-    latent = normalize(latent_vector)
-    if sampled_embeddings:
-        memory_pull = normalize(np.mean(np.stack(sampled_embeddings, axis=0), axis=0))
-    else:
-        memory_pull = np.zeros_like(cue_embedding)
-    return normalize(cue_embedding - latent + 0.65 * memory_pull)
-
-
-def update_metric(metric: MetricState, gradient: np.ndarray, lr: float = 0.08) -> MetricState:
-    dim = metric.dim
-    centered_outer = np.outer(gradient, gradient)
-    centered_outer -= np.trace(centered_outer) / float(dim) * np.eye(dim)
-    full = metric.matrix() + lr * centered_outer
-    eigvals, eigvecs = np.linalg.eigh(full)
-    order = np.argsort(np.abs(eigvals - 1.0))[::-1]
-    rank = metric.lambdas.shape[0]
-    chosen = order[:rank]
-    basis = eigvecs[:, chosen]
-    lambdas = np.clip(eigvals[chosen] - 1.0, -0.95, 4.0)
-    return MetricState(dim=dim, basis=basis, lambdas=lambdas)
-
-
-def prediction_error(cue_embedding: np.ndarray, latent_vector: np.ndarray) -> float:
-    return float(max(0.0, 1.0 - cosine(cue_embedding, normalize(latent_vector))))
+    return normalize(exp_term * vector + np.sqrt(max(variance, 1e-8)) * noise)
 
 
 def boundary_budget(error: float, basin_pressure: float) -> float:
