@@ -30,8 +30,8 @@ class AuroraSubstrateConfig:
     latent_dim: int = 512  # Updated to match bge-small-zh-v1.5
     metric_rank: int = 8
     rng_seed: int = 7
-    sample_count: int = 3
-    capacity: int = 1024  # 绝对物理极限：整个宇宙永远只有这 N 个粒子槽
+    sample_count: int = 10  # 扩大提取窗口，让统一方程自然筛选出工作、情景与化石记忆
+    capacity: int = 4096  # 容量扩充：从 1024 扩展为 4096，为化石记忆提供足够的沉积空间
 
 
 class AuroraSubstrateCore:
@@ -67,22 +67,34 @@ class AuroraSubstrateCore:
         return seal_state(state)
 
     def _thermodynamics(self, state: SealedState, dt_hours: float) -> np.ndarray:
-        """核心物理引擎：熵增冷却 与 空间共振加热"""
-        # 定律 1：熵增冷却——万物随时间失温
-        decay = float(np.exp(-0.02 * dt_hours))
+        """
+        核心物理引擎：大统一记忆方程 (Unified Memory Equation)
+        返回每个星火的当前“激活度 (Activation)”，它是内在能量(工作记忆属性)与外部共振(语义情景属性)的叠加态。
+        """
+        high_decay = float(np.exp(-0.02 * dt_hours))
+        
         for spark in state.sparks:
-            spark.energy *= decay
+            if spark.energy > 0.1:
+                spark.energy *= high_decay
+            else:
+                spark.energy = max(1e-5, spark.energy - (0.0005 * dt_hours))
 
-        # 定律 2：共振加热——被扭曲空间照亮的粒子，吸收能量
         warped_latent = state.metric.matrix() @ state.latent.vector
         vectors = np.stack([spark.vector for spark in state.sparks])
         resonances = vectors @ warped_latent
+        
+        activations = np.zeros(self.config.capacity, dtype=np.float64)
 
         for i, spark in enumerate(state.sparks):
-            if spark.text and resonances[i] > 0.05:
-                spark.energy += 0.2 * float(resonances[i])
+            if spark.text:
+                if resonances[i] > 0.05:
+                    spark.energy += 0.2 * float(resonances[i])
+                # 统一激活度 = 当前残存热量 (Recency/Impact) + 纯粹空间共振 (Semantic)
+                # 刚刚发生的事情(Energy极高)即使没有共振也会浮现 (工作记忆/短期叙事)
+                # 很久以前的事情(Energy极低)必须依靠极强的共振才能浮现 (情景化石记忆)
+                activations[i] = spark.energy + max(0.0, float(resonances[i])) * 2.0
 
-        return resonances
+        return activations
 
     def _reincarnate(
         self, state: SealedState, timestamp: str,
@@ -109,14 +121,15 @@ class AuroraSubstrateCore:
         cue = self.encoder.encode(envelope.user_text)
         error = prediction_error(cue, state.latent.vector)
 
-        # 运行热力学法则：冷却 + 共振
-        resonances = self._thermodynamics(state, dt)
+        # 运行热力学法则：获得统一的激活度分布景观
+        activations = self._thermodynamics(state, dt)
 
-        # 意识上浮：共振最强的非空星火即是当前激活的记忆
+        # 意识上浮：不再人为硬编码割裂近期与远期，而是让物理方程自然决出最活跃的星火
         valid_idx = [i for i, spark in enumerate(state.sparks) if spark.text]
         if valid_idx:
-            best_idx = sorted(valid_idx, key=lambda i: resonances[i], reverse=True)[:self.config.sample_count]
-            resonated = [state.sparks[i] for i in best_idx]
+            best_idx = sorted(valid_idx, key=lambda i: activations[i], reverse=True)[:self.config.sample_count]
+            # 为了保持思维的因果流，提取出的星火碎片最终按时间流向排序坍缩给发声面
+            resonated = sorted([state.sparks[i] for i in best_idx], key=lambda s: s.timestamp)
         else:
             resonated = []
 
@@ -185,11 +198,11 @@ class AuroraSubstrateCore:
         state.latent.vector = advance_latent_ou(state.latent.vector, state.metric, dt, rng)
         advance_arrival(state.arrival, when)
 
-        resonances = self._thermodynamics(state, dt)
+        activations = self._thermodynamics(state, dt)
         valid_idx = [i for i, spark in enumerate(state.sparks) if spark.text]
         if valid_idx:
-            best_idx = sorted(valid_idx, key=lambda i: resonances[i], reverse=True)[:self.config.sample_count]
-            resonated = [state.sparks[i] for i in best_idx]
+            best_idx = sorted(valid_idx, key=lambda i: activations[i], reverse=True)[:self.config.sample_count]
+            resonated = sorted([state.sparks[i] for i in best_idx], key=lambda s: s.timestamp)
         else:
             resonated = []
 
