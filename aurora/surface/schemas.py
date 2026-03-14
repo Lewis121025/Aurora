@@ -13,7 +13,8 @@ class TurnRequest(BaseModel):
 class TurnResponse(BaseModel):
     turn_id: str
     response_text: str
-    touch_channels: tuple[str, ...]
+    aurora_move: str
+    dominant_channels: tuple[str, ...]
 
 
 class PhaseResponse(BaseModel):
@@ -30,20 +31,19 @@ class HealthResponse(BaseModel):
 
 class StateResponse(BaseModel):
     phase: str
-    sleep_need: float
-    current_relation_id: str | None
-    active_thread_ids: tuple[str, ...]
-    active_knot_ids: tuple[str, ...]
-    last_transition_at: float
+    continuity_pressure: float
+    sleep_pressure: float
+    coherence_pressure: float
+    softness: float
+    boundary_tension: float
+    active_relation_id: str | None
+    recent_chapter_bias: tuple[str, ...]
     turns: int
     memory_fragments: int
     memory_traces: int
     memory_associations: int
-    threads: int
-    knots: int
-    relation_moments: int
-    trust: float
-    boundary_tension: float
+    memory_chapters: int
+    relation_count: int
     sleep_cycles: int
     last_reweave_delta: float
     transitions: int

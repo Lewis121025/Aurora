@@ -31,24 +31,19 @@ def build_app(engine: AuroraEngine | None = None) -> FastAPI:
         summary: StateSummary = runtime.state_summary()
         return StateResponse(
             phase=str(summary["phase"]),
-            sleep_need=summary["sleep_need"],
-            current_relation_id=(
-                None
-                if summary["current_relation_id"] is None
-                else str(summary["current_relation_id"])
-            ),
-            active_thread_ids=summary["active_thread_ids"],
-            active_knot_ids=summary["active_knot_ids"],
-            last_transition_at=summary["last_transition_at"],
+            continuity_pressure=summary["continuity_pressure"],
+            sleep_pressure=summary["sleep_pressure"],
+            coherence_pressure=summary["coherence_pressure"],
+            softness=summary["softness"],
+            boundary_tension=summary["boundary_tension"],
+            active_relation_id=summary["active_relation_id"],
+            recent_chapter_bias=summary["recent_chapter_bias"],
             turns=summary["turns"],
             memory_fragments=summary["memory_fragments"],
             memory_traces=summary["memory_traces"],
             memory_associations=summary["memory_associations"],
-            threads=summary["threads"],
-            knots=summary["knots"],
-            relation_moments=summary["relation_moments"],
-            trust=summary["trust"],
-            boundary_tension=summary["boundary_tension"],
+            memory_chapters=summary["memory_chapters"],
+            relation_count=summary["relation_count"],
             sleep_cycles=summary["sleep_cycles"],
             last_reweave_delta=summary["last_reweave_delta"],
             transitions=summary["transitions"],
@@ -60,7 +55,8 @@ def build_app(engine: AuroraEngine | None = None) -> FastAPI:
         return TurnResponse(
             turn_id=output.turn_id,
             response_text=output.response_text,
-            touch_channels=output.touch_channels,
+            aurora_move=output.aurora_move,
+            dominant_channels=output.dominant_channels,
         )
 
     @app.post("/doze", response_model=PhaseResponse)
@@ -76,4 +72,4 @@ def build_app(engine: AuroraEngine | None = None) -> FastAPI:
     return app
 
 
-app = build_app(engine=AuroraEngine.create(data_dir=".aurora_v2"))
+app = build_app()

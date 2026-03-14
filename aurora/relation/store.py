@@ -1,212 +1,98 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from collections import defaultdict
 from uuid import uuid4
 
-from aurora.runtime.models import (
-    Orientation,
-    RelationFormation,
-    RelationMoment,
-    RelationMove,
-    TraceChannel,
-)
+from aurora.runtime.models import AuroraMove, RelationMoment, RelationState, TraceChannel, clamp
 
 
-def _clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
-
-
-@dataclass(slots=True)
 class RelationStore:
-    moments: dict[str, RelationMoment] = field(default_factory=dict)
-    formations: dict[str, RelationFormation] = field(default_factory=dict)
-    orientations: dict[str, Orientation] = field(default_factory=dict)
+    def __init__(self) -> None:
+        self.states: dict[str, RelationState] = {}
+        self.moments: dict[str, list[RelationMoment]] = defaultdict(list)
 
-    def formation(self, relation_id: str) -> RelationFormation:
-        existing = self.formations.get(relation_id)
-        if existing is not None:
-            return existing
-        formation = RelationFormation(
-            relation_id=relation_id,
-            trust=0.0,
-            familiarity=0.0,
-            reciprocity=0.0,
-            boundary_tension=0.1,
-            repairability=0.5,
-            active_thread_ids=(),
-            active_knot_ids=(),
-            last_contact_at=0.0,
-        )
-        self.formations[relation_id] = formation
-        return formation
+    def state_for(self, relation_id: str) -> RelationState:
+        if relation_id not in self.states:
+            self.states[relation_id] = RelationState(relation_id=relation_id)
+        return self.states[relation_id]
 
-    def orientation(self, relation_id: str) -> Orientation:
-        existing = self.orientations.get(relation_id)
-        if existing is not None:
-            return existing
-        orientation = Orientation(
-            relation_id=relation_id,
-            self_orientation=0.0,
-            world_orientation=0.0,
-            relation_orientation=0.0,
-            narrative_tilt=0.0,
-            updated_at=0.0,
-        )
-        self.orientations[relation_id] = orientation
-        return orientation
-
-    def record_moment(
+    def record_exchange(
         self,
         relation_id: str,
-        session_id: str,
         user_turn_id: str,
-        aurora_turn_id: str,
+        aurora_turn_id: str | None,
         user_channels: tuple[TraceChannel, ...],
-        user_move: RelationMove,
-        aurora_move: RelationMove,
-        created_at: float,
-        note: str,
+        aurora_move: AuroraMove,
+        summary: str,
+        now_ts: float,
     ) -> RelationMoment:
-        boundary_signal = 1.0 if TraceChannel.BOUNDARY in user_channels else 0.0
-        resonance_score = (
-            0.65
-            if any(
-                channel in {TraceChannel.WARMTH, TraceChannel.INSIGHT} for channel in user_channels
-            )
-            else 0.35
-        )
+        state = self.state_for(relation_id)
+        channels = tuple(sorted(set(user_channels), key=lambda item: item.value))
         moment = RelationMoment(
-            moment_id=f"moment_{uuid4().hex[:10]}",
+            moment_id=f"moment_{uuid4().hex[:12]}",
             relation_id=relation_id,
-            session_id=session_id,
             user_turn_id=user_turn_id,
             aurora_turn_id=aurora_turn_id,
-            user_channels=user_channels,
-            user_move=user_move,
+            user_channels=channels,
             aurora_move=aurora_move,
-            boundary_signal=boundary_signal,
-            resonance_score=resonance_score,
-            note=note,
-            created_at=created_at,
+            boundary_crossed=TraceChannel.BOUNDARY in channels or aurora_move == "boundary",
+            repair_attempted=TraceChannel.REPAIR in channels or aurora_move == "repair",
+            summary=summary,
+            created_at=now_ts,
         )
-        self.moments[moment.moment_id] = moment
-        self._evolve_from_moment(moment)
+        self.moments[relation_id].append(moment)
+        self._update_state(state=state, moment=moment, now_ts=now_ts)
         return moment
 
-    def _evolve_from_moment(self, moment: RelationMoment) -> None:
-        formation = self.formation(moment.relation_id)
-        trust = formation.trust
-        familiarity = formation.familiarity
-        reciprocity = formation.reciprocity
-        boundary_tension = formation.boundary_tension
-        repairability = formation.repairability
+    def summarize_relation(self, relation_id: str) -> dict[str, float | tuple[str, ...]]:
+        return self.state_for(relation_id).snapshot()
 
-        if TraceChannel.WARMTH in moment.user_channels:
-            trust += 0.10
-            reciprocity += 0.06
-        if TraceChannel.INSIGHT in moment.user_channels:
-            trust += 0.05
-        if TraceChannel.HURT in moment.user_channels:
-            trust -= 0.12
-            boundary_tension += 0.10
-        if TraceChannel.BOUNDARY in moment.user_channels:
-            boundary_tension += 0.18
-        if moment.user_move is RelationMove.REPAIR or moment.aurora_move is RelationMove.REPAIR:
-            repairability += 0.10
-            trust += 0.04
-        if moment.aurora_move is RelationMove.BOUNDARY:
-            boundary_tension += 0.08
+    def _update_state(self, state: RelationState, moment: RelationMoment, now_ts: float) -> None:
+        channels = set(moment.user_channels)
+        trust_delta = 0.0
+        reciprocity_delta = 0.0
+        tension_delta = 0.0
+        distance_delta = 0.0
+        repairability_delta = 0.0
 
-        updated = replace(
-            formation,
-            trust=_clamp(trust, -1.0, 1.0),
-            familiarity=_clamp(familiarity + 0.08, 0.0, 1.0),
-            reciprocity=_clamp(reciprocity, 0.0, 1.0),
-            boundary_tension=_clamp(boundary_tension, 0.0, 1.0),
-            repairability=_clamp(repairability, 0.0, 1.0),
-            last_contact_at=moment.created_at,
-        )
-        self.formations[moment.relation_id] = updated
+        if TraceChannel.WARMTH in channels:
+            trust_delta += 0.08
+            reciprocity_delta += 0.04
+        if TraceChannel.RECOGNITION in channels:
+            trust_delta += 0.07
+            reciprocity_delta += 0.05
+        if TraceChannel.CURIOSITY in channels:
+            reciprocity_delta += 0.04
+        if TraceChannel.HURT in channels:
+            tension_delta += 0.10
+            repairability_delta -= 0.04
+        if TraceChannel.BOUNDARY in channels:
+            tension_delta += 0.12
+            distance_delta += 0.06
+        if TraceChannel.DISTANCE in channels:
+            distance_delta += 0.08
+            reciprocity_delta -= 0.03
+        if TraceChannel.REPAIR in channels:
+            repairability_delta += 0.08
+            trust_delta += 0.03
 
-        orientation = self.orientation(moment.relation_id)
-        orientation_updated = replace(
-            orientation,
-            self_orientation=_clamp(
-                orientation.self_orientation
-                + (0.05 if TraceChannel.INSIGHT in moment.user_channels else -0.01),
-                -1.0,
-                1.0,
-            ),
-            world_orientation=_clamp(
-                orientation.world_orientation
-                + 0.08 * updated.trust
-                - 0.06 * updated.boundary_tension,
-                -1.0,
-                1.0,
-            ),
-            relation_orientation=_clamp(
-                orientation.relation_orientation
-                + 0.12 * updated.reciprocity
-                - 0.10 * updated.boundary_tension,
-                -1.0,
-                1.0,
-            ),
-            narrative_tilt=_clamp(
-                orientation.narrative_tilt
-                + 0.08 * updated.repairability
-                - 0.05 * updated.boundary_tension,
-                -1.0,
-                1.0,
-            ),
-            updated_at=moment.created_at,
-        )
-        self.orientations[moment.relation_id] = orientation_updated
+        if moment.aurora_move == "approach":
+            reciprocity_delta += 0.06
+            distance_delta -= 0.03
+        elif moment.aurora_move == "withhold":
+            distance_delta += 0.05
+        elif moment.aurora_move == "boundary":
+            tension_delta += 0.05
+            distance_delta += 0.08
+        elif moment.aurora_move == "repair":
+            repairability_delta += 0.10
+            trust_delta += 0.04
+        elif moment.aurora_move == "silence":
+            distance_delta += 0.03
 
-    def absorb_reweave(
-        self,
-        relation_id: str,
-        thread_ids: tuple[str, ...],
-        knot_ids: tuple[str, ...],
-        orientation_delta: tuple[float, float, float, float],
-        now_ts: float,
-    ) -> None:
-        formation = self.formation(relation_id)
-        merged_threads = tuple(dict.fromkeys((*formation.active_thread_ids, *thread_ids)))
-        merged_knots = tuple(dict.fromkeys((*formation.active_knot_ids, *knot_ids)))
-        updated = replace(
-            formation,
-            active_thread_ids=merged_threads,
-            active_knot_ids=merged_knots,
-            boundary_tension=_clamp(
-                formation.boundary_tension + 0.05 * len(knot_ids) - 0.03 * len(thread_ids),
-                0.0,
-                1.0,
-            ),
-            last_contact_at=now_ts,
-        )
-        self.formations[relation_id] = updated
-
-        orientation = self.orientation(relation_id)
-        self.orientations[relation_id] = replace(
-            orientation,
-            self_orientation=_clamp(orientation.self_orientation + orientation_delta[0], -1.0, 1.0),
-            world_orientation=_clamp(
-                orientation.world_orientation + orientation_delta[1], -1.0, 1.0
-            ),
-            relation_orientation=_clamp(
-                orientation.relation_orientation + orientation_delta[2], -1.0, 1.0
-            ),
-            narrative_tilt=_clamp(orientation.narrative_tilt + orientation_delta[3], -1.0, 1.0),
-            updated_at=now_ts,
-        )
-
-    def dominant_channels(self, relation_id: str) -> tuple[TraceChannel, ...]:
-        scores: dict[TraceChannel, float] = {}
-        for moment in self.moments.values():
-            if moment.relation_id != relation_id:
-                continue
-            for channel in moment.user_channels:
-                scores.setdefault(channel, 0.0)
-                scores[channel] += 1.0
-        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-        return tuple(channel for channel, _ in ranked[:3])
+        state.trust = clamp(state.trust + trust_delta)
+        state.reciprocity = clamp(state.reciprocity + reciprocity_delta)
+        state.boundary_tension = clamp(state.boundary_tension + tension_delta)
+        state.distance = clamp(state.distance + distance_delta)
+        state.repairability = clamp(state.repairability + repairability_delta)
+        state.last_contact_at = now_ts

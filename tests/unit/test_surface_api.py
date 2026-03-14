@@ -8,7 +8,7 @@ from aurora.runtime.engine import AuroraEngine
 from aurora.surface.api import build_app
 
 
-def test_health_and_state_endpoints(tmp_path: Path) -> None:
+def test_health_and_state_endpoints_expose_being_projection(tmp_path: Path) -> None:
     app = build_app(engine=AuroraEngine.create(data_dir=str(tmp_path)))
     client = TestClient(app)
 
@@ -19,29 +19,22 @@ def test_health_and_state_endpoints(tmp_path: Path) -> None:
     assert state.status_code == 200
     assert health.json()["status"] == "ok"
     assert state.json()["phase"] == "awake"
-    assert "sleep_need" in state.json()
-    assert state.json()["sleep_cycles"] == 0
-    assert "last_reweave_delta" in state.json()
-    assert "trust" in state.json()
-    assert "boundary_tension" in state.json()
-    assert isinstance(state.json()["active_thread_ids"], list)
+    assert "continuity_pressure" in state.json()
+    assert "memory_chapters" in state.json()
 
 
-def test_turn_and_phase_endpoints(tmp_path: Path) -> None:
+def test_turn_doze_sleep_endpoints_follow_final_surface_paths(tmp_path: Path) -> None:
     app = build_app(engine=AuroraEngine.create(data_dir=str(tmp_path)))
     client = TestClient(app)
 
-    turn = client.post(
-        "/turn",
-        json={"session_id": "s1", "text": "I learned something"},
-    )
+    turn = client.post("/turn", json={"session_id": "s1", "text": "我想知道为什么"})
     doze = client.post("/doze")
     sleep = client.post("/sleep")
 
     assert turn.status_code == 200
     assert doze.status_code == 200
     assert sleep.status_code == 200
-    assert turn.json()["turn_id"]
-    assert "touch_channels" in turn.json()
+    assert turn.json()["aurora_move"]
+    assert isinstance(turn.json()["dominant_channels"], list)
     assert doze.json()["phase"] == "doze"
     assert sleep.json()["phase"] == "sleep"
