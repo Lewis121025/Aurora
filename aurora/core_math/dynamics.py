@@ -7,8 +7,14 @@ def sigmoid(x: float) -> float:
     return float(1.0 / (1.0 + np.exp(-x)))
 
 
-def prediction_error(cue: np.ndarray, latent: np.ndarray) -> float:
-    return float(max(0.0, 1.0 - cosine(cue, normalize(latent))))
+def prediction_error(cue: np.ndarray, latent: np.ndarray, vad_cue: list[float] | None = None, vad_latent: list[float] | None = None) -> float:
+    semantic_err = float(max(0.0, 1.0 - cosine(cue, normalize(latent))))
+    
+    if vad_cue and vad_latent and len(vad_cue) == 3 and len(vad_latent) == 3:
+        # VAD vectors are roughly [-1, 1], compute Euclidean distance normalized
+        vad_err = sum((c - l) ** 2 for c, l in zip(vad_cue, vad_latent)) / 12.0
+        return semantic_err * 0.6 + vad_err * 0.4
+    return semantic_err
 
 
 def update_metric(metric: MetricState, cue: np.ndarray, error: float, lr: float = 0.05) -> MetricState:
@@ -26,25 +32,42 @@ def update_metric(metric: MetricState, cue: np.ndarray, error: float, lr: float 
     return MetricState(dim=dim, basis=eigvecs[:, chosen], lambdas=lambdas)
 
 
-def advance_latent_ou(
-    vector: np.ndarray,
+def advance_latent_ou_twin(
+    core: np.ndarray,
+    surface: np.ndarray,
     metric: MetricState,
     dt_hours: float,
     rng: np.random.Generator,
     drift: float = 0.12,
     temperature: float = 0.08,
-) -> np.ndarray:
+    spring_k: float = 0.05,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Dual-vector drift: Surface wanders but is pulled by Core. Core is rigid."""
     if dt_hours <= 0.0:
-        return vector.copy()
+        return core.copy(), surface.copy()
+        
+    # Core drifts almost imperceptibly
+    core_drift = 0.001
+    core_exp = float(np.exp(-core_drift * dt_hours))
+    new_core = normalize(core_exp * core + np.sqrt(max(0.0001, 1e-8)) * rng.normal(size=metric.dim))
+
+    # Surface drifts and is pulled toward Core
     exp_term = float(np.exp(-drift * dt_hours))
     variance = (temperature / drift) * (1.0 - np.exp(-2.0 * drift * dt_hours))
     chol = np.linalg.cholesky(metric.matrix() + 1e-6 * np.eye(metric.dim))
     noise = chol @ rng.normal(size=metric.dim)
-    return normalize(exp_term * vector + np.sqrt(max(variance, 1e-8)) * noise)
+    
+    # Spring tension from core
+    pull = spring_k * dt_hours * (new_core - surface)
+    
+    new_surface = normalize(exp_term * surface + pull + np.sqrt(max(variance, 1e-8)) * noise)
+    return new_core, new_surface
 
 
-def boundary_budget(error: float, basin_pressure: float) -> float:
-    return sigmoid(2.2 * error + 0.45 * basin_pressure - 1.2)
+def boundary_budget(error: float, basin_pressure: float, mutual_respect: float = 0.0) -> float:
+    # High respect lowers the boundary threshold
+    base = sigmoid(2.2 * error + 0.45 * basin_pressure - 1.2)
+    return float(np.clip(base - (0.3 * mutual_respect), 0.0, 1.0))
 
 
 def verbosity_budget(error: float, recalled_count: int) -> float:

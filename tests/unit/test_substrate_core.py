@@ -4,11 +4,13 @@ from datetime import datetime, timezone
 
 from aurora.core_math.contracts import FeedbackEnvelope, InputEnvelope, WakeEnvelope
 from aurora.core_math.state import unseal_state
-from aurora.substrate_core.engine import AuroraSubstrateCore
+from aurora.substrate_core.engine import AuroraSubstrateCore, AuroraSubstrateConfig
 
+def _small_core() -> AuroraSubstrateCore:
+    return AuroraSubstrateCore(AuroraSubstrateConfig(latent_dim=16, metric_rank=4, rng_seed=1, capacity=8))
 
 def test_input_path_emits_released_context_without_internal_state() -> None:
-    core = AuroraSubstrateCore()
+    core = _small_core()
     now = datetime(2026, 3, 11, 9, 0, tzinfo=timezone.utc)
     sealed = core.boot(now=now)
     result = core.on_input(
@@ -23,7 +25,7 @@ def test_input_path_emits_released_context_without_internal_state() -> None:
 
 
 def test_wake_path_schedules_next_wake() -> None:
-    core = AuroraSubstrateCore()
+    core = _small_core()
     now = datetime(2026, 3, 11, 9, 0, tzinfo=timezone.utc)
     sealed = core.boot(now=now)
     result = core.on_wake(
@@ -35,7 +37,7 @@ def test_wake_path_schedules_next_wake() -> None:
 
 
 def test_feedback_returns_sealed_bytes() -> None:
-    core = AuroraSubstrateCore()
+    core = _small_core()
     now = datetime(2026, 3, 11, 9, 0, tzinfo=timezone.utc)
     sealed = core.boot(now=now)
     input_result = core.on_input(
@@ -54,12 +56,12 @@ def test_feedback_returns_sealed_bytes() -> None:
     assert isinstance(new_sealed, bytes)
     state = unseal_state(new_sealed)
     # The spoken text must have been reincarnated as a spark
-    spoken = [s for s in state.sparks if "[Spoke]" in s.text]
+    spoken = [s for s in state.sparks.values() if "[Spoke]" in s.text]
     assert len(spoken) >= 1
 
 
 def test_health_snapshot_uses_truthful_substrate_field() -> None:
-    core = AuroraSubstrateCore()
+    core = _small_core()
     now = datetime(2026, 3, 11, 9, 0, tzinfo=timezone.utc)
     sealed = core.boot(now=now)
     health = core.health_snapshot(sealed, last_error=None, provider_healthy=True)

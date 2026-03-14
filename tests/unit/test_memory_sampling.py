@@ -36,7 +36,7 @@ def test_reincarnation_overwrites_coldest_spark() -> None:
         sealed = result.sealed_state
 
     state = unseal_state(sealed)
-    non_void = [s for s in state.sparks if s.text]
+    non_void = [s for s in state.sparks.values() if s.text]
     # With 9 inputs and 8 slots, all 8 slots must have been filled
     assert len(non_void) == 8
     # Every live spark must carry a positive energy
@@ -55,7 +55,7 @@ def test_energy_decay_reduces_all_sparks() -> None:
     )
     sealed = result.sealed_state
     state_before = unseal_state(sealed)
-    energy_before = max(s.energy for s in state_before.sparks if s.text)
+    energy_before = max(s.energy for s in state_before.sparks.values() if s.text)
 
     # Trigger a wake 48 hours later (large dt → strong decay)
     from datetime import timedelta
@@ -65,7 +65,7 @@ def test_energy_decay_reduces_all_sparks() -> None:
     state_after = unseal_state(wake_result.sealed_state)
 
     # The same spark (same text slot) should have lower energy after 48h
-    after_energies = {s.text: s.energy for s in state_after.sparks if s.text}
+    after_energies = {s.text: s.energy for s in state_after.sparks.values() if s.text}
     assert "remember this" in after_energies
     assert after_energies["remember this"] < energy_before
 
@@ -86,6 +86,6 @@ def test_high_error_spark_gets_higher_initial_energy() -> None:
         InputEnvelope(user_text="unexpected shock", timestamp=now.isoformat(), language="en"),
     )
     state = unseal_state(result.sealed_state)
-    live = [s for s in state.sparks if s.text == "unexpected shock"]
+    live = [s for s in state.sparks.values() if s.text == "unexpected shock"]
     assert len(live) == 1
     assert live[0].energy >= 1.0

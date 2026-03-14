@@ -1,10 +1,14 @@
 from __future__ import annotations
-from dataclasses import dataclass
+import gzip
+import hashlib
+import json
+import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 import numpy as np
 
-SEALED_STATE_VERSION = "aurora-seed-v4-thermodynamic"
+SEALED_STATE_VERSION = "aurora-seed-v6-holistic"
 
 
 def utc_now() -> datetime:
@@ -36,14 +40,28 @@ def cosine(a: np.ndarray, b: np.ndarray, eps: float = 1e-8) -> float:
 
 @dataclass
 class LatentState:
-    vector: np.ndarray
+    core_vector: np.ndarray      # The unshakeable self
+    surface_vector: np.ndarray   # The volatile mood
+    user_model: np.ndarray       # Theory of Mind: the perceived user
 
     def to_dict(self) -> dict[str, Any]:
-        return {"vector": self.vector.tolist()}
+        return {
+            "core_vector": self.core_vector.tolist(),
+            "surface_vector": self.surface_vector.tolist(),
+            "user_model": self.user_model.tolist(),
+        }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "LatentState":
-        return cls(np.asarray(data["vector"], dtype=np.float64))
+        # Backward compatibility: if old v5 dict only has "vector"
+        if "vector" in data and "core_vector" not in data:
+            vec = np.asarray(data["vector"], dtype=np.float64)
+            return cls(core_vector=vec.copy(), surface_vector=vec.copy(), user_model=vec.copy())
+        return cls(
+            np.asarray(data["core_vector"], dtype=np.float64),
+            np.asarray(data["surface_vector"], dtype=np.float64),
+            np.asarray(data["user_model"], dtype=np.float64),
+        )
 
 
 @dataclass
@@ -74,28 +92,55 @@ class MetricState:
 
 @dataclass
 class Spark:
-    """万物皆星火。物理位置固定，只有 energy 决定生死。"""
+    """Holistic node representing Episodic, Fossil, or Concept memories, potentially multimodal."""
+    spark_id: str
+    type: str  # 'episodic' | 'fossil' | 'concept' | 'void'
     timestamp: str
     text: str
     vector: np.ndarray
     energy: float
     source: str
+    prev_id: str | None = None
+    next_id: str | None = None
+    resonant_links: list[str] = field(default_factory=list)
+    # Multimodal & Affective extensions
+    vad_vector: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0]) # Valence, Arousal, Dominance
+    media_refs: list[str] = field(default_factory=list)
+    sensory_context: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
+            "spark_id": self.spark_id,
+            "type": self.type,
             "timestamp": self.timestamp,
             "text": self.text,
             "vector": self.vector.tolist(),
             "energy": float(self.energy),
             "source": self.source,
+            "prev_id": self.prev_id,
+            "next_id": self.next_id,
+            "resonant_links": self.resonant_links,
+            "vad_vector": self.vad_vector,
+            "media_refs": self.media_refs,
+            "sensory_context": self.sensory_context,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Spark":
         return cls(
-            data["timestamp"], data["text"],
-            np.asarray(data["vector"], dtype=np.float64),
-            float(data["energy"]), data["source"],
+            spark_id=data.get("spark_id", uuid.uuid4().hex),
+            type=data.get("type", "episodic" if data.get("text") else "void"),
+            timestamp=data["timestamp"],
+            text=data["text"],
+            vector=np.asarray(data["vector"], dtype=np.float64),
+            energy=float(data["energy"]),
+            source=data["source"],
+            prev_id=data.get("prev_id"),
+            next_id=data.get("next_id"),
+            resonant_links=list(data.get("resonant_links", [])),
+            vad_vector=list(data.get("vad_vector", [0.0, 0.0, 0.0])),
+            media_refs=list(data.get("media_refs", [])),
+            sensory_context=dict(data.get("sensory_context", {})),
         )
 
 
@@ -106,6 +151,9 @@ class ArrivalState:
     internal_drive: float
     decay_per_hour: float
     base_rate: float
+    # Theory of Mind / Bond additions
+    mutual_respect: float = 0.0
+    cognitive_tension: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -114,13 +162,20 @@ class ArrivalState:
             "internal_drive": self.internal_drive,
             "decay_per_hour": self.decay_per_hour,
             "base_rate": self.base_rate,
+            "mutual_respect": self.mutual_respect,
+            "cognitive_tension": self.cognitive_tension,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "ArrivalState":
         return cls(
-            data["last_event_time"], data["no_contact_hours"], data["internal_drive"],
-            data["decay_per_hour"], data["base_rate"],
+            last_event_time=data["last_event_time"],
+            no_contact_hours=data["no_contact_hours"],
+            internal_drive=data["internal_drive"],
+            decay_per_hour=data["decay_per_hour"],
+            base_rate=data["base_rate"],
+            mutual_respect=data.get("mutual_respect", 0.0),
+            cognitive_tension=data.get("cognitive_tension", 0.0),
         )
 
 
@@ -143,7 +198,7 @@ class SealedState:
     header: SealedStateHeader
     latent: LatentState
     metric: MetricState
-    sparks: list[Spark]      # 脑容量物理锁定：1024 个粒子槽，永不扩容
+    sparks: dict[str, Spark]  # 节点拓扑图字典
     arrival: ArrivalState
     rng_state: dict
     last_event_time: str
@@ -154,7 +209,7 @@ class SealedState:
             "header": self.header.to_dict(),
             "latent": self.latent.to_dict(),
             "metric": self.metric.to_dict(),
-            "sparks": [s.to_dict() for s in self.sparks],
+            "sparks": {k: v.to_dict() for k, v in self.sparks.items()},
             "arrival": self.arrival.to_dict(),
             "rng_state": self.rng_state,
             "last_event_time": self.last_event_time,
@@ -163,22 +218,49 @@ class SealedState:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SealedState":
+        sparks_data = data["sparks"]
+        
+        # Backward compatibility for v4 (thermodynamic array)
+        header = SealedStateHeader.from_dict(data["header"])
+        if isinstance(sparks_data, list) and header.version == "aurora-seed-v4-thermodynamic":
+            sparks_dict = {}
+            old_sparks = [Spark.from_dict(s) for s in sparks_data]
+            
+            # Filter non-void sparks and sort by timestamp
+            valid_sparks = [s for s in old_sparks if s.type != "void"]
+            valid_sparks.sort(key=lambda s: parse_utc(s.timestamp))
+            
+            for i, s in enumerate(valid_sparks):
+                if i > 0:
+                    s.prev_id = valid_sparks[i-1].spark_id
+                if i < len(valid_sparks) - 1:
+                    s.next_id = valid_sparks[i+1].spark_id
+                sparks_dict[s.spark_id] = s
+                
+            # Keep void sparks without links to fill capacity if needed, 
+            # but in v5, capacity management might change to dynamic graph pruning. 
+            # We will retain void sparks just as disconnected nodes.
+            for s in old_sparks:
+                if s.type == "void":
+                    sparks_dict[s.spark_id] = s
+                    
+            header.version = SEALED_STATE_VERSION
+        else:
+            sparks_dict = {k: Spark.from_dict(v) for k, v in sparks_data.items()}
+
         return cls(
-            SealedStateHeader.from_dict(data["header"]),
-            LatentState.from_dict(data["latent"]),
-            MetricState.from_dict(data["metric"]),
-            [Spark.from_dict(s) for s in data["sparks"]],
-            ArrivalState.from_dict(data["arrival"]),
-            dict(data["rng_state"]),
-            data["last_event_time"],
-            data.get("next_wake_at"),
+            header=header,
+            latent=LatentState.from_dict(data["latent"]),
+            metric=MetricState.from_dict(data["metric"]),
+            sparks=sparks_dict,
+            arrival=ArrivalState.from_dict(data["arrival"]),
+            rng_state=dict(data["rng_state"]),
+            last_event_time=data["last_event_time"],
+            next_wake_at=data.get("next_wake_at"),
         )
 
 
 # ── 封印 / 解封 ──────────────────────────────────────────────────────────────
-import gzip
-import hashlib
-import json
 
 _MAGIC = b"AUR1"
 

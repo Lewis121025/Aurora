@@ -101,7 +101,9 @@ class AuroraRuntime:
                         event_id=result.event_id,
                         output_text=collapse.output_text,
                         timestamp=isoformat_utc(ts),
-                        is_internal=True,
+                        is_internal=result.dream_request.is_internal_dream,
+                        is_compression=result.dream_request.is_internal_dream_compression,
+                        consumed_nodes=result.consumed_nodes,
                     )
                     current_sealed = self.substrate_client.on_feedback(current_sealed, fb_env)
             except CollapseProviderError as exc:

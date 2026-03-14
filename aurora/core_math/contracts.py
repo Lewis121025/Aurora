@@ -13,6 +13,9 @@ class InputEnvelope:
     user_text: str
     timestamp: str
     language: str = "auto"
+    media_refs: list[str] | None = None
+    kinesthetic_entropy: float = 0.5  # 0.0=synthetic/copy-paste, 1.0=erratic typing
+    hour_of_day: float = 12.0  # 0.0-23.99
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,8 @@ class FeedbackEnvelope:
     output_text: str | None
     timestamp: str
     is_internal: bool = False
+    is_compression: bool = False
+    consumed_nodes: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,10 @@ class CollapseRequest:
     boundary_budget: float
     verbosity_budget: float
     is_internal_dream: bool = False
+    is_internal_dream_compression: bool = False
+    vad_state: list[float] | None = None  # [Valence, Arousal, Dominance] of current mood
+    mutual_respect: float = 0.0
+    media_refs: list[str] | None = None
 
 
 @dataclass(frozen=True)
@@ -82,6 +91,7 @@ class SubstrateWakeResult:
     health: HealthEnvelope
     dream_request: CollapseRequest | None = None
     event_id: str | None = None
+    consumed_nodes: list[str] | None = None
 
 
 @dataclass(frozen=True)

@@ -10,7 +10,7 @@ from aurora.core_math.contracts import (
     SubstrateWakeResult, WakeEnvelope,
 )
 from aurora.core_math.dynamics import (
-    advance_latent_ou, boundary_budget, prediction_error,
+    advance_latent_ou_twin, boundary_budget, prediction_error,
     update_metric, verbosity_budget,
 )
 from aurora.core_math.encoding import Encoder, HashingEncoder, SemanticEncoder
@@ -48,16 +48,17 @@ class AuroraSubstrateCore:
     def boot(self, now: datetime | None = None) -> bytes:
         start = now or utc_now()
         rng = np.random.default_rng(self.config.rng_seed)
-        # 宇宙诞生时，所有槽位填充为温度为 0 的虚无星火
-        sparks = [
-            Spark(isoformat_utc(start), "", np.zeros(self.config.latent_dim), 0.0, "void")
-            for _ in range(self.config.capacity)
-        ]
+        
+        # Initialize the three latent vectors
+        core_vec = normalize(rng.normal(scale=0.05, size=self.config.latent_dim))
+        surface_vec = core_vec.copy()
+        user_model_vec = core_vec.copy()
+        
         state = SealedState(
             header=SealedStateHeader(SEALED_STATE_VERSION, isoformat_utc(start), isoformat_utc(start)),
-            latent=LatentState(normalize(rng.normal(scale=0.05, size=self.config.latent_dim))),
+            latent=LatentState(core_vector=core_vec, surface_vector=surface_vec, user_model=user_model_vec),
             metric=MetricState.isotropic(self.config.latent_dim, self.config.metric_rank),
-            sparks=sparks,
+            sparks={},  # Empty topology graph
             arrival=ArrivalState(isoformat_utc(start), 0.0, 0.2, 0.08, 0.05),
             rng_state=rng.bit_generator.state,
             last_event_time=isoformat_utc(start),
@@ -66,82 +67,165 @@ class AuroraSubstrateCore:
         state.next_wake_at = sample_next_wake(state.arrival, start, rng)
         return seal_state(state)
 
-    def _thermodynamics(self, state: SealedState, dt_hours: float) -> np.ndarray:
+    def _thermodynamics(self, state: SealedState, dt_hours: float) -> dict[str, float]:
         """
-        核心物理引擎：大统一记忆方程 (Unified Memory Equation)
-        返回每个星火的当前“激活度 (Activation)”，它是内在能量(工作记忆属性)与外部共振(语义情景属性)的叠加态。
+        核心物理引擎：计算图谱中每个节点的激活度
         """
         high_decay = float(np.exp(-0.02 * dt_hours))
+        activations = {}
         
-        for spark in state.sparks:
+        # 只处理包含文本的节点
+        valid_sparks = [s for s in state.sparks.values() if s.type in ("episodic", "fossil") and s.text]
+        if not valid_sparks:
+            return activations
+            
+        for spark in valid_sparks:
             if spark.energy > 0.1:
                 spark.energy *= high_decay
             else:
                 spark.energy = max(1e-5, spark.energy - (0.0005 * dt_hours))
+                
+            # The Abyss: Structural Forgetting
+            # If an episodic spark gets extremely cold, it falls into the Abyss (loses temporal context).
+            if spark.type == "episodic" and spark.energy < 0.05:
+                if spark.prev_id or spark.next_id:
+                    # Sever from the timeline, bridge the gap
+                    prev_s = state.sparks.get(spark.prev_id) if spark.prev_id else None
+                    next_s = state.sparks.get(spark.next_id) if spark.next_id else None
+                    if prev_s: prev_s.next_id = spark.next_id
+                    if next_s: next_s.prev_id = spark.prev_id
+                    spark.prev_id = None
+                    spark.next_id = None
 
-        warped_latent = state.metric.matrix() @ state.latent.vector
-        vectors = np.stack([spark.vector for spark in state.sparks])
+        warped_latent = state.metric.matrix() @ state.latent.surface_vector
+        vectors = np.stack([spark.vector for spark in valid_sparks])
         resonances = vectors @ warped_latent
         
-        activations = np.zeros(self.config.capacity, dtype=np.float64)
-
-        for i, spark in enumerate(state.sparks):
-            if spark.text:
-                if resonances[i] > 0.05:
-                    spark.energy += 0.2 * float(resonances[i])
-                # 统一激活度 = 当前残存热量 (Recency/Impact) + 纯粹空间共振 (Semantic)
-                # 刚刚发生的事情(Energy极高)即使没有共振也会浮现 (工作记忆/短期叙事)
-                # 很久以前的事情(Energy极低)必须依靠极强的共振才能浮现 (情景化石记忆)
-                activations[i] = spark.energy + max(0.0, float(resonances[i])) * 2.0
+        for i, spark in enumerate(valid_sparks):
+            if resonances[i] > 0.05:
+                spark.energy += 0.2 * float(resonances[i])
+            activations[spark.spark_id] = spark.energy + max(0.0, float(resonances[i])) * 2.0
 
         return activations
+        
+    def _extract_episodic_subgraph(self, state: SealedState, activations: dict[str, float]) -> list[Spark]:
+        """锚点定位与情景重放 (Anchor Search & Subgraph Traversal)"""
+        if not activations:
+            return []
+            
+        # 寻找 1~2 个绝对高光记忆锚点
+        sorted_ids = sorted(activations.keys(), key=lambda k: activations[k], reverse=True)
+        anchors = sorted_ids[:2]
+        
+        extracted = set()
+        for anchor_id in anchors:
+            # 向前向后提取相邻节点
+            curr_id = anchor_id
+            for _ in range(2):  # 后退2步
+                if curr_id not in state.sparks:
+                    break
+                extracted.add(curr_id)
+                curr_id = state.sparks[curr_id].prev_id
+                if not curr_id:
+                    break
+                    
+            curr_id = state.sparks[anchor_id].next_id
+            for _ in range(2):  # 前进2步
+                if not curr_id or curr_id not in state.sparks:
+                    break
+                extracted.add(curr_id)
+                curr_id = state.sparks[curr_id].next_id
+                
+        # 提取完整节点并按物理时间排序，恢复叙事连贯性
+        nodes = [state.sparks[nid] for nid in extracted]
+        nodes.sort(key=lambda s: parse_utc(s.timestamp))
+        return nodes
 
     def _reincarnate(
         self, state: SealedState, timestamp: str,
         text: str, vector: np.ndarray, error: float, source: str,
-    ) -> None:
-        """定律 3：夺舍新生——冲击力越大，初始温度越高，极难被淘汰"""
-        coldest_idx = min(range(self.config.capacity), key=lambda i: state.sparks[i].energy)
-        state.sparks[coldest_idx] = Spark(
+    ) -> Spark:
+        """夺舍新生与拓扑图更新"""
+        # 如果超出容量，需要删除最冷节点并缝合链表
+        if len(state.sparks) >= self.config.capacity:
+            coldest_spark = min(
+                (s for s in state.sparks.values() if s.type != "concept"), 
+                key=lambda s: s.energy
+            )
+            prev_s = state.sparks.get(coldest_spark.prev_id) if coldest_spark.prev_id else None
+            next_s = state.sparks.get(coldest_spark.next_id) if coldest_spark.next_id else None
+            
+            if prev_s:
+                prev_s.next_id = coldest_spark.next_id
+            if next_s:
+                next_s.prev_id = coldest_spark.prev_id
+                
+            del state.sparks[coldest_spark.spark_id]
+            
+        # 寻找图中的最新节点（时间链表尾部）
+        latest_spark = None
+        if state.sparks:
+            # Concept nodes and Abyss nodes don't participate in the chronological tail
+            temporal_sparks = [s for s in state.sparks.values() if s.type in ("episodic", "fossil") and (s.prev_id or s.next_id or len(state.sparks)==1)]
+            if temporal_sparks:
+                latest_spark = max(temporal_sparks, key=lambda s: parse_utc(s.timestamp))
+
+        new_spark = Spark(
+            spark_id=uuid4().hex,
+            type="episodic",
             timestamp=timestamp,
             text=text,
             vector=vector,
             energy=1.0 + error * 5.0,
             source=source,
+            prev_id=latest_spark.spark_id if latest_spark else None,
+            next_id=None
         )
+        
+        if latest_spark:
+            latest_spark.next_id = new_spark.spark_id
+            
+        # 概念引力 (Concept Attractors)
+        # Any new episodic spark is automatically drawn to highly aligned concepts
+        concept_sparks = [s for s in state.sparks.values() if s.type == "concept"]
+        for concept in concept_sparks:
+            # Semantic resonance
+            sim = cosine(concept.vector, new_spark.vector)
+            if sim > 0.85:
+                new_spark.resonant_links.append(concept.spark_id)
+                concept.resonant_links.append(new_spark.spark_id)
+            
+        state.sparks[new_spark.spark_id] = new_spark
+        return new_spark
 
     def on_input(self, sealed_state: bytes, envelope: InputEnvelope) -> SubstrateInputResult:
         state, rng = self._load(sealed_state)
         when = parse_utc(envelope.timestamp)
         dt = max(0.0, (when - parse_utc(state.last_event_time)).total_seconds() / 3600.0)
 
-        state.latent.vector = advance_latent_ou(state.latent.vector, state.metric, dt, rng)
+        state.latent.core_vector, state.latent.surface_vector = advance_latent_ou_twin(
+            state.latent.core_vector, state.latent.surface_vector, state.metric, dt, rng
+        )
         advance_arrival(state.arrival, when)
 
         cue = self.encoder.encode(envelope.user_text)
-        error = prediction_error(cue, state.latent.vector)
+        error = prediction_error(cue, state.latent.surface_vector)
 
         # 运行热力学法则：获得统一的激活度分布景观
         activations = self._thermodynamics(state, dt)
 
-        # 意识上浮：不再人为硬编码割裂近期与远期，而是让物理方程自然决出最活跃的星火
-        valid_idx = [i for i, spark in enumerate(state.sparks) if spark.text]
-        if valid_idx:
-            best_idx = sorted(valid_idx, key=lambda i: activations[i], reverse=True)[:self.config.sample_count]
-            # 为了保持思维的因果流，提取出的星火碎片最终按时间流向排序坍缩给发声面
-            resonated = sorted([state.sparks[i] for i in best_idx], key=lambda s: s.timestamp)
-        else:
-            resonated = []
+        # 意识上浮：基于情景重放提取连贯上下文
+        resonated_sparks = self._extract_episodic_subgraph(state, activations)
 
-        # 定律 4：空间折叠——惊奇程度决定性格偏见的深度
+        # 空间折叠
         state.metric = update_metric(state.metric, cue, error)
-        state.latent.vector = normalize(0.8 * state.latent.vector + 0.2 * cue)
+        state.latent.surface_vector = normalize(0.8 * state.latent.surface_vector + 0.2 * cue)
 
-        # 定律 3：夺舍
+        # 夺舍新生，插入节点
         self._reincarnate(state, envelope.timestamp, envelope.user_text, cue, error, "user")
 
-        boundary = boundary_budget(error, sum(s.energy for s in resonated) * 0.1)
-        verbosity = verbosity_budget(error, len(resonated))
+        boundary = boundary_budget(error, sum(s.energy for s in resonated_sparks) * 0.1, state.arrival.mutual_respect)
+        verbosity = verbosity_budget(error, len(resonated_sparks))
 
         observe_user_contact(state.arrival, error)
         next_wake = sample_next_wake(state.arrival, when, rng)
@@ -152,11 +236,13 @@ class AuroraSubstrateCore:
             sealed_state=self._save(state, rng),
             collapse_request=CollapseRequest(
                 user_text=envelope.user_text,
-                released_traces=[ReleasedTrace(text=s.text, source=s.source) for s in resonated],
+                released_traces=[ReleasedTrace(text=s.text, source=s.source) for s in resonated_sparks],
                 language=envelope.language,
                 emit_reply=boundary < 0.96,
                 boundary_budget=boundary,
                 verbosity_budget=verbosity,
+                mutual_respect=state.arrival.mutual_respect,
+                media_refs=envelope.media_refs,
             ),
             event_id=uuid4().hex,
             next_wake_at=next_wake,
@@ -164,25 +250,46 @@ class AuroraSubstrateCore:
         )
 
     def on_feedback(self, sealed_state: bytes, envelope: FeedbackEnvelope) -> bytes:
-        """行为反噬：无论说话还是做梦，都作为星火夺舍一具尸体"""
+        """行为反噬：处理发言、内部做梦与睡眠压缩"""
         state, rng = self._load(sealed_state)
         when = parse_utc(envelope.timestamp)
 
         if envelope.output_text:
-            text = (
-                f"[Dreamt]: {envelope.output_text}"
-                if envelope.is_internal
-                else f"[Spoke]: {envelope.output_text}"
-            )
+            text = f"[Spoke]: {envelope.output_text}"
+            source = "self"
+            if envelope.is_compression:
+                text = f"[Consolidated Fossil]: {envelope.output_text}"
+                source = "compression"
+            elif envelope.is_internal:
+                text = f"[Dreamt]: {envelope.output_text}"
+                source = "dream"
+                
             cue = self.encoder.encode(text)
-            state.metric = update_metric(state.metric, cue, error=0.05)
-            state.latent.vector = normalize(0.9 * state.latent.vector + 0.1 * cue)
-            self._reincarnate(
+            
+            # 对普通梦境和发言产生惊奇
+            if not envelope.is_compression:
+                state.metric = update_metric(state.metric, cue, error=0.05)
+                state.latent.surface_vector = normalize(0.9 * state.latent.surface_vector + 0.1 * cue)
+                
+            new_spark = self._reincarnate(
                 state, envelope.timestamp, text, cue,
-                error=0.0, source="dream" if envelope.is_internal else "self",
+                error=0.0, source=source,
             )
+            if envelope.is_compression:
+                new_spark.type = "fossil"
+                # 压缩完成后清理被合并的节点
+                if envelope.consumed_nodes:
+                    for nid in envelope.consumed_nodes:
+                        if nid in state.sparks:
+                            node = state.sparks[nid]
+                            # 缝合前后节点
+                            prev_s = state.sparks.get(node.prev_id) if node.prev_id else None
+                            next_s = state.sparks.get(node.next_id) if node.next_id else None
+                            if prev_s: prev_s.next_id = node.next_id
+                            if next_s: next_s.prev_id = node.prev_id
+                            del state.sparks[nid]
 
-        if envelope.is_internal:
+        if envelope.is_internal or envelope.is_compression:
             state.arrival.internal_drive = max(0.0, state.arrival.internal_drive - 0.4)
         elif not envelope.output_text:
             state.arrival.internal_drive = min(8.0, state.arrival.internal_drive + 0.1)
@@ -195,31 +302,51 @@ class AuroraSubstrateCore:
         when = parse_utc(envelope.timestamp)
         dt = max(0.0, (when - parse_utc(state.last_event_time)).total_seconds() / 3600.0)
 
-        state.latent.vector = advance_latent_ou(state.latent.vector, state.metric, dt, rng)
+        state.latent.core_vector, state.latent.surface_vector = advance_latent_ou_twin(
+            state.latent.core_vector, state.latent.surface_vector, state.metric, dt, rng
+        )
         advance_arrival(state.arrival, when)
 
         activations = self._thermodynamics(state, dt)
-        valid_idx = [i for i, spark in enumerate(state.sparks) if spark.text]
-        if valid_idx:
-            best_idx = sorted(valid_idx, key=lambda i: activations[i], reverse=True)[:self.config.sample_count]
-            resonated = sorted([state.sparks[i] for i in best_idx], key=lambda s: s.timestamp)
-        else:
-            resonated = []
-
+        
         dream_req = None
         event_id = uuid4().hex
-
-        if state.arrival.internal_drive > 0.7 and resonated:
-            dream_req = CollapseRequest(
-                user_text="<internal_dream>",
-                released_traces=[ReleasedTrace(text=s.text, source=s.source) for s in resonated],
-                language="auto",
-                emit_reply=True,
-                boundary_budget=1.0,
-                verbosity_budget=1.0,
-                is_internal_dream=True,
-            )
-            observe_internal_action(state.arrival, mass=0.5)
+        
+        # 判断是否触发睡眠有损压缩
+        is_capacity_critical = len(state.sparks) > self.config.capacity * 0.9
+        
+        consumed_nodes = None
+        if is_capacity_critical or (state.arrival.internal_drive > 0.8):
+            # 寻找低能量的一段连续的情景记忆
+            cold_sparks = sorted([s for s in state.sparks.values() if s.type == "episodic" and s.energy < 0.5], key=lambda s: parse_utc(s.timestamp))
+            if len(cold_sparks) > 5:
+                # 截取最冷的一段进行压缩
+                target_sparks = cold_sparks[:10]
+                consumed_nodes = [s.spark_id for s in target_sparks]
+                dream_req = CollapseRequest(
+                    user_text="<internal_dream_compression>",
+                    released_traces=[ReleasedTrace(text=s.text, source=s.source) for s in target_sparks],
+                    language="auto",
+                    emit_reply=True,
+                    boundary_budget=1.0,
+                    verbosity_budget=1.0,
+                    is_internal_dream_compression=True
+                )
+                observe_internal_action(state.arrival, mass=0.8)
+                
+        if not dream_req and state.arrival.internal_drive > 0.7:
+            resonated_sparks = self._extract_episodic_subgraph(state, activations)
+            if resonated_sparks:
+                dream_req = CollapseRequest(
+                    user_text="<internal_dream>",
+                    released_traces=[ReleasedTrace(text=s.text, source=s.source) for s in resonated_sparks],
+                    language="auto",
+                    emit_reply=True,
+                    boundary_budget=1.0,
+                    verbosity_budget=1.0,
+                    is_internal_dream=True,
+                )
+                observe_internal_action(state.arrival, mass=0.5)
 
         next_wake = sample_next_wake(state.arrival, when, rng)
         state.last_event_time = state.header.updated_at = isoformat_utc(when)
@@ -231,6 +358,7 @@ class AuroraSubstrateCore:
             health=self._health(state),
             dream_request=dream_req,
             event_id=event_id,
+            consumed_nodes=consumed_nodes,
         )
 
     def _load(self, blob: bytes) -> tuple[SealedState, np.random.Generator]:
@@ -244,7 +372,7 @@ class AuroraSubstrateCore:
         return seal_state(state)
 
     def _health(self, s: SealedState, err: str | None = None, ph: bool = True) -> HealthEnvelope:
-        alive_count = sum(1 for spark in s.sparks if spark.text)
+        alive_count = sum(1 for spark in s.sparks.values() if spark.text)
         return HealthEnvelope(SEALED_STATE_VERSION, True, s.header.version, alive_count, s.next_wake_at, err, ph)
 
     def health_snapshot(self, sealed_state: bytes, last_error: str | None, provider_healthy: bool) -> HealthEnvelope:
