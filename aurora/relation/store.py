@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from uuid import uuid4
 
+from aurora.being.profile import load_dynamics_profile
 from aurora.runtime.models import InteractionTurn, RelationMoment, Tone
 
 
@@ -16,7 +17,7 @@ class RelationStore:
         touch_modes: tuple[str, ...],
         created_at: float,
     ) -> RelationMoment:
-        tone = self._tone_from_touch(turn.text, touch_modes)
+        tone = self._tone_from_touch(touch_modes)
         moment = RelationMoment(
             moment_id=f"rel_{uuid4().hex[:10]}",
             session_id=turn.session_id,
@@ -53,12 +54,17 @@ class RelationStore:
         return scores
 
     @staticmethod
-    def _tone_from_touch(text: str, touch_modes: tuple[str, ...]) -> Tone:
-        lowered = text.lower()
-        if "boundary" in touch_modes:
-            return "boundary"
-        if "hurt" in touch_modes or any(word in lowered for word in ("idiot", "stupid", "滚")):
-            return "cold"
-        if "warmth" in touch_modes:
-            return "warm"
-        return "neutral"
+    def _tone_from_touch(touch_modes: tuple[str, ...]) -> Tone:
+        profile = load_dynamics_profile().relation.touch_to_tone
+        observed = set(touch_modes)
+
+        scores: dict[Tone, float] = {"warm": 0.0, "neutral": 0.0, "cold": 0.0, "boundary": 0.0}
+        for tone, mapping in profile.items():
+            for mode, weight in mapping.items():
+                if mode in observed:
+                    scores[tone] += weight
+
+        ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+        if not ranked or ranked[0][1] <= 0.0:
+            return "neutral"
+        return ranked[0][0]

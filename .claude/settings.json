@@ -15,7 +15,8 @@
       "Bash(grep -v \"warning: \\\\`VIRTUAL_ENV\")",
       "Bash(git checkout:*)",
       "Bash(pytest tests/ -v --collect-only)",
-      "Bash(uv sync:*)"
+      "Bash(uv sync:*)",
+      "mcp__context7__resolve-library-id"
     ]
   }
 }

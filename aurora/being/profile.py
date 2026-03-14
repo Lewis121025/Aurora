@@ -55,12 +55,44 @@ class RecallProfile:
 
 
 @dataclass(frozen=True, slots=True)
+class TouchForceMemoryProfile:
+    window: int
+    base_weight: float
+    narrative_weight: float
+
+
+@dataclass(frozen=True, slots=True)
+class TouchForceModeMix:
+    lexical: float
+    resonance: float = 0.0
+    relation: float = 0.0
+    novelty: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class TouchForceProfile:
+    memory: TouchForceMemoryProfile
+    mix: dict[str, TouchForceModeMix]
+    curiosity_hurt_penalty: float
+    mode_threshold: float
+    ambient_threshold: float
+
+
+@dataclass(frozen=True, slots=True)
+class RelationProfile:
+    tone_decay_mode: str
+    touch_to_tone: dict[Tone, dict[str, float]]
+
+
+@dataclass(frozen=True, slots=True)
 class DynamicsProfile:
     mode_deltas: dict[str, ModeDelta]
     relation_bias: dict[Tone, ModeDelta]
     doze: DozeProfile
     sleep: SleepProfile
     recall: RecallProfile
+    touch_force: TouchForceProfile
+    relation: RelationProfile
 
 
 def _tone_map(source: dict[str, float]) -> dict[Tone, float]:
@@ -132,10 +164,42 @@ def load_dynamics_profile() -> DynamicsProfile:
         association_narrative_scale=float(recall_raw["association_narrative_scale"]),
     )
 
+    touch_force_raw = raw["touch_force"]
+    touch_force = TouchForceProfile(
+        memory=TouchForceMemoryProfile(
+            window=int(touch_force_raw["memory"]["window"]),
+            base_weight=float(touch_force_raw["memory"]["base_weight"]),
+            narrative_weight=float(touch_force_raw["memory"]["narrative_weight"]),
+        ),
+        mix={
+            mode: TouchForceModeMix(
+                lexical=float(values.get("lexical", 0.0)),
+                resonance=float(values.get("resonance", 0.0)),
+                relation=float(values.get("relation", 0.0)),
+                novelty=float(values.get("novelty", 0.0)),
+            )
+            for mode, values in touch_force_raw["mix"].items()
+        },
+        curiosity_hurt_penalty=float(touch_force_raw["curiosity_hurt_penalty"]),
+        mode_threshold=float(touch_force_raw["mode_threshold"]),
+        ambient_threshold=float(touch_force_raw["ambient_threshold"]),
+    )
+
+    relation_raw = raw["relation"]
+    relation = RelationProfile(
+        tone_decay_mode=str(relation_raw["tone_decay_mode"]),
+        touch_to_tone={
+            tone: {mode: float(weight) for mode, weight in mapping.items()}
+            for tone, mapping in relation_raw["touch_to_tone"].items()
+        },
+    )
+
     return DynamicsProfile(
         mode_deltas=mode_deltas,
         relation_bias=relation_bias,
         doze=doze,
         sleep=sleep,
         recall=recall,
+        touch_force=touch_force,
+        relation=relation,
     )

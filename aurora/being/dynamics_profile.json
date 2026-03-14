@@ -71,5 +71,31 @@
     "resonance_relation_scale": 0.1,
     "association_base": 0.15,
     "association_narrative_scale": 0.1
+  },
+  "touch_force": {
+    "memory": {
+      "window": 8,
+      "base_weight": 0.4,
+      "narrative_weight": 0.6
+    },
+    "mix": {
+      "warmth": {"lexical": 0.7, "resonance": 0.3},
+      "hurt": {"lexical": 0.75, "relation": 0.25},
+      "insight": {"lexical": 0.7, "novelty": 0.3},
+      "boundary": {"lexical": 0.8, "relation": 0.2},
+      "curiosity": {"lexical": 0.6, "novelty": 0.4}
+    },
+    "curiosity_hurt_penalty": 0.5,
+    "mode_threshold": 0.3,
+    "ambient_threshold": 0.3
+  },
+  "relation": {
+    "tone_decay_mode": "inverse_rank",
+    "touch_to_tone": {
+      "warm": {"warmth": 1.0, "insight": 0.25, "curiosity": 0.2},
+      "cold": {"hurt": 1.0},
+      "boundary": {"boundary": 1.0},
+      "neutral": {"ambient": 1.0}
+    }
   }
 }

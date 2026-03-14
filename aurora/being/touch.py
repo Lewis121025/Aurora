@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from aurora.being.profile import load_dynamics_profile
+
 
 _LEXICON_PATH = Path(__file__).with_name("touch_lexicon.json")
 _LEXICON = json.loads(_LEXICON_PATH.read_text(encoding="utf-8"))
+_MODES = ("warmth", "hurt", "insight", "boundary", "curiosity")
 
 
 def _contains_any(text: str, words: tuple[str, ...]) -> bool:
@@ -17,33 +20,22 @@ def _lexicon_score(text: str, mode: str) -> float:
     return sum(weight for token, weight in entries.items() if token in text)
 
 
-def infer_touch_modes(text: str) -> tuple[str, ...]:
+def lexical_mode_scores(text: str) -> dict[str, float]:
     lowered = text.lower()
-    modes: list[str] = [
-        mode
-        for mode in ("warmth", "hurt", "insight", "boundary", "curiosity")
-        if _lexicon_score(lowered, mode) > 0.0
-    ]
+    scores = {mode: _lexicon_score(lowered, mode) for mode in _MODES}
+    if _contains_any(lowered, ("?", "？")):
+        scores["curiosity"] += 0.25
 
-    if _contains_any(lowered, ("?", "？")) and "curiosity" not in modes:
-        modes.append("curiosity")
+    max_score = max(scores.values(), default=0.0)
+    if max_score <= 0.0:
+        return {mode: 0.0 for mode in _MODES}
+    return {mode: min(score / max_score, 1.0) for mode, score in scores.items()}
 
+
+def infer_touch_modes_from_forces(forces: dict[str, float]) -> tuple[str, ...]:
+    profile = load_dynamics_profile().touch_force
+    ordered = sorted(forces.items(), key=lambda item: item[1], reverse=True)
+    modes = [mode for mode, score in ordered if mode in _MODES and score >= profile.mode_threshold]
     if not modes:
         return ("ambient",)
-    return tuple(dict.fromkeys(modes))
-
-
-def touch_intensity(modes: tuple[str, ...]) -> float:
-    if modes == ("ambient",):
-        return 0.20
-    base = 0.30
-    weights = {
-        "warmth": 0.18,
-        "hurt": 0.22,
-        "insight": 0.16,
-        "boundary": 0.20,
-        "curiosity": 0.10,
-        "ambient": 0.0,
-    }
-    score = base + sum(weights.get(mode, 0.08) for mode in modes)
-    return min(score, 1.0)
+    return tuple(modes)

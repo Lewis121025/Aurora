@@ -12,8 +12,7 @@ def _clamp(value: float, lo: float, hi: float) -> float:
 
 def evolve_snapshot(
     snapshot: ExistentialSnapshot,
-    touch_modes: tuple[str, ...],
-    touch_strength: float,
+    touch_forces: dict[str, float],
     relation_tone: Tone,
     updated_at: float,
 ) -> ExistentialSnapshot:
@@ -21,14 +20,21 @@ def evolve_snapshot(
     self_view = snapshot.self_view
     world_view = snapshot.world_view
     openness = snapshot.openness
+    touch_strength = max(touch_forces.values(), default=0.0)
 
-    for mode in touch_modes:
+    for mode, force in touch_forces.items():
         delta = profile.mode_deltas.get(mode)
         if delta is None:
             continue
-        self_view += delta.self_delta * touch_strength
-        world_view += delta.world_delta * touch_strength
-        openness += delta.open_delta * touch_strength
+        self_view += delta.self_delta * force
+        world_view += delta.world_delta * force
+        openness += delta.open_delta * force
+
+    coupling = 0.06 * openness
+    self_world_gap = world_view - self_view
+    self_view += coupling * self_world_gap
+    world_view -= coupling * self_world_gap * 0.5
+    openness += 0.03 * (0.5 - abs(self_world_gap))
 
     relation_delta = profile.relation_bias[relation_tone]
     world_view += relation_delta.world_delta * (0.5 + 0.5 * touch_strength)

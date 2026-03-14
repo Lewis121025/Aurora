@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from aurora.being.continuity import evolve_snapshot
-from aurora.being.touch import infer_touch_modes, touch_intensity
+from aurora.being.forces import compute_touch_forces
+from aurora.being.touch import infer_touch_modes_from_forces
 from aurora.expression.context import build_expression_context
 from aurora.expression.response import render_response
 from aurora.memory.formation import form_memory_effects
@@ -24,7 +25,12 @@ def run_awake(
     relation_store: RelationStore,
     now_ts: float,
 ) -> AwakeOutcome:
-    touch_modes = infer_touch_modes(turn.text)
+    touch_forces = compute_touch_forces(
+        text=turn.text,
+        memory_store=memory_store,
+        relation_store=relation_store,
+    )
+    touch_modes = infer_touch_modes_from_forces(touch_forces)
     fragment, traces, associations = form_memory_effects(
         store=memory_store,
         turn=turn,
@@ -39,8 +45,7 @@ def run_awake(
 
     updated_snapshot = evolve_snapshot(
         snapshot=snapshot,
-        touch_modes=touch_modes,
-        touch_strength=touch_intensity(touch_modes),
+        touch_forces=touch_forces,
         relation_tone=relation_moment.tone,
         updated_at=now_ts,
     )
