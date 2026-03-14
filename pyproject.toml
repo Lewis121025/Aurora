@@ -24,7 +24,6 @@ aurora = "aurora.surface.cli:main"
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["aurora_ontology_core"]
 
 [build-system]
 requires = ["setuptools>=61.0"]

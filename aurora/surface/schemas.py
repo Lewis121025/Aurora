@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from aurora.runtime.models import Phase
+from aurora.runtime.contracts import Phase
 
 
 class TurnRequest(BaseModel):
@@ -31,19 +31,18 @@ class HealthResponse(BaseModel):
 
 class StateResponse(BaseModel):
     phase: str
-    continuity_pressure: float
-    sleep_pressure: float
-    coherence_pressure: float
-    softness: float
-    boundary_tension: float
-    active_relation_id: str | None
-    recent_chapter_bias: tuple[str, ...]
+    sleep_need: float
+    active_relation_ids: tuple[str, ...]
+    pending_sleep_relation_ids: tuple[str, ...]
+    active_knot_ids: tuple[str, ...]
+    anchor_thread_ids: tuple[str, ...]
     turns: int
     memory_fragments: int
     memory_traces: int
     memory_associations: int
-    memory_chapters: int
-    relation_count: int
+    memory_threads: int
+    memory_knots: int
+    relation_formations: int
+    relation_moments: int
     sleep_cycles: int
-    last_reweave_delta: float
     transitions: int

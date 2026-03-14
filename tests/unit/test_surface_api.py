@@ -8,7 +8,7 @@ from aurora.runtime.engine import AuroraEngine
 from aurora.surface.api import build_app
 
 
-def test_health_and_state_endpoints_expose_being_projection(tmp_path: Path) -> None:
+def test_health_and_state_endpoints_expose_runtime_projection(tmp_path: Path) -> None:
     app = build_app(engine=AuroraEngine.create(data_dir=str(tmp_path)))
     client = TestClient(app)
 
@@ -19,8 +19,8 @@ def test_health_and_state_endpoints_expose_being_projection(tmp_path: Path) -> N
     assert state.status_code == 200
     assert health.json()["status"] == "ok"
     assert state.json()["phase"] == "awake"
-    assert "continuity_pressure" in state.json()
-    assert "memory_chapters" in state.json()
+    assert "sleep_need" in state.json()
+    assert "memory_threads" in state.json()
 
 
 def test_turn_doze_sleep_endpoints_follow_final_surface_paths(tmp_path: Path) -> None:

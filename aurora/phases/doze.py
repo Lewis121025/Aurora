@@ -1,17 +1,18 @@
 from __future__ import annotations
 
+from aurora.being.metabolic_state import MetabolicState
 from aurora.memory.store import MemoryStore
+from aurora.phases.outcomes import PhaseOutcome
 from aurora.phases.transitions import phase_transition
-from aurora.runtime.models import BeingState, Phase, PhaseOutcome
+from aurora.runtime.contracts import Phase
 
 
-def run_doze(being: BeingState, memory_store: MemoryStore, now_ts: float) -> PhaseOutcome:
-    previous = being.phase
-    being.phase = Phase.DOZE
+def run_doze(metabolic: MetabolicState, memory_store: MemoryStore, now_ts: float) -> PhaseOutcome:
+    previous = metabolic.phase
+    metabolic.enter_phase(Phase.DOZE, now_ts)
     memory_store.decay_for_doze(now_ts)
-    being.sleep_pressure = min(1.0, being.sleep_pressure + 0.10)
-    being.coherence_pressure = min(1.0, being.coherence_pressure + 0.08)
+    metabolic.bump_sleep_need(0.10)
     return PhaseOutcome(
-        being=being,
+        phase=Phase.DOZE,
         transition=phase_transition(previous, Phase.DOZE, "manual_doze", now_ts),
     )

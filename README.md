@@ -20,6 +20,7 @@ What is already live in code:
 
 - new package structure (`being`, `memory`, `relation`, `phases`, `expression`, `persistence`, `runtime`, `surface`)
 - new `AuroraEngine` runtime path
+- canonical graph writes (`Turn`, `Fragment`, `Trace`, `Association`, `RelationMoment`, `Thread`, `Knot`, `RelationFormation`, `Orientation`, `MetabolicState`)
 - phase operations: interaction turn, doze, sleep
 - new HTTP surface endpoints and CLI commands
 - strict type check and tests on the new track
@@ -31,6 +32,7 @@ What was removed:
 - legacy `substrate_core` path
 - legacy `surface_api` path
 - legacy memory CRUD API and related tests
+- parallel `aurora_ontology_core` runtime track
 
 ## Philosophy Documents
 
@@ -100,11 +102,11 @@ App entrypoint:
 
 Current endpoints:
 
-- `GET /v1/health`
-- `GET /v1/state`
-- `POST /v1/turn`
-- `POST /v1/doze`
-- `POST /v1/sleep`
+- `GET /health`
+- `GET /state`
+- `POST /turn`
+- `POST /doze`
+- `POST /sleep`
 
 Example turn request:
 

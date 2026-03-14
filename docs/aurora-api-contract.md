@@ -6,11 +6,11 @@ Base behavior:
 
 - all endpoints are JSON
 - successful responses return HTTP `200`
-- request/response schemas are stable unless this file changes
+- schema changes require updating this file and unit tests
 
 ## Endpoints
 
-## `GET /v1/health`
+## `GET /health`
 
 Purpose:
 
@@ -31,42 +31,39 @@ Fields:
 
 - `status`: string
 - `phase`: one of `awake | doze | sleep`
-- `turns`: persisted interaction turn count
+- `turns`: persisted user turn count
 - `transitions`: persisted phase transition count
 
-## `GET /v1/state`
+## `GET /state`
 
 Purpose:
 
-- operational runtime state summary
-- no explicit personality/inner-core explanation
+- expose a runtime projection instead of canonical ontology writes
 
 Response:
 
 ```json
 {
   "phase": "awake",
-  "updated_at": 0.0,
-  "self_view": 0.05,
-  "world_view": 0.1,
-  "openness": 0.7,
+  "sleep_need": 0.0,
+  "active_relation_ids": [],
+  "pending_sleep_relation_ids": [],
+  "active_knot_ids": [],
+  "anchor_thread_ids": [],
   "turns": 0,
   "memory_fragments": 0,
   "memory_traces": 0,
   "memory_associations": 0,
-  "avg_salience": 0.0,
-  "avg_narrative_weight": 0.0,
-  "narrative_pressure": 0.0,
-  "sleep_cycles": 0,
-  "last_reweave_delta": 0.0,
+  "memory_threads": 0,
+  "memory_knots": 0,
+  "relation_formations": 0,
   "relation_moments": 0,
-  "relation_tone": "neutral",
-  "relation_strength": 1.0,
+  "sleep_cycles": 0,
   "transitions": 0
 }
 ```
 
-## `POST /v1/turn`
+## `POST /turn`
 
 Purpose:
 
@@ -86,16 +83,22 @@ Response:
 ```json
 {
   "turn_id": "turn_xxx",
-  "response_text": "I am here. ...",
-  "touch_modes": ["insight"]
+  "response_text": "I am staying with what is present, without flattening it.",
+  "aurora_move": "witness",
+  "dominant_channels": ["recognition", "coherence"]
 }
 ```
 
-## `POST /v1/doze`
+Rules:
+
+- `aurora_move` is one of `approach | withhold | boundary | repair | silence | witness`
+- `dominant_channels` is an array of channel names
+
+## `POST /doze`
 
 Purpose:
 
-- apply a doze phase transition
+- run doze consolidation pass
 
 Request body:
 
@@ -110,12 +113,11 @@ Response:
 }
 ```
 
-## `POST /v1/sleep`
+## `POST /sleep`
 
 Purpose:
 
-- apply a sleep phase transition
-- run conservative reweave
+- run sleep reweave pass
 
 Request body:
 
@@ -134,6 +136,4 @@ Response:
 
 - `phase` values always map to `awake | doze | sleep`
 - `transition_id` is always returned for phase endpoints
-- `touch_modes` is always an array of strings
-- `/v1/state` exposes only operational counters/continuous values
-- any schema change requires updating this file and relevant tests
+- `/state` fields are projections; canonical ontology writes are internal

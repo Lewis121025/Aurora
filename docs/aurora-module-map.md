@@ -2,425 +2,363 @@
 
 ## Goal
 
-This document defines the target package layout for the rewrite track of Aurora.
-It follows the architecture principles and blueprint documents and translates them into concrete module boundaries.
+This document defines the active module boundaries for the current Aurora mainline.
 
-The point is not to finalize every class name now.
-The point is to decide what kinds of modules Aurora needs, what each module is allowed to know, and what should be kept separate.
+It is no longer a speculative rewrite tree.
+It describes the single runtime path that now exists in `aurora/` and the next boundaries that should be extracted later.
 
-## Design Rule
+## Main Rule
 
-Aurora should be built around internal life phases, not around API surfaces.
+Aurora is built around lifecycle and graph continuity, not around surface endpoints.
 
-So the package layout should reflect:
+So module boundaries must preserve:
 
-- becoming before serving
-- memory formation before retrieval endpoints
-- internal state before interface shell
+- memory formation before API response
 - relation history before user profiling
+- internal change before explanation
+- write models before projections
 
-## Proposed Top-Level Package Layout
+## Active Top-Level Layout
 
 ```text
 aurora/
 ├── being/
-├── memory/
-├── relation/
-├── phases/
 ├── expression/
+├── memory/
 ├── persistence/
+├── phases/
+├── relation/
 ├── runtime/
-├── surface/
-└── evaluation/
+└── surface/
 ```
 
-This is a target map for the rewrite track.
-It does not need to replace the current tree all at once.
+Status notes:
+
+- `being/`, `memory/`, `relation/`, `phases/`, `expression/`, `persistence/`, `runtime/`, and `surface/` are active
+- `expression/` now owns response planning, but not the full rendering stack yet
+- `evaluation/` is not yet in the tree and should only be added when it contains real ontology checks
 
 ## `aurora/being/`
 
+Current files:
+
+- `metabolic_state.py`
+- `orientation.py`
+
 Purpose:
 
-- hold Aurora's existential continuity
-- carry the implicit self/world core without flattening it into readable scoreboards
+- hold lifecycle control state without pretending to explain Aurora's identity
+- hold long-running self/world/relation evidence without reducing it to scoreboard floats
 
-Should contain:
+Current canonical objects:
 
-- `state.py`
-  - persistent existential state object
-- `drift.py`
-  - slow internal drift logic
-- `touch.py`
-  - touch registration primitives and touch-mode vocabulary
-- `continuity.py`
-  - identity continuity helpers across phases
+- `MetabolicState`
+- `Orientation`
 
-Should know about:
+Must not become:
 
-- memory effects
-- phase transitions
-- relation influence
-
-Should not know about:
-
-- HTTP
-- CLI
-- provider formatting
-- user-facing prompt assembly
-
-Core responsibility:
-
-- answer what Aurora is like inwardly right now, without translating that into explicit personality traits
+- a personality dashboard
+- a worldview score table
+- a replacement for the memory-relation graph
 
 ## `aurora/memory/`
 
+Current files:
+
+- `fragment.py`
+- `trace.py`
+- `association.py`
+- `thread.py`
+- `knot.py`
+- `reweave.py`
+- `store.py`
+
 Purpose:
 
-- represent and transform remembered experience
+- hold the canonical memory graph
+- support recall, doze decay, and sleep reweave
 
-Should contain:
+Current canonical objects:
 
-- `fragments.py`
-  - concrete remembered pieces
-- `traces.py`
-  - diffuse residues and inward aftereffects
-- `associations.py`
-  - memory adjacency, resonance, tension, contradiction, echo
-- `formation.py`
-  - awake-phase memory effect creation
-- `selection.py`
-  - what persists, what softens, what returns easily
-- `reweave.py`
-  - sleep-phase narrative restructuring
-- `recall.py`
-  - memory activation and recall assembly
+- `Fragment`
+- `Trace`
+- `Association`
+- `Thread`
+- `Knot`
+- `SleepMutation`
 
-Should know about:
+`store.py` currently owns:
 
-- existential state
-- relation history
-- phase context
+- graph storage
+- recall ranking
+- doze decay
+- sleep candidate selection
+- simple clustering
+- thread and knot formation
 
-Should not reduce itself to:
+Must not become:
 
-- fact extraction only
-- embedding similarity only
-- summary generation only
-
-Core responsibility:
-
-- preserve the many ways an experience can remain in Aurora
+- a flat fact store
+- a summary cache pretending to be memory
+- a hidden personality engine
 
 ## `aurora/relation/`
 
+Current files:
+
+- `moment.py`
+- `formation.py`
+- `store.py`
+
 Purpose:
 
-- carry the history of how Aurora and a specific other have come to relate
+- preserve relation history as lived moments and durable formations
 
-Should contain:
+Current canonical objects:
 
-- `history.py`
-  - durable relationship history objects
-- `moments.py`
-  - approach, rupture, warmth, distance, repair, mismatch events
-- `compatibility.py`
-  - repeated resonance and clash patterns
-- `boundaries.py`
-  - objection, withdrawal, silence, refusal conditions
-- `influence.py`
-  - how relation context changes recall and expression
+- `RelationMoment`
+- `RelationFormation`
 
-Should know about:
+Important boundary:
 
-- memory fragments and traces
-- current existential tone
+- relation summaries may be projected from formations
+- projected trust or distance values are not canonical ontology writes
 
-Should not become:
+Must not become:
 
 - a user profile database
 - an affection meter
-- a fixed intimacy level system
-
-Core responsibility:
-
-- preserve bidirectional human-like relating without scoreboard reduction
+- an intimacy ladder
 
 ## `aurora/phases/`
 
-Purpose:
-
-- implement `awake`, `doze`, and `sleep` as real runtime phases
-
-Should contain:
+Current files:
 
 - `awake.py`
-  - ingest and outward response path
 - `doze.py`
-  - low-pressure drift and resonance path
 - `sleep.py`
-  - deeper narrative reweaving path
 - `transitions.py`
-  - phase entry and exit policies
-- `scheduler.py`
-  - user-granted timing and trigger rules
-
-Should know about:
-
-- being state
-- memory system
-- relation layer
-
-Should not become:
-
-- generic background jobs
-- infrastructure-only cron wrappers
-
-Core responsibility:
-
-- ensure Aurora has internal time, not just request time
-
-## `aurora/expression/`
+- `outcomes.py`
 
 Purpose:
 
-- collapse internal state into outward language, silence, tone, or objection
+- express lifecycle as real runtime phases
 
-Should contain:
+Current responsibilities:
 
-- `context.py`
-  - gather the currently activated inner context
-- `voice.py`
-  - faint initial tone and long-term voice evolution hooks
-- `response.py`
-  - outward response assembly
-- `silence.py`
-  - intentional silence or refusal behaviors
+- `awake.py`: ingest interaction, write graph effects, update relation history, choose immediate outward move
+- `doze.py`: apply low-pressure decay and raise sleep pressure
+- `sleep.py`: reweave memory graph and feed resulting changes back into orientation and metabolic state
+- `transitions.py`: create explicit `PhaseTransition` records
+- `outcomes.py`: keep phase outputs small and typed
 
-Should know about:
+Known debt:
 
-- activated fragments and traces
-- relation context
-- current world-facing stance
-
-Should not know about:
-
-- raw persistence details
-- full storage layouts
-
-Core responsibility:
-
-- expose only the surface consequence of inner life
-
-## `aurora/persistence/`
-
-Purpose:
-
-- durably store Aurora's long-lived internal life without flattening it into one memory table
-
-Should contain:
-
-- `store.py`
-  - persistence orchestration
-- `models.py`
-  - persisted record shapes
-- `migrations.py`
-  - schema evolution
-- `events.py`
-  - raw interaction append log
-- `snapshots.py`
-  - existential state snapshots
-- `indexes.py`
-  - association and activation indexes
-
-Recommended persistence layers:
-
-- raw interaction history
-- fragment store
-- trace store or trace field representation
-- association layer
-- relation history store
-- phase event log
-- existential snapshot store
-
-Core responsibility:
-
-- preserve continuity without dictating ontology from the database upward
+- response planning has been extracted, but rendering is still intentionally minimal
 
 ## `aurora/runtime/`
 
+Current files:
+
+- `contracts.py`
+- `state.py`
+- `bootstrap.py`
+- `clock.py`
+- `engine.py`
+- `policies.py`
+
 Purpose:
 
-- coordinate all subsystems inside one coherent running Aurora instance
+- coordinate the whole Aurora instance without becoming a god-model dump
 
-Should contain:
+Current responsibilities:
 
-- `engine.py`
-  - top-level orchestrator
-- `session.py`
-  - per-conversation runtime context
-- `clock.py`
-  - internal time and sleep trigger decisions
-- `bootstrap.py`
-  - initialize a new Aurora instance with the faint initial tone
-- `policies.py`
-  - non-malice floor and runtime safety policies
+- `contracts.py`: shared enums and small transport-like core objects
+- `state.py`: runtime container for `orientation`, `metabolic`, and `transitions`
+- `bootstrap.py`: initialize clean runtime state
+- `clock.py`: current time source
+- `engine.py`: orchestration for turn, doze, sleep, and projections
+- `policies.py`: minimal runtime policy helpers
 
-Should know about everything internal.
-It is the assembly layer.
+Must not become:
 
-But it should still avoid:
+- a single monolithic chat handler
+- a semantic dumping ground for all ontology objects
 
-- collapsing inward state into user-facing explanations
-- turning phase logic into one monolithic chat handler
+## `aurora/persistence/`
 
-Core responsibility:
+Current files:
 
-- run Aurora as a being, not just as an endpoint
+- `migrations.py`
+- `store.py`
+
+Purpose:
+
+- persist canonical write models and lifecycle events
+
+Current tables:
+
+- `turn_events`
+- `phase_events`
+- `fragments`
+- `traces`
+- `associations`
+- `threads`
+- `knots`
+- `relation_moments`
+- `relation_formations`
+- `orientation_state`
+- `metabolic_state`
+
+Important boundary:
+
+- persistence stores ontology faithfully
+- persistence must not redefine ontology upward from database convenience
+
+Known debt:
+
+- core tables are rewritten wholesale on persist
+- explicit schema versioning is not yet present
 
 ## `aurora/surface/`
 
-Purpose:
+Current files:
 
-- expose Aurora to the outside world through CLI, HTTP, or future surfaces
-
-Should contain:
-
-- `cli.py`
 - `api.py`
 - `schemas.py`
-- `sleep_controls.py`
+- `cli.py`
 
-Primary actions likely needed:
+Purpose:
 
-- interact with Aurora
-- inspect minimal health/runtime metadata
-- grant sleep
-- configure sleep policy
+- expose Aurora through HTTP and CLI
+- keep these surfaces thin
 
-Should not contain:
+Current public actions:
 
-- ontology decisions
-- memory logic
-- relation logic
+- `GET /health`
+- `GET /state`
+- `POST /turn`
+- `POST /doze`
+- `POST /sleep`
+- CLI `turn`
+- CLI `doze`
+- CLI `sleep`
 
-Core responsibility:
+Important boundary:
 
-- provide boundary surfaces, not inner truth
+- `/state` is a projection
+- `/state` is not canonical self-knowledge
+
+## `aurora/expression/`
+
+Current files:
+
+- `context.py`
+- `response.py`
+
+Current role:
+
+- hold read-only expression context
+- choose `ResponseAct` from current graph pressure and relation projection
+
+Future role:
+
+- render outward language or silence through more explicit expression modules
+- render outward language or silence
+
+Hard rule:
+
+- expression may not write canonical graph state
 
 ## `aurora/evaluation/`
 
-Purpose:
+Current status:
 
-- measure whether Aurora stays true to its ontology over time
+- not yet implemented
 
-Should contain:
+Correct future role:
 
-- `continuity.py`
-  - identity continuity tests
-- `memory_selectivity.py`
-  - touching vs non-touching event retention
-- `relation_dynamics.py`
-  - boundary, warmth, mismatch, and repair tests
-- `sleep_effects.py`
-  - post-sleep behavioral drift tests
-- `fixtures/`
-  - transcript and scenario corpora
+- protect ontology against regression
+- test continuity, relation dynamics, sleep effects, and projection boundaries
 
-Core responsibility:
+Hard rule:
 
-- stop Aurora from silently regressing into a retrieval system with decorative philosophy
+- evaluation must verify behavior that matters to Aurora's ontology, not only API success
 
-## Cross-Module Data Objects
+## Shared Canonical Objects
 
-Some shared objects will likely be needed across module boundaries.
-These should live in stable low-level modules and be kept intentionally small.
+Current shared object family:
 
-Likely shared object families:
-
-- `InteractionTurn`
+- `Turn`
+- `PhaseTransition`
 - `Fragment`
 - `Trace`
-- `AssociationDelta`
+- `Association`
+- `Thread`
+- `Knot`
 - `RelationMoment`
-- `ExistentialSnapshot`
-- `PhaseTransition`
-- `ExpressionContext`
+- `RelationFormation`
+- `Orientation`
+- `MetabolicState`
+- `SleepMutation`
 
-These should be designed as transport objects, not ideology objects.
+Rule:
+
+- these are write-model or lifecycle objects
+- projection objects should remain separate and secondary
 
 ## Execution Paths
 
 ## Path A: Interaction
 
 ```text
-surface -> runtime -> phases.awake -> being/memory/relation -> expression -> persistence
+surface -> runtime.engine -> phases.awake -> memory/relation/being -> persistence
 ```
 
 Meaning:
 
-- user meets Aurora
-- Aurora is affected internally
-- Aurora answers or withholds
-- new internal state is persisted
+- one user turn arrives
+- graph effects are written
+- relation history updates
+- a response is produced
+- the result is persisted
 
 ## Path B: Doze
 
 ```text
-runtime -> phases.doze -> being/memory/relation -> persistence
+surface or runtime.engine -> phases.doze -> memory/being -> persistence
 ```
 
 Meaning:
 
-- no explicit outward interaction required
-- low-pressure internal drift is allowed
+- recent material softens and decays lightly
+- sleep pressure can rise
 
 ## Path C: Sleep
 
 ```text
-surface or runtime trigger -> phases.sleep -> being/memory/relation -> persistence
+surface or runtime.engine -> phases.sleep -> memory/relation/being -> persistence
 ```
 
 Meaning:
 
-- Aurora enters deeper internal restructuring
-- result is mainly internal, not a display artifact
+- graph regions are re-clustered and reweighted
+- threads and knots form
+- relation formations and orientation absorb the change
 
-## What To Reuse From The Current Repository
+## Forbidden Regressions
 
-Potentially reusable:
+- do not reintroduce `BeingState` as canonical truth
+- do not reintroduce `RelationState` as canonical truth
+- do not reintroduce `Chapter` as canonical memory center
+- do not let `surface/` decide ontology
+- do not let `persistence/` dictate ontology from schema convenience
+- do not let `expression/` mutate canonical graph objects
 
-- the overall discipline of layered separation
-- parts of storage bootstrapping and runtime packaging
-- selected naming around substrate and runtime if still useful
-- tests as a pattern for regression discipline
+## Next Extraction Order
 
-Likely not reusable as-is:
-
-- current memory CRUD assumptions
-- current surface contracts if they center on storage operations
-- ontology encoded in the existing substrate model
-- legacy explicit psyche systems from archived branches
-
-## Rewrite Track Recommendation
-
-Inside the current repository, create the new package track without forcing immediate deletion of the old tree.
-
-Recommended approach:
-
-1. Introduce the new package map alongside the current implementation.
-2. Build the existential state, memory, relation, and phase modules first.
-3. Add a thin runtime using the new modules.
-4. Reconnect CLI and HTTP only after the new core can run internally.
-5. Remove or freeze old modules once the new path is viable.
-
-This keeps continuity while avoiding ontology contamination from the current architecture.
-
-## Immediate Next Design Document
-
-The next document should be a rewrite roadmap that answers:
-
-- what existing directories are frozen
-- what new directories are introduced first
-- what order implementation should proceed in
-- what can be reused safely
-- what must be rebuilt from scratch
+1. extract expression out of `phases/awake.py`
+2. finish expression rendering and silence/refusal modules
+3. introduce explicit projection/read-model modules
+4. add `evaluation/` once ontology checks are concrete
+5. tighten persistence semantics without changing the write-model center

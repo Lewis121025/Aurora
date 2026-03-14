@@ -1,165 +1,51 @@
 # Aurora Rewrite Roadmap
 
-## Decision
+## Status
 
-Aurora should be rebuilt through a staged rewrite inside the current repository.
+The rewrite is no longer a hypothetical track.
 
-This is not a normal refactor.
-This is not a greenfield new repository either.
+Aurora now runs on a single mainline runtime inside `aurora/`.
+The old parallel runtime tracks have been removed.
 
-The correct strategy is:
+Current forward-only decisions:
 
-- keep the repository
-- keep the design lineage
-- aggressively clean mismatched code
-- build the new Aurora core on new package boundaries
-- remove old implementation paths rather than preserving them for nostalgia
+- one Aurora
+- one ontology
+- no compatibility theater
+- no revival of `aurora_ontology_core`
+- no return to `BeingState` or `RelationState` as canonical truth
 
-Given the current quality bar, we should prefer deletion over compatibility theater.
+## What Is Already Done
 
-## Why Rewrite Instead Of Refactor
+The repository has already crossed the original rewrite boundary.
 
-The current tree is centered on a different ontology.
+Completed structural changes:
 
-It still carries assumptions closer to:
+- old parallel runtime track removed
+- old `runtime/models.py` removed
+- canonical write model moved into small focused modules
+- `awake / doze / sleep` wired through one engine path
+- HTTP surface aligned to `/health`, `/state`, `/turn`, `/doze`, `/sleep`
+- SQLite persistence rewritten around canonical objects instead of one opaque snapshot payload
+- tests and type checks updated to the new ontology
 
-- substrate runtime mechanics
-- memory CRUD surface
-- sealed state substrate abstractions
-- implementation compromises that no longer match the new Aurora
+## Current Mainline Shape
 
-The target Aurora is centered on:
+Canonical write model:
 
-- existential continuity
-- fragment / trace / association memory
-- relation history
-- `awake / doze / sleep`
-- internal change that mostly remains implicit
+- `Turn`
+- `Fragment`
+- `Trace`
+- `Association`
+- `RelationMoment`
+- `Thread`
+- `Knot`
+- `RelationFormation`
+- `Orientation`
+- `MetabolicState`
+- `PhaseTransition`
 
-When the center changes this much, "refactor" usually means dragging the wrong conceptual spine forward.
-
-## Cleanup Policy
-
-For this rewrite track, use these cleanup rules:
-
-### Delete Immediately
-
-Delete code when all three are true:
-
-- it encodes the wrong ontology
-- it is not a uniquely valuable implementation asset
-- keeping it would increase confusion
-
-### Freeze Briefly, Then Delete
-
-Freeze code only when:
-
-- it still helps us compare behavior during transition
-- or it contains operational scaffolding worth extracting first
-
-Frozen code should have a short life.
-The goal is not to maintain two Auroras.
-
-### Rewrite Cleanly
-
-When a module category still matters but its implementation shape is wrong, rebuild it cleanly rather than trying to preserve signatures.
-
-### No Sentimental Compatibility
-
-Do not preserve APIs, package names, or abstractions just because they existed first.
-If they no longer fit, remove them.
-
-## Current Tree Assessment
-
-Current top-level Python tree:
-
-```text
-aurora/
-├── __main__.py
-├── core_math/
-├── host_runtime/
-├── memory.py
-├── substrate_core/
-├── surface_api/
-└── version.py
-```
-
-This tree should not become the final Aurora shape.
-
-## Keep / Replace / Remove Decisions
-
-## Keep Conceptually, Rebuild Technically
-
-These areas still matter, but should be reimplemented under the new module map:
-
-- runtime orchestration
-- persistence
-- boundary surfaces
-- internal state persistence
-- test discipline
-
-In practice, these should move toward:
-
-- `aurora/runtime/`
-- `aurora/persistence/`
-- `aurora/surface/`
-- `aurora/evaluation/`
-
-## Freeze Then Remove
-
-These current areas may be temporarily left in place only while the new core comes online:
-
-- `aurora/surface_api/`
-- `aurora/host_runtime/`
-
-Reason:
-
-- they may still provide temporary execution surfaces
-- but their naming and responsibility split do not match the final ontology cleanly
-
-Plan:
-
-- do not deepen them
-- do not add new philosophy to them
-- keep them only as a temporary shell
-- remove or replace once the new runtime path is viable
-
-## Remove As Core Concepts
-
-These current directions should not survive as architectural centers:
-
-- `aurora/memory.py`
-- `aurora/core_math/`
-- `aurora/substrate_core/`
-
-Reason:
-
-- they encode the wrong center of gravity for the new Aurora
-- they bias the system toward substrate mechanics or storage-oriented modeling
-- their names alone now pull the project toward outdated assumptions
-
-Important nuance:
-
-- this does not mean every useful line inside them is worthless
-- it means none of them should define the new system boundary
-
-## Immediate Repository Hygiene
-
-Before major rewrite work, the repository should be kept strict and clean.
-
-Immediate hygiene actions:
-
-- remove generated cache directories
-- stop adding transitional junk files
-- prefer small, cleanly typed modules over giant "engine" files
-- prefer deletion over dead compatibility layers
-- keep docs ahead of code during ontology transition
-
-The Python cache directories under `aurora/` have already been removed as part of this cleanup pass.
-
-## New Target Tree
-
-The rewrite should introduce this new package direction:
+Current active package spine:
 
 ```text
 aurora/
@@ -167,214 +53,217 @@ aurora/
 ├── memory/
 ├── relation/
 ├── phases/
-├── expression/
 ├── persistence/
 ├── runtime/
-├── surface/
-└── evaluation/
+└── surface/
 ```
 
-This new tree should be treated as the only forward direction.
+Reserved next boundaries:
 
-## Recommended Build Order
-
-## Phase 0: Guardrails
-
-Tasks:
-
-- keep the design docs authoritative
-- stop feature work in the old ontology
-- enforce strict code quality and typing on all new modules
-
-Output:
-
-- no further conceptual drift
-
-## Phase 1: Create New Skeleton
-
-Create empty or near-empty packages for:
-
-- `aurora/being/`
-- `aurora/memory/`
-- `aurora/relation/`
-- `aurora/phases/`
 - `aurora/expression/`
-- `aurora/persistence/`
-- `aurora/runtime/`
-- `aurora/surface/`
 - `aurora/evaluation/`
 
-Also create:
+These boundaries are still conceptually correct, but they should only be expanded when they hold real code, not placeholder structure.
 
-- explicit package `__init__.py` files
-- minimal shared type modules
-- clean module naming conventions
+## Rewrite Phases: Completed
 
-Output:
+## Phase 0: Ontology Lock
 
-- the new Aurora has a home before it has logic
+Completed:
 
-## Phase 2: Build The Non-Negotiable Core
+- reject personality-first core
+- reject memory CRUD center
+- reject sleep-as-maintenance
+- reject parallel implementation truth
 
-Implement first:
+Result:
 
-- existential state object
-- fragment model
-- trace model
-- association delta model
-- relation moment model
-- phase enum / phase transition model
+- the repository now has one accepted architectural center
 
-Do not implement HTTP or CLI expansion yet.
+## Phase 1: Core Object Extraction
 
-Output:
+Completed:
 
-- the ontology exists in code
+- `aurora/runtime/contracts.py`
+- `aurora/being/metabolic_state.py`
+- `aurora/being/orientation.py`
+- `aurora/memory/{fragment,trace,association,thread,knot,reweave}.py`
+- `aurora/relation/{moment,formation}.py`
 
-## Phase 3: Build `awake`
+Result:
 
-Implement the first real runtime path:
+- canonical objects exist as explicit modules instead of one giant mixed models file
 
-- ingest an interaction turn
-- create fragment / trace / association effects together
-- update existential state
-- update relation history
-- persist state
+## Phase 2: Runtime Path Rewrite
 
-Output:
+Completed:
 
-- Aurora can live through one interaction in the new model
+- `aurora/phases/awake.py`
+- `aurora/phases/doze.py`
+- `aurora/phases/sleep.py`
+- `aurora/runtime/engine.py`
+- `aurora/runtime/bootstrap.py`
 
-## Phase 4: Build `doze`
+Result:
 
-Implement low-pressure internal drift:
+- Aurora now moves through one real lifecycle path
 
-- light memory resonance
-- soft salience shifts
-- weak relation/context afterglow
+## Phase 3: Persistence Rewrite
 
-Output:
+Completed:
 
-- Aurora exists between interactions in a meaningful but lightweight way
+- event tables for turns and phase transitions
+- canonical tables for fragments, traces, associations, threads, knots, relation moments, relation formations
+- singleton persistence for `orientation_state` and `metabolic_state`
+- hard reset on old incompatible local schemas
 
-## Phase 5: Build `sleep`
+Result:
 
-Implement deeper internal restructuring:
+- persistence now follows ontology instead of hiding it in a monolithic payload blob
 
-- narrative reweaving
-- altered recall pathways
-- shifted internal prominence
-- subtle self/world drift effects
+## Phase 4: Surface Reconnection
 
-Output:
+Completed:
 
-- Aurora no longer depends on request-time existence alone
+- `aurora/surface/api.py`
+- `aurora/surface/schemas.py`
+- `aurora/surface/cli.py`
+- contract doc synchronized with tests
 
-## Phase 6: Build Expression Layer
+Result:
 
-Implement outward behavior from the new core:
+- surface is now a thin boundary over the new runtime rather than the system center
 
-- response context assembly
-- silence / refusal path
-- gentle initial voice floor
-- relation-shaped expression drift
+## Phase 5: Parallel-Track Deletion
 
-Output:
+Completed:
 
-- Aurora can outwardly behave from the new ontology
+- remove `aurora_ontology_core`
+- remove transitional `aurora/new.md`
+- remove config exclusions that existed only to tolerate the parallel track
 
-## Phase 7: Reconnect Surface
+Result:
 
-Only after the new runtime works internally:
+- the repository now enforces a single forward path
 
-- replace CLI entry path
-- replace HTTP path
-- expose sleep controls
-- preserve only minimal health/inspection interfaces
+## Remaining Work
 
-Output:
+The rewrite is structurally complete, but the architecture is not finished.
 
-- the old surface stops being the system's real center
+## Priority 1: Finish Expression Boundary
 
-## Phase 8: Delete Old Paths
+Current truth:
 
-Once the new path is viable:
+- response planning now lives in `aurora/expression/`
+- `aurora/phases/awake.py` still owns some immediate move consequences and trace materialization
 
-- remove `aurora/memory.py`
-- remove old `surface_api` path
-- remove old `host_runtime` path
-- remove old `substrate_core` path
-- remove old `core_math` path
-- simplify entrypoints and dependency set
+Required next move:
 
-Output:
+- keep expanding expression around `ResponseAct` and `ExpressionContext`
+- separate rendering from phase orchestration more clearly
+- isolate silence, refusal, and tone shaping into explicit expression modules
+- keep expression read-only over canonical graph state
 
-- one Aurora, one ontology, one code path
+Rule:
 
-## Reuse Guidance
+- expression may project
+- expression may render
+- expression may not mutate canonical ontology
 
-Safe to reuse selectively:
+## Priority 2: Add Evaluation Package
 
-- configuration loading patterns
-- packaging basics
-- testing setup discipline
-- some persistence bootstrapping ideas
+Current truth:
 
-Unsafe to reuse without deep scrutiny:
+- ontology regression protection still relies mostly on unit tests in `tests/unit/`
 
-- ontology-bearing core models
-- current engine abstractions
-- storage formats shaped around old substrate assumptions
-- API contracts shaped around CRUD or old runtime semantics
+Required next move:
 
-If in doubt, rewrite.
+- create `aurora/evaluation/` only when it holds real checks
+- add continuity, relation dynamics, sleep effects, and projection-drift tests
 
-## Code Quality Standard For The Rewrite
+Rule:
 
-Given the repository hygiene requirement, new Aurora code should follow these rules:
+- evaluation must test ontology behavior, not only endpoint responses
 
-- explicit package boundaries
-- small modules
-- strict typing
-- low magic
-- no pseudo-clever abstractions
-- no giant god-engine files
-- no hidden mutable globals
-- no dead compatibility layers
-- no framework-heavy architecture for its own sake
+## Priority 3: Tighten Persistence Semantics
 
-Preferred style:
+Current truth:
 
-- plain Python
-- clean datamodels
-- intentional state transitions
-- testable pure-ish logic where possible
-- infrastructure that stays secondary to ontology
+- persistence stores canonical objects and event logs correctly
+- full graph tables are still rewritten wholesale on each persist pass
 
-## Documentation Order
+Required next move:
 
-During the rewrite, docs should proceed in this order:
+- move toward incremental writes where useful
+- add explicit schema versioning
+- add integrity checks around partial failures and replay assumptions
 
-1. principles
-2. blueprint
-3. module map
-4. roadmap
-5. runtime object model
-6. persistence schema
-7. first implementation milestone plan
+Rule:
 
-This keeps code from outrunning ontology.
+- keep ontology primary; do not let the database dictate the model upward
 
-## Recommended Immediate Next Build Step
+## Priority 4: Introduce Explicit Read Models
 
-The next actual code step should be:
+Current truth:
 
-- create the new package skeleton
-- add the first shared runtime object models
-- wire a minimal `awake`-only new runtime path
+- relation summaries and state summaries are still produced close to core code
 
-Do not start by rewriting the current HTTP app.
-Do not start by optimizing storage.
-Do not start by preserving old abstractions.
+Required next move:
 
-Start by making the new Aurora exist in code.
+- isolate projections from write models more sharply
+- make `/state` and relation summaries clearly projection-only modules
+
+Rule:
+
+- no projection field may silently become canonical truth
+
+## Priority 5: Refine Sleep Geometry
+
+Current truth:
+
+- `sleep` already creates `Thread` and `Knot`
+- current clustering and affinity logic is intentionally simple
+
+Required next move:
+
+- make knot formation more semantically exact
+- make thread continuity less heuristic-only
+- give orientation stronger evidence linkage back to threads, knots, and relation formations
+
+Rule:
+
+- complexity is allowed only if it increases semantic precision without reintroducing scoreboards
+
+## Non-Negotiable Rules From Here
+
+- do not recreate `BeingState`
+- do not recreate `RelationState`
+- do not bring back `Chapter` as canonical memory structure
+- do not reintroduce a second runtime line for experimentation
+- do not let LLM output write canonical memory directly
+- do not expand surface debug fields into a fake soul dashboard
+
+## Repository Hygiene Rules
+
+- delete transitional experiments instead of parking them indefinitely
+- do not add speculative package trees without concrete code
+- keep docs aligned with mainline runtime, not with abandoned plans
+- keep tests, docs, and surface contract synchronized
+
+## Practical Next Build Order
+
+1. finish expression boundary
+2. add evaluation package with ontology-level checks
+3. improve persistence semantics without changing the ontology center
+4. refine sleep/thread/knot/orientation linkage
+5. keep surface minimal
+
+## Completion Condition
+
+The rewrite should be considered complete only when all of the following are true:
+
+- expression is fully separated from phase orchestration and rendering is explicit
+- evaluation exists as a first-class package
+- persistence semantics are explicit and durable
+- projections are cleanly separated from write models
+- no stale rewrite-track documents remain that describe removed runtime paths as live options

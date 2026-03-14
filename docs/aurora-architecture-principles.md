@@ -149,7 +149,7 @@ Memory is reorganized not merely by compression, but by emergent narrative struc
 
 That structure may involve, inseparably:
 
-- phase or chapter feeling
+- thread or knot feeling
 - causal continuity
 - self-understanding continuity
 - world-understanding continuity

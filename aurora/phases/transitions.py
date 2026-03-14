@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from aurora.runtime.models import Phase, PhaseTransition
+from aurora.runtime.contracts import Phase, PhaseTransition
 
 
 def phase_transition(

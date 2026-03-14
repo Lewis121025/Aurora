@@ -2,22 +2,32 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from aurora.runtime.contracts import Phase
 from aurora.runtime.engine import AuroraEngine
-from aurora.runtime.models import Phase
 
 
-def test_awake_creates_relation_objects_instead_of_profile_state(tmp_path: Path) -> None:
+def test_awake_writes_canonical_graph_objects(tmp_path: Path) -> None:
     engine = AuroraEngine.create(data_dir=str(tmp_path))
 
     output = engine.handle_turn(session_id="s1", text="谢谢你理解我，我有点害怕")
 
     assert output.turn_id
     assert output.response_text
-    assert output.aurora_move in {"approach", "withhold", "boundary", "repair", "silence"}
-    assert engine.state.being.phase is Phase.AWAKE
+    assert output.aurora_move in {
+        "approach",
+        "withhold",
+        "boundary",
+        "repair",
+        "silence",
+        "witness",
+    }
+    assert engine.state.metabolic.phase is Phase.AWAKE
     assert len(engine.memory_store.fragments) == 2
     assert len(engine.memory_store.traces) >= 2
-    assert len(engine.relation_store.states) == 1
+    assert len(engine.memory_store.associations) >= 1
+    assert engine.relation_store.moment_count() == 1
+    assert engine.relation_store.relation_count() == 1
+    assert engine.state.metabolic.pending_sleep_relation_ids == ("rel:s1",)
 
 
 def test_boundary_input_pushes_boundary_move(tmp_path: Path) -> None:
@@ -39,3 +49,4 @@ def test_phase_transitions_are_lifecycle_events(tmp_path: Path) -> None:
     assert doze_output.phase is Phase.DOZE
     assert sleep_output.phase is Phase.SLEEP
     assert len(engine.state.transitions) >= 2
+    assert engine.state.metabolic.pending_sleep_relation_ids == ()

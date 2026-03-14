@@ -1,32 +1,27 @@
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Any, cast
 
+from aurora.being.metabolic_state import MetabolicState
+from aurora.being.orientation import Orientation
+from aurora.memory.association import Association
+from aurora.memory.fragment import Fragment
+from aurora.memory.knot import Knot
 from aurora.memory.store import MemoryStore
+from aurora.memory.thread import Thread
+from aurora.memory.trace import Trace
 from aurora.persistence.migrations import apply_migrations
+from aurora.phases.awake import AwakeOutcome
+from aurora.phases.outcomes import PhaseOutcome
+from aurora.relation.formation import RelationFormation
+from aurora.relation.moment import RelationMoment
 from aurora.relation.store import RelationStore
-from aurora.runtime.models import (
-    AssocKind,
-    Association,
-    AwakeOutcome,
-    BeingState,
-    Chapter,
-    ChapterRole,
-    Fragment,
-    Phase,
-    PhaseOutcome,
-    PhaseTransition,
-    RelationMoment,
-    RelationState,
-    RuntimeState,
-    Trace,
-    TraceChannel,
-)
+from aurora.runtime.contracts import AssocKind, Phase, PhaseTransition, TraceChannel, Turn
+from aurora.runtime.state import RuntimeState
 
 
 class SQLitePersistence:
@@ -38,16 +33,218 @@ class SQLitePersistence:
         self._connection.row_factory = sqlite3.Row
         self._lock = threading.Lock()
         apply_migrations(self._connection)
+        self._ensure_schema()
 
-    def load_runtime(self, initial: BeingState) -> tuple[MemoryStore, RelationStore, RuntimeState]:
+    def _ensure_schema(self) -> None:
+        try:
+            self._connection.execute("SELECT id, phase, sleep_need FROM metabolic_state LIMIT 1")
+            self._connection.execute("SELECT id, self_evidence FROM orientation_state LIMIT 1")
+            self._connection.execute("SELECT thread_id FROM threads LIMIT 1")
+        except sqlite3.OperationalError:
+            with self._connection:
+                for table in (
+                    "turn_events",
+                    "phase_events",
+                    "fragments",
+                    "traces",
+                    "associations",
+                    "threads",
+                    "knots",
+                    "relation_moments",
+                    "relation_formations",
+                    "orientation_state",
+                    "metabolic_state",
+                    "runtime_snapshots",
+                ):
+                    self._connection.execute(f"DROP TABLE IF EXISTS {table}")
+            apply_migrations(self._connection)
+
+    def load_runtime(
+        self,
+        initial: RuntimeState,
+    ) -> tuple[MemoryStore, RelationStore, RuntimeState]:
+        memory_store = MemoryStore()
+        relation_store = RelationStore()
+
         with self._lock:
-            row = self._connection.execute(
-                "SELECT payload FROM runtime_snapshots ORDER BY snapshot_id DESC LIMIT 1"
+            orientation_row = self._connection.execute(
+                "SELECT * FROM orientation_state WHERE id = 1"
             ).fetchone()
-        if row is None:
-            return MemoryStore(), RelationStore(), RuntimeState(being=initial, transitions=[])
-        payload = json.loads(str(row["payload"]))
-        return _decode_payload(payload)
+            metabolic_row = self._connection.execute(
+                "SELECT * FROM metabolic_state WHERE id = 1"
+            ).fetchone()
+
+            fragment_rows = self._connection.execute("SELECT * FROM fragments").fetchall()
+            trace_rows = self._connection.execute("SELECT * FROM traces").fetchall()
+            association_rows = self._connection.execute("SELECT * FROM associations").fetchall()
+            thread_rows = self._connection.execute("SELECT * FROM threads").fetchall()
+            knot_rows = self._connection.execute("SELECT * FROM knots").fetchall()
+            formation_rows = self._connection.execute(
+                "SELECT * FROM relation_formations"
+            ).fetchall()
+            moment_rows = self._connection.execute("SELECT * FROM relation_moments").fetchall()
+            transition_rows = self._connection.execute(
+                "SELECT * FROM phase_events ORDER BY created_at ASC"
+            ).fetchall()
+
+        if orientation_row is None or metabolic_row is None:
+            return MemoryStore(), RelationStore(), initial
+
+        for row in fragment_rows:
+            memory_store.add_fragment(
+                Fragment(
+                    fragment_id=str(row["fragment_id"]),
+                    relation_id=str(row["relation_id"]),
+                    turn_id=str(row["turn_id"]) if row["turn_id"] is not None else None,
+                    surface=str(row["surface"]),
+                    tags=_load_tuple_str(row["tags"]),
+                    vividness=float(row["vividness"]),
+                    salience=float(row["salience"]),
+                    unresolvedness=float(row["unresolvedness"]),
+                    thread_ids=_load_tuple_str(row["thread_ids"]),
+                    knot_ids=_load_tuple_str(row["knot_ids"]),
+                    created_at=float(row["created_at"]),
+                    last_touched_at=float(row["last_touched_at"]),
+                    activation_count=int(row["activation_count"]),
+                )
+            )
+
+        for row in trace_rows:
+            memory_store.add_trace(
+                Trace(
+                    trace_id=str(row["trace_id"]),
+                    relation_id=str(row["relation_id"]),
+                    fragment_id=str(row["fragment_id"]),
+                    channel=TraceChannel(str(row["channel"])),
+                    intensity=float(row["intensity"]),
+                    carry=float(row["carry"]),
+                    created_at=float(row["created_at"]),
+                    last_touched_at=float(row["last_touched_at"]),
+                )
+            )
+
+        for row in association_rows:
+            memory_store.add_association(
+                Association(
+                    edge_id=str(row["edge_id"]),
+                    src_fragment_id=str(row["src_fragment_id"]),
+                    dst_fragment_id=str(row["dst_fragment_id"]),
+                    kind=AssocKind(str(row["kind"])),
+                    weight=float(row["weight"]),
+                    evidence=_load_tuple_str(row["evidence"]),
+                    created_at=float(row["created_at"]),
+                    last_touched_at=float(row["last_touched_at"]),
+                )
+            )
+
+        for row in thread_rows:
+            memory_store.add_thread(
+                Thread(
+                    thread_id=str(row["thread_id"]),
+                    relation_id=str(row["relation_id"]),
+                    fragment_ids=_load_tuple_str(row["fragment_ids"]),
+                    dominant_channels=tuple(
+                        TraceChannel(item) for item in _load_tuple_str(row["dominant_channels"])
+                    ),
+                    tension=float(row["tension"]),
+                    coherence=float(row["coherence"]),
+                    created_at=float(row["created_at"]),
+                    last_rewoven_at=float(row["last_rewoven_at"]),
+                )
+            )
+
+        for row in knot_rows:
+            memory_store.add_knot(
+                Knot(
+                    knot_id=str(row["knot_id"]),
+                    relation_id=str(row["relation_id"]),
+                    fragment_ids=_load_tuple_str(row["fragment_ids"]),
+                    dominant_channels=tuple(
+                        TraceChannel(item) for item in _load_tuple_str(row["dominant_channels"])
+                    ),
+                    intensity=float(row["intensity"]),
+                    resolved=bool(int(row["resolved"])),
+                    created_at=float(row["created_at"]),
+                    last_rewoven_at=float(row["last_rewoven_at"]),
+                )
+            )
+
+        for row in formation_rows:
+            relation_store.formations[str(row["relation_id"])] = RelationFormation(
+                relation_id=str(row["relation_id"]),
+                thread_ids=set(_load_tuple_str(row["thread_ids"])),
+                knot_ids=set(_load_tuple_str(row["knot_ids"])),
+                boundary_events=int(row["boundary_events"]),
+                repair_events=int(row["repair_events"]),
+                resonance_events=int(row["resonance_events"]),
+                last_contact_at=float(row["last_contact_at"]),
+            )
+
+        for row in moment_rows:
+            moment = RelationMoment(
+                moment_id=str(row["moment_id"]),
+                relation_id=str(row["relation_id"]),
+                user_turn_id=str(row["user_turn_id"]),
+                aurora_turn_id=str(row["aurora_turn_id"]) if row["aurora_turn_id"] else None,
+                user_channels=tuple(
+                    TraceChannel(item) for item in _load_tuple_str(row["user_channels"])
+                ),
+                aurora_move=cast(Any, str(row["aurora_move"])),
+                boundary_event=bool(int(row["boundary_event"])),
+                repair_event=bool(int(row["repair_event"])),
+                summary=str(row["summary"]),
+                created_at=float(row["created_at"]),
+            )
+            relation_store.moments[moment.relation_id].append(moment)
+
+        for relation_id, moments in relation_store.moments.items():
+            if relation_id in relation_store.formations:
+                continue
+            formation = relation_store.formation_for(relation_id)
+            for moment in moments:
+                formation.register_moment(moment)
+
+        transitions = [
+            PhaseTransition(
+                transition_id=str(row["transition_id"]),
+                from_phase=Phase(str(row["from_phase"])),
+                to_phase=Phase(str(row["to_phase"])),
+                reason=str(row["reason"]),
+                created_at=float(row["created_at"]),
+            )
+            for row in transition_rows
+        ]
+        memory_store.sleep_cycles = sum(1 for item in transitions if item.to_phase is Phase.SLEEP)
+        sleep_transitions = [
+            item.created_at for item in transitions if item.to_phase is Phase.SLEEP
+        ]
+        memory_store.last_sleep_at = max(sleep_transitions) if sleep_transitions else 0.0
+
+        orientation = Orientation(
+            self_evidence=_load_dict_int(orientation_row["self_evidence"]),
+            world_evidence=_load_dict_int(orientation_row["world_evidence"]),
+            relation_evidence=_load_dict_int(orientation_row["relation_evidence"]),
+            anchor_thread_ids=_load_tuple_str(orientation_row["anchor_thread_ids"]),
+            active_knot_ids=_load_tuple_str(orientation_row["active_knot_ids"]),
+            last_updated_at=float(orientation_row["last_updated_at"]),
+        )
+        metabolic = MetabolicState(
+            phase=Phase(str(metabolic_row["phase"])),
+            sleep_need=float(metabolic_row["sleep_need"]),
+            active_relation_ids=_load_tuple_str(metabolic_row["active_relation_ids"]),
+            active_knot_ids=_load_tuple_str(metabolic_row["active_knot_ids"]),
+            pending_sleep_relation_ids=_load_tuple_str(metabolic_row["pending_sleep_relation_ids"]),
+            last_transition_at=float(metabolic_row["last_transition_at"]),
+        )
+        return (
+            memory_store,
+            relation_store,
+            RuntimeState(
+                orientation=orientation,
+                metabolic=metabolic,
+                transitions=transitions,
+            ),
+        )
 
     def persist_awake(
         self,
@@ -56,7 +253,17 @@ class SQLitePersistence:
         memory_store: MemoryStore,
         relation_store: RelationStore,
     ) -> None:
-        self._persist(state=state, memory_store=memory_store, relation_store=relation_store)
+        with self._lock:
+            with self._connection:
+                self._insert_turn(outcome.user_turn)
+                self._insert_turn(outcome.aurora_turn)
+                if outcome.transition is not None:
+                    self._insert_transition(outcome.transition)
+                self._persist_runtime_tables(
+                    state=state,
+                    memory_store=memory_store,
+                    relation_store=relation_store,
+                )
 
     def persist_phase(
         self,
@@ -65,282 +272,240 @@ class SQLitePersistence:
         memory_store: MemoryStore,
         relation_store: RelationStore,
     ) -> None:
-        self._persist(state=state, memory_store=memory_store, relation_store=relation_store)
+        with self._lock:
+            with self._connection:
+                self._insert_transition(outcome.transition)
+                self._persist_runtime_tables(
+                    state=state,
+                    memory_store=memory_store,
+                    relation_store=relation_store,
+                )
 
     def turn_count(self) -> int:
         with self._lock:
             row = self._connection.execute(
-                "SELECT payload FROM runtime_snapshots ORDER BY snapshot_id DESC LIMIT 1"
+                "SELECT COUNT(*) AS count FROM turn_events WHERE speaker = 'user'"
             ).fetchone()
-        if row is None:
-            return 0
-        payload = json.loads(str(row["payload"]))
-        return len(payload.get("relation_moments", []))
+        return int(row["count"]) if row is not None else 0
 
     def phase_transition_count(self) -> int:
         with self._lock:
-            row = self._connection.execute(
-                "SELECT payload FROM runtime_snapshots ORDER BY snapshot_id DESC LIMIT 1"
-            ).fetchone()
-        if row is None:
-            return 0
-        payload = json.loads(str(row["payload"]))
-        return len(payload["transitions"])
+            row = self._connection.execute("SELECT COUNT(*) AS count FROM phase_events").fetchone()
+        return int(row["count"]) if row is not None else 0
 
-    def _persist(
-        self, state: RuntimeState, memory_store: MemoryStore, relation_store: RelationStore
-    ) -> None:
-        payload = _encode_payload(
-            state=state, memory_store=memory_store, relation_store=relation_store
+    def _insert_turn(self, turn: Turn) -> None:
+        self._connection.execute(
+            "INSERT INTO turn_events(turn_id, relation_id, session_id, speaker, text, created_at) "
+            "VALUES(?, ?, ?, ?, ?, ?)",
+            (
+                turn.turn_id,
+                turn.relation_id,
+                turn.session_id,
+                turn.speaker.value,
+                turn.text,
+                turn.created_at,
+            ),
         )
-        with self._lock:
-            with self._connection:
+
+    def _insert_transition(self, transition: PhaseTransition) -> None:
+        self._connection.execute(
+            "INSERT INTO phase_events(transition_id, from_phase, to_phase, reason, created_at) "
+            "VALUES(?, ?, ?, ?, ?)",
+            (
+                transition.transition_id,
+                transition.from_phase.value,
+                transition.to_phase.value,
+                transition.reason,
+                transition.created_at,
+            ),
+        )
+
+    def _persist_runtime_tables(
+        self,
+        state: RuntimeState,
+        memory_store: MemoryStore,
+        relation_store: RelationStore,
+    ) -> None:
+        for table in (
+            "fragments",
+            "traces",
+            "associations",
+            "threads",
+            "knots",
+            "relation_moments",
+            "relation_formations",
+        ):
+            self._connection.execute(f"DELETE FROM {table}")
+
+        for fragment in memory_store.fragments.values():
+            self._connection.execute(
+                "INSERT INTO fragments(fragment_id, relation_id, turn_id, surface, tags, vividness, salience, "
+                "unresolvedness, thread_ids, knot_ids, created_at, last_touched_at, activation_count) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    fragment.fragment_id,
+                    fragment.relation_id,
+                    fragment.turn_id,
+                    fragment.surface,
+                    _dump_json(fragment.tags),
+                    fragment.vividness,
+                    fragment.salience,
+                    fragment.unresolvedness,
+                    _dump_json(fragment.thread_ids),
+                    _dump_json(fragment.knot_ids),
+                    fragment.created_at,
+                    fragment.last_touched_at,
+                    fragment.activation_count,
+                ),
+            )
+
+        for trace in memory_store.traces.values():
+            self._connection.execute(
+                "INSERT INTO traces(trace_id, relation_id, fragment_id, channel, intensity, carry, created_at, last_touched_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    trace.trace_id,
+                    trace.relation_id,
+                    trace.fragment_id,
+                    trace.channel.value,
+                    trace.intensity,
+                    trace.carry,
+                    trace.created_at,
+                    trace.last_touched_at,
+                ),
+            )
+
+        for association in memory_store.associations.values():
+            self._connection.execute(
+                "INSERT INTO associations(edge_id, src_fragment_id, dst_fragment_id, kind, weight, evidence, created_at, last_touched_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    association.edge_id,
+                    association.src_fragment_id,
+                    association.dst_fragment_id,
+                    association.kind.value,
+                    association.weight,
+                    _dump_json(association.evidence),
+                    association.created_at,
+                    association.last_touched_at,
+                ),
+            )
+
+        for thread in memory_store.threads.values():
+            self._connection.execute(
+                "INSERT INTO threads(thread_id, relation_id, fragment_ids, dominant_channels, tension, coherence, created_at, last_rewoven_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    thread.thread_id,
+                    thread.relation_id,
+                    _dump_json(thread.fragment_ids),
+                    _dump_json(tuple(channel.value for channel in thread.dominant_channels)),
+                    thread.tension,
+                    thread.coherence,
+                    thread.created_at,
+                    thread.last_rewoven_at,
+                ),
+            )
+
+        for knot in memory_store.knots.values():
+            self._connection.execute(
+                "INSERT INTO knots(knot_id, relation_id, fragment_ids, dominant_channels, intensity, resolved, created_at, last_rewoven_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    knot.knot_id,
+                    knot.relation_id,
+                    _dump_json(knot.fragment_ids),
+                    _dump_json(tuple(channel.value for channel in knot.dominant_channels)),
+                    knot.intensity,
+                    1 if knot.resolved else 0,
+                    knot.created_at,
+                    knot.last_rewoven_at,
+                ),
+            )
+
+        for moments in relation_store.moments.values():
+            for moment in moments:
                 self._connection.execute(
-                    "INSERT INTO runtime_snapshots(payload) VALUES(?)",
-                    (json.dumps(payload, ensure_ascii=True, separators=(",", ":")),),
+                    "INSERT INTO relation_moments(moment_id, relation_id, user_turn_id, aurora_turn_id, user_channels, aurora_move, boundary_event, repair_event, summary, created_at) "
+                    "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        moment.moment_id,
+                        moment.relation_id,
+                        moment.user_turn_id,
+                        moment.aurora_turn_id,
+                        _dump_json(tuple(channel.value for channel in moment.user_channels)),
+                        moment.aurora_move,
+                        1 if moment.boundary_event else 0,
+                        1 if moment.repair_event else 0,
+                        moment.summary,
+                        moment.created_at,
+                    ),
                 )
 
-
-def _encode_payload(
-    state: RuntimeState, memory_store: MemoryStore, relation_store: RelationStore
-) -> dict[str, Any]:
-    return {
-        "being": asdict(state.being),
-        "transitions": [
-            {
-                "transition_id": item.transition_id,
-                "from_phase": item.from_phase.value,
-                "to_phase": item.to_phase.value,
-                "reason": item.reason,
-                "created_at": item.created_at,
-            }
-            for item in state.transitions
-        ],
-        "fragments": [_fragment_dict(item) for item in memory_store.fragments.values()],
-        "traces": [_trace_dict(item) for item in memory_store.traces.values()],
-        "associations": [_association_dict(item) for item in memory_store.associations.values()],
-        "chapters": [_chapter_dict(item) for item in memory_store.chapters.values()],
-        "relation_states": [_relation_state_dict(item) for item in relation_store.states.values()],
-        "relation_moments": [
-            _relation_moment_dict(item)
-            for moments in relation_store.moments.values()
-            for item in moments
-        ],
-        "sleep_cycles": memory_store.sleep_cycles,
-        "last_reweave_delta": memory_store.last_reweave_delta,
-    }
-
-
-def _decode_payload(payload: dict[str, Any]) -> tuple[MemoryStore, RelationStore, RuntimeState]:
-    memory_store = MemoryStore()
-    relation_store = RelationStore()
-    fragments = cast(list[dict[str, Any]], payload.get("fragments", []))
-    traces = cast(list[dict[str, Any]], payload.get("traces", []))
-    associations = cast(list[dict[str, Any]], payload.get("associations", []))
-    chapters = cast(list[dict[str, Any]], payload.get("chapters", []))
-    relation_states = cast(list[dict[str, Any]], payload.get("relation_states", []))
-    relation_moments = cast(list[dict[str, Any]], payload.get("relation_moments", []))
-    being_raw = cast(dict[str, Any], payload.get("being", {}))
-    transitions_raw = cast(list[dict[str, Any]], payload.get("transitions", []))
-
-    for raw in fragments:
-        item = Fragment(
-            fragment_id=raw["fragment_id"],
-            relation_id=raw["relation_id"],
-            turn_id=raw["turn_id"],
-            surface=raw["surface"],
-            tags=tuple(raw["tags"]),
-            vividness=raw["vividness"],
-            salience=raw["salience"],
-            unresolvedness=raw["unresolvedness"],
-            chapter_ids=tuple(raw["chapter_ids"]),
-            created_at=raw["created_at"],
-            last_touched_at=raw["last_touched_at"],
-            activation_count=raw["activation_count"],
-        )
-        memory_store.add_fragment(item)
-
-    for raw in traces:
-        memory_store.add_trace(
-            Trace(
-                trace_id=raw["trace_id"],
-                relation_id=raw["relation_id"],
-                fragment_id=raw["fragment_id"],
-                channel=TraceChannel(raw["channel"]),
-                intensity=raw["intensity"],
-                decay_rate=raw["decay_rate"],
-                created_at=raw["created_at"],
-                last_touched_at=raw["last_touched_at"],
+        for formation in relation_store.formations.values():
+            self._connection.execute(
+                "INSERT INTO relation_formations(relation_id, thread_ids, knot_ids, boundary_events, repair_events, resonance_events, last_contact_at) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?)",
+                (
+                    formation.relation_id,
+                    _dump_json(tuple(sorted(formation.thread_ids))),
+                    _dump_json(tuple(sorted(formation.knot_ids))),
+                    formation.boundary_events,
+                    formation.repair_events,
+                    formation.resonance_events,
+                    formation.last_contact_at,
+                ),
             )
+
+        orientation = state.orientation
+        metabolic = state.metabolic
+
+        self._connection.execute(
+            "INSERT INTO orientation_state(id, self_evidence, world_evidence, relation_evidence, anchor_thread_ids, active_knot_ids, last_updated_at) "
+            "VALUES(1, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET self_evidence = excluded.self_evidence, "
+            "world_evidence = excluded.world_evidence, relation_evidence = excluded.relation_evidence, "
+            "anchor_thread_ids = excluded.anchor_thread_ids, active_knot_ids = excluded.active_knot_ids, "
+            "last_updated_at = excluded.last_updated_at",
+            (
+                _dump_json(orientation.self_evidence),
+                _dump_json(orientation.world_evidence),
+                _dump_json(orientation.relation_evidence),
+                _dump_json(orientation.anchor_thread_ids),
+                _dump_json(orientation.active_knot_ids),
+                orientation.last_updated_at,
+            ),
         )
 
-    for raw in associations:
-        memory_store.add_association(
-            Association(
-                edge_id=raw["edge_id"],
-                src_fragment_id=raw["src_fragment_id"],
-                dst_fragment_id=raw["dst_fragment_id"],
-                kind=AssocKind(raw["kind"]),
-                weight=raw["weight"],
-                evidence=tuple(raw["evidence"]),
-                created_at=raw["created_at"],
-                last_touched_at=raw["last_touched_at"],
-            )
+        self._connection.execute(
+            "INSERT INTO metabolic_state(id, phase, sleep_need, active_relation_ids, active_knot_ids, pending_sleep_relation_ids, last_transition_at) "
+            "VALUES(1, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET phase = excluded.phase, sleep_need = excluded.sleep_need, "
+            "active_relation_ids = excluded.active_relation_ids, active_knot_ids = excluded.active_knot_ids, "
+            "pending_sleep_relation_ids = excluded.pending_sleep_relation_ids, "
+            "last_transition_at = excluded.last_transition_at",
+            (
+                metabolic.phase.value,
+                metabolic.sleep_need,
+                _dump_json(metabolic.active_relation_ids),
+                _dump_json(metabolic.active_knot_ids),
+                _dump_json(metabolic.pending_sleep_relation_ids),
+                metabolic.last_transition_at,
+            ),
         )
 
-    for raw in chapters:
-        memory_store.add_chapter(
-            Chapter(
-                chapter_id=raw["chapter_id"],
-                relation_id=raw["relation_id"],
-                title=raw["title"],
-                motif=raw["motif"],
-                fragment_ids=tuple(raw["fragment_ids"]),
-                roles={key: ChapterRole(value) for key, value in raw["roles"].items()},
-                tension=raw["tension"],
-                coherence=raw["coherence"],
-                created_at=raw["created_at"],
-                last_rewoven_at=raw["last_rewoven_at"],
-            )
-        )
 
-    for raw in relation_states:
-        relation_store.states[raw["relation_id"]] = RelationState(
-            relation_id=raw["relation_id"],
-            trust=raw["trust"],
-            reciprocity=raw["reciprocity"],
-            boundary_tension=raw["boundary_tension"],
-            repairability=raw["repairability"],
-            distance=raw["distance"],
-            shared_chapters=set(raw["shared_chapters"]),
-            last_contact_at=raw["last_contact_at"],
-        )
-
-    for raw in relation_moments:
-        moment = RelationMoment(
-            moment_id=raw["moment_id"],
-            relation_id=raw["relation_id"],
-            user_turn_id=raw["user_turn_id"],
-            aurora_turn_id=raw["aurora_turn_id"],
-            user_channels=tuple(TraceChannel(item) for item in raw["user_channels"]),
-            aurora_move=raw["aurora_move"],
-            boundary_crossed=raw["boundary_crossed"],
-            repair_attempted=raw["repair_attempted"],
-            summary=raw["summary"],
-            created_at=raw["created_at"],
-        )
-        relation_store.moments[moment.relation_id].append(moment)
-
-    memory_store.sleep_cycles = int(cast(int | float | str, payload.get("sleep_cycles", 0)))
-    memory_store.last_reweave_delta = float(
-        cast(int | float | str, payload.get("last_reweave_delta", 0.0))
-    )
-    being = BeingState(
-        phase=Phase(being_raw["phase"]),
-        continuity_pressure=being_raw["continuity_pressure"],
-        sleep_pressure=being_raw["sleep_pressure"],
-        coherence_pressure=being_raw["coherence_pressure"],
-        softness=being_raw["softness"],
-        boundary_tension=being_raw["boundary_tension"],
-        self_vector=dict(being_raw["self_vector"]),
-        world_vector=dict(being_raw["world_vector"]),
-        recent_chapter_bias=tuple(being_raw["recent_chapter_bias"]),
-        active_relation_id=being_raw["active_relation_id"],
-    )
-    transitions = [
-        PhaseTransition(
-            transition_id=item["transition_id"],
-            from_phase=Phase(item["from_phase"]),
-            to_phase=Phase(item["to_phase"]),
-            reason=item["reason"],
-            created_at=item["created_at"],
-        )
-        for item in transitions_raw
-    ]
-    return memory_store, relation_store, RuntimeState(being=being, transitions=transitions)
+def _dump_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
 
 
-def _fragment_dict(item: Fragment) -> dict[str, object]:
-    return {
-        "fragment_id": item.fragment_id,
-        "relation_id": item.relation_id,
-        "turn_id": item.turn_id,
-        "surface": item.surface,
-        "tags": list(item.tags),
-        "vividness": item.vividness,
-        "salience": item.salience,
-        "unresolvedness": item.unresolvedness,
-        "chapter_ids": list(item.chapter_ids),
-        "created_at": item.created_at,
-        "last_touched_at": item.last_touched_at,
-        "activation_count": item.activation_count,
-    }
+def _load_tuple_str(raw: Any) -> tuple[str, ...]:
+    if raw is None:
+        return ()
+    value = cast(list[Any], json.loads(str(raw)))
+    return tuple(str(item) for item in value)
 
 
-def _trace_dict(item: Trace) -> dict[str, object]:
-    return {
-        "trace_id": item.trace_id,
-        "relation_id": item.relation_id,
-        "fragment_id": item.fragment_id,
-        "channel": item.channel.value,
-        "intensity": item.intensity,
-        "decay_rate": item.decay_rate,
-        "created_at": item.created_at,
-        "last_touched_at": item.last_touched_at,
-    }
-
-
-def _association_dict(item: Association) -> dict[str, object]:
-    return {
-        "edge_id": item.edge_id,
-        "src_fragment_id": item.src_fragment_id,
-        "dst_fragment_id": item.dst_fragment_id,
-        "kind": item.kind.value,
-        "weight": item.weight,
-        "evidence": list(item.evidence),
-        "created_at": item.created_at,
-        "last_touched_at": item.last_touched_at,
-    }
-
-
-def _chapter_dict(item: Chapter) -> dict[str, object]:
-    return {
-        "chapter_id": item.chapter_id,
-        "relation_id": item.relation_id,
-        "title": item.title,
-        "motif": item.motif,
-        "fragment_ids": list(item.fragment_ids),
-        "roles": {key: value.value for key, value in item.roles.items()},
-        "tension": item.tension,
-        "coherence": item.coherence,
-        "created_at": item.created_at,
-        "last_rewoven_at": item.last_rewoven_at,
-    }
-
-
-def _relation_state_dict(item: RelationState) -> dict[str, object]:
-    return {
-        "relation_id": item.relation_id,
-        "trust": item.trust,
-        "reciprocity": item.reciprocity,
-        "boundary_tension": item.boundary_tension,
-        "repairability": item.repairability,
-        "distance": item.distance,
-        "shared_chapters": sorted(item.shared_chapters),
-        "last_contact_at": item.last_contact_at,
-    }
-
-
-def _relation_moment_dict(item: RelationMoment) -> dict[str, object]:
-    return {
-        "moment_id": item.moment_id,
-        "relation_id": item.relation_id,
-        "user_turn_id": item.user_turn_id,
-        "aurora_turn_id": item.aurora_turn_id,
-        "user_channels": [channel.value for channel in item.user_channels],
-        "aurora_move": item.aurora_move,
-        "boundary_crossed": item.boundary_crossed,
-        "repair_attempted": item.repair_attempted,
-        "summary": item.summary,
-        "created_at": item.created_at,
-    }
+def _load_dict_int(raw: Any) -> dict[str, int]:
+    value = cast(dict[str, Any], json.loads(str(raw)))
+    return {str(key): int(item) for key, item in value.items()}

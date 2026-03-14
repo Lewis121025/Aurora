@@ -1,30 +1,49 @@
 from __future__ import annotations
 
+from aurora.being.metabolic_state import MetabolicState
+from aurora.being.orientation import Orientation
 from aurora.memory.store import MemoryStore
+from aurora.phases.outcomes import PhaseOutcome
 from aurora.phases.transitions import phase_transition
 from aurora.relation.store import RelationStore
-from aurora.runtime.models import BeingState, Phase, PhaseOutcome
+from aurora.runtime.contracts import Phase, TraceChannel
 
 
 def run_sleep(
-    being: BeingState,
+    metabolic: MetabolicState,
+    orientation: Orientation,
     memory_store: MemoryStore,
     relation_store: RelationStore,
     now_ts: float,
 ) -> PhaseOutcome:
-    previous = being.phase
-    being.phase = Phase.SLEEP
-    mutation = memory_store.reweave(relation_states=relation_store.states, now_ts=now_ts)
-    being.drift(mutation.self_drift, mutation.world_drift)
-    being.coherence_pressure = max(0.0, being.coherence_pressure - mutation.coherence_shift)
-    being.boundary_tension = min(
-        1.0,
-        max(0.0, being.boundary_tension + mutation.tension_shift - 0.05),
+    previous = metabolic.phase
+    metabolic.enter_phase(Phase.SLEEP, now_ts)
+
+    mutation = memory_store.reweave(
+        relation_formations=relation_store.formations,
+        now_ts=now_ts,
+        pending_relations=metabolic.pending_sleep_relation_ids or None,
     )
-    being.sleep_pressure = max(0.0, being.sleep_pressure - 0.45)
-    being.recent_chapter_bias = mutation.chapter_ids[-4:]
+
+    dominant: set[TraceChannel] = set()
+    for thread_id in mutation.created_thread_ids:
+        thread = memory_store.threads[thread_id]
+        dominant.update(thread.dominant_channels)
+    for knot_id in mutation.created_knot_ids:
+        knot = memory_store.knots[knot_id]
+        dominant.update(knot.dominant_channels)
+
+    orientation.absorb_sleep(
+        thread_ids=mutation.created_thread_ids,
+        knot_ids=mutation.created_knot_ids,
+        dominant_channels=tuple(sorted(dominant, key=lambda item: item.value)),
+        now_ts=now_ts,
+    )
+    metabolic.set_active_knots(mutation.created_knot_ids)
+    metabolic.settle_after_sleep()
+
     return PhaseOutcome(
-        being=being,
+        phase=Phase.SLEEP,
         transition=phase_transition(previous, Phase.SLEEP, "manual_sleep", now_ts),
         mutation=mutation,
     )
