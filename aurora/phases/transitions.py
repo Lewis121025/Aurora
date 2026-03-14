@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from aurora.phases.phase_types import Phase
-from aurora.runtime.models import PhaseTransition
+from aurora.runtime.models import Phase, PhaseTransition
 
 
 def phase_transition(

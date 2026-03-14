@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-from aurora.phases.phase_types import Phase
-from aurora.runtime.models import ExistentialSnapshot
+from aurora.runtime.models import MetabolicState, Phase
 
 
-def initial_snapshot(now_ts: float) -> ExistentialSnapshot:
-    return ExistentialSnapshot(
+def initial_metabolic(now_ts: float) -> MetabolicState:
+    return MetabolicState(
         phase=Phase.AWAKE,
-        self_view=0.05,
-        world_view=0.10,
-        openness=0.70,
-        updated_at=now_ts,
+        sleep_need=0.0,
+        current_relation_id=None,
+        active_thread_ids=(),
+        active_knot_ids=(),
+        last_transition_at=now_ts,
     )

@@ -1,9 +1,5 @@
 from __future__ import annotations
 
-from enum import Enum
+from aurora.runtime.models import Phase
 
-
-class Phase(str, Enum):
-    AWAKE = "awake"
-    DOZE = "doze"
-    SLEEP = "sleep"
+__all__ = ["Phase"]

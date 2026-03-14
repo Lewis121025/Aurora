@@ -8,47 +8,115 @@ def apply_migrations(connection: sqlite3.Connection) -> None:
         connection.execute(
             "CREATE TABLE IF NOT EXISTS turns("
             "turn_id TEXT PRIMARY KEY, "
+            "relation_id TEXT NOT NULL, "
             "session_id TEXT NOT NULL, "
             "speaker TEXT NOT NULL, "
             "text TEXT NOT NULL, "
-            "created_at REAL NOT NULL"
+            "created_at REAL NOT NULL, "
+            "reply_to_turn_id TEXT"
             ")"
         )
         connection.execute(
             "CREATE TABLE IF NOT EXISTS fragments("
             "fragment_id TEXT PRIMARY KEY, "
             "turn_id TEXT NOT NULL, "
-            "text TEXT NOT NULL, "
+            "relation_id TEXT NOT NULL, "
+            "surface TEXT NOT NULL, "
+            "touch_channels TEXT NOT NULL, "
+            "salience REAL NOT NULL, "
+            "vividness REAL NOT NULL, "
+            "unresolvedness REAL NOT NULL, "
+            "activation REAL NOT NULL, "
             "created_at REAL NOT NULL, "
-            "salience REAL NOT NULL"
+            "last_touched_at REAL NOT NULL"
             ")"
         )
         connection.execute(
             "CREATE TABLE IF NOT EXISTS traces("
             "trace_id TEXT PRIMARY KEY, "
-            "turn_id TEXT NOT NULL, "
-            "mode TEXT NOT NULL, "
+            "fragment_id TEXT NOT NULL, "
+            "relation_id TEXT NOT NULL, "
+            "channel TEXT NOT NULL, "
             "intensity REAL NOT NULL, "
-            "created_at REAL NOT NULL"
+            "persistence REAL NOT NULL, "
+            "created_at REAL NOT NULL, "
+            "last_touched_at REAL NOT NULL"
             ")"
         )
         connection.execute(
             "CREATE TABLE IF NOT EXISTS associations("
-            "association_id TEXT PRIMARY KEY, "
-            "source_fragment_id TEXT NOT NULL, "
-            "target_fragment_id TEXT NOT NULL, "
+            "edge_id TEXT PRIMARY KEY, "
+            "src_fragment_id TEXT NOT NULL, "
+            "dst_fragment_id TEXT NOT NULL, "
+            "kind TEXT NOT NULL, "
             "weight REAL NOT NULL, "
-            "created_at REAL NOT NULL"
+            "evidence_count INTEGER NOT NULL, "
+            "created_at REAL NOT NULL, "
+            "last_touched_at REAL NOT NULL"
+            ")"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS threads("
+            "thread_id TEXT PRIMARY KEY, "
+            "relation_id TEXT NOT NULL, "
+            "fragment_ids TEXT NOT NULL, "
+            "motif_channels TEXT NOT NULL, "
+            "coherence REAL NOT NULL, "
+            "tension REAL NOT NULL, "
+            "synopsis TEXT NOT NULL, "
+            "created_at REAL NOT NULL, "
+            "last_rewoven_at REAL NOT NULL"
+            ")"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS knots("
+            "knot_id TEXT PRIMARY KEY, "
+            "relation_id TEXT NOT NULL, "
+            "fragment_ids TEXT NOT NULL, "
+            "channel TEXT NOT NULL, "
+            "density REAL NOT NULL, "
+            "heat REAL NOT NULL, "
+            "created_at REAL NOT NULL, "
+            "last_touched_at REAL NOT NULL"
             ")"
         )
         connection.execute(
             "CREATE TABLE IF NOT EXISTS relation_moments("
             "moment_id TEXT PRIMARY KEY, "
+            "relation_id TEXT NOT NULL, "
             "session_id TEXT NOT NULL, "
-            "turn_id TEXT NOT NULL, "
-            "tone TEXT NOT NULL, "
-            "summary TEXT NOT NULL, "
+            "user_turn_id TEXT NOT NULL, "
+            "aurora_turn_id TEXT NOT NULL, "
+            "user_channels TEXT NOT NULL, "
+            "user_move TEXT NOT NULL, "
+            "aurora_move TEXT NOT NULL, "
+            "boundary_signal REAL NOT NULL, "
+            "resonance_score REAL NOT NULL, "
+            "note TEXT NOT NULL, "
             "created_at REAL NOT NULL"
+            ")"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS relation_formations("
+            "relation_id TEXT PRIMARY KEY, "
+            "trust REAL NOT NULL, "
+            "familiarity REAL NOT NULL, "
+            "reciprocity REAL NOT NULL, "
+            "boundary_tension REAL NOT NULL, "
+            "repairability REAL NOT NULL, "
+            "active_thread_ids TEXT NOT NULL, "
+            "active_knot_ids TEXT NOT NULL, "
+            "last_contact_at REAL NOT NULL"
+            ")"
+        )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS orientations("
+            "relation_id TEXT PRIMARY KEY, "
+            "self_orientation REAL NOT NULL, "
+            "world_orientation REAL NOT NULL, "
+            "relation_orientation REAL NOT NULL, "
+            "narrative_tilt REAL NOT NULL, "
+            "updated_at REAL NOT NULL"
             ")"
         )
         connection.execute(
@@ -61,13 +129,14 @@ def apply_migrations(connection: sqlite3.Connection) -> None:
             ")"
         )
         connection.execute(
-            "CREATE TABLE IF NOT EXISTS snapshots("
-            "snapshot_id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            "CREATE TABLE IF NOT EXISTS metabolic_state("
+            "state_id INTEGER PRIMARY KEY CHECK(state_id = 1), "
             "phase TEXT NOT NULL, "
-            "self_view REAL NOT NULL, "
-            "world_view REAL NOT NULL, "
-            "openness REAL NOT NULL, "
-            "updated_at REAL NOT NULL"
+            "sleep_need REAL NOT NULL, "
+            "current_relation_id TEXT, "
+            "active_thread_ids TEXT NOT NULL, "
+            "active_knot_ids TEXT NOT NULL, "
+            "last_transition_at REAL NOT NULL"
             ")"
         )
         connection.execute(
@@ -76,23 +145,3 @@ def apply_migrations(connection: sqlite3.Connection) -> None:
             "meta_value TEXT NOT NULL"
             ")"
         )
-    _ensure_column(
-        connection,
-        table_name="fragments",
-        column_name="narrative_weight",
-        definition="REAL NOT NULL DEFAULT 0.0",
-    )
-
-
-def _ensure_column(
-    connection: sqlite3.Connection,
-    table_name: str,
-    column_name: str,
-    definition: str,
-) -> None:
-    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
-    names = {str(row[1]) for row in rows}
-    if column_name in names:
-        return
-    with connection:
-        connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}")

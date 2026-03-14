@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from aurora.phases.phase_types import Phase
+from aurora.runtime.models import Phase
 
 
 class TurnRequest(BaseModel):
@@ -13,7 +13,7 @@ class TurnRequest(BaseModel):
 class TurnResponse(BaseModel):
     turn_id: str
     response_text: str
-    touch_modes: tuple[str, ...]
+    touch_channels: tuple[str, ...]
 
 
 class PhaseResponse(BaseModel):
@@ -30,20 +30,20 @@ class HealthResponse(BaseModel):
 
 class StateResponse(BaseModel):
     phase: str
-    updated_at: float
-    self_view: float
-    world_view: float
-    openness: float
+    sleep_need: float
+    current_relation_id: str | None
+    active_thread_ids: tuple[str, ...]
+    active_knot_ids: tuple[str, ...]
+    last_transition_at: float
     turns: int
     memory_fragments: int
     memory_traces: int
     memory_associations: int
-    avg_salience: float
-    avg_narrative_weight: float
-    narrative_pressure: float
+    threads: int
+    knots: int
+    relation_moments: int
+    trust: float
+    boundary_tension: float
     sleep_cycles: int
     last_reweave_delta: float
-    relation_moments: int
-    relation_tone: str
-    relation_strength: float
     transitions: int
