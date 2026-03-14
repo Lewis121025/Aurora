@@ -1,0 +1,75 @@
+{
+  "awake": {
+    "mode_deltas": {
+      "warmth": {"self": 0.0, "world": 0.03, "open": 0.02},
+      "hurt": {"self": 0.0, "world": -0.04, "open": -0.03},
+      "insight": {"self": 0.02, "world": 0.01, "open": 0.0},
+      "boundary": {"self": 0.01, "world": 0.0, "open": -0.01},
+      "curiosity": {"self": 0.0, "world": 0.01, "open": 0.01}
+    },
+    "relation_bias": {
+      "warm": {"world": 0.03, "open": 0.015},
+      "neutral": {"world": 0.0, "open": 0.0},
+      "cold": {"world": -0.03, "open": -0.015},
+      "boundary": {"world": -0.02, "open": -0.01}
+    }
+  },
+  "doze": {
+    "base_drift": 0.03,
+    "memory_scale": 0.05,
+    "narrative_scale": 0.04,
+    "self_target": 0.2,
+    "self_scale": 0.02,
+    "world_equilibrium": {
+      "warm": 0.35,
+      "neutral": 0.1,
+      "cold": -0.15,
+      "boundary": -0.05
+    },
+    "open_equilibrium": {
+      "warm": 0.7,
+      "neutral": 0.55,
+      "cold": 0.35,
+      "boundary": 0.3
+    }
+  },
+  "sleep": {
+    "step": 0.05,
+    "tone_bias": {
+      "warm": 0.04,
+      "neutral": 0.0,
+      "cold": -0.02,
+      "boundary": -0.03
+    },
+    "salience_mix": {"old": 0.6, "resonance": 0.25, "association": 0.15},
+    "narrative_mix": {"old": 0.5, "salience": 0.25, "association": 0.15, "resonance": 0.1},
+    "snapshot_targets": {
+      "world": {
+        "warm": 0.45,
+        "neutral": 0.15,
+        "cold": -0.2,
+        "boundary": -0.1
+      },
+      "open": {
+        "warm": 0.72,
+        "neutral": 0.58,
+        "cold": 0.36,
+        "boundary": 0.32
+      },
+      "self": 0.25
+    },
+    "snapshot_scales": {"world": 0.08, "open": 0.1, "self": 0.06}
+  },
+  "recall": {
+    "relation_base": 0.25,
+    "relation_scale": 0.45,
+    "narrative_base": 0.1,
+    "narrative_scale": 0.3,
+    "recency_base": 0.3,
+    "recency_relation_scale": 0.2,
+    "resonance_base": 0.2,
+    "resonance_relation_scale": 0.1,
+    "association_base": 0.15,
+    "association_narrative_scale": 0.1
+  }
+}

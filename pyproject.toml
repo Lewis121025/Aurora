@@ -1,22 +1,15 @@
 [project]
 name = "aurora-memory"
 version = "1.0.0"
-description = "Aurora Seed v1 - Mac-first substrate for a long-term digital soul."
+description = "Aurora rewrite runtime with awake/doze/sleep continuity."
 requires-python = ">=3.10"
 authors = [{ name = "AURORA Contributors" }]
 readme = "README.md"
 license = { text = "Proprietary" }
 dependencies = [
-  "numpy>=1.24",
   "pydantic>=2.6",
   "fastapi>=0.110",
   "uvicorn>=0.27",
-  "onnxruntime>=1.24.3",
-  "tokenizers>=0.22.2",
-  "huggingface-hub>=1.6.0",
-  "python-dotenv>=1.2.2",
-  "rich>=14.3.3",
-  "networkx>=3.0",
 ]
 
 [project.optional-dependencies]
@@ -27,7 +20,7 @@ dev = [
 ]
 
 [project.scripts]
-aurora = "aurora.surface_api.cli:main"
+aurora = "aurora.surface.cli:main"
 
 [tool.ruff]
 line-length = 100
@@ -39,9 +32,15 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["aurora*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"aurora.being" = ["touch_lexicon.json", "dynamics_profile.json"]
 
 [tool.mypy]
 python_version = "3.10"
+namespace_packages = true
+explicit_package_bases = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
