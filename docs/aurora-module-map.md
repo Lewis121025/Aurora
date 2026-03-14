@@ -254,17 +254,20 @@ Important boundary:
 Current files:
 
 - `context.py`
+- `render.py`
 - `response.py`
+- `silence.py`
+- `voice.py`
 
 Current role:
 
 - hold read-only expression context
 - choose `ResponseAct` from current graph pressure and relation projection
+- render refusal, silence, and voiced text without mutating canonical graph state
 
 Future role:
 
-- render outward language or silence through more explicit expression modules
-- render outward language or silence
+- expand from current planning and rendering into a fuller expression stack if real complexity appears
 
 Hard rule:
 

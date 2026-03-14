@@ -155,13 +155,13 @@ The rewrite is structurally complete, but the architecture is not finished.
 Current truth:
 
 - response planning now lives in `aurora/expression/`
-- `aurora/phases/awake.py` still owns some immediate move consequences and trace materialization
+- rendering now also lives in `aurora/expression/`
+- `aurora/phases/awake.py` still commits the rendered result into canonical graph history
 
 Required next move:
 
-- keep expanding expression around `ResponseAct` and `ExpressionContext`
-- separate rendering from phase orchestration more clearly
-- isolate silence, refusal, and tone shaping into explicit expression modules
+- keep expanding expression around `ResponseAct`, `ExpressionContext`, and explicit render modules
+- isolate richer tone evolution and future silence/refusal nuance without moving graph writes into expression
 - keep expression read-only over canonical graph state
 
 Rule:

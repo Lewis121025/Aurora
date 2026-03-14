@@ -1,15 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from aurora.expression.context import ExpressionContext
 from aurora.runtime.contracts import AuroraMove, TraceChannel
 
 
+Tone = Literal["quiet", "firm", "guarded", "gentle", "steady"]
+
+
 @dataclass(frozen=True, slots=True)
 class ResponseAct:
     move: AuroraMove
-    text: str
+    tone: Tone
     response_channels: tuple[TraceChannel, ...]
 
 
@@ -24,42 +28,42 @@ def plan_response(context: ExpressionContext) -> ResponseAct:
     if any(token in lowered for token in ("shut up", "get lost", "闭嘴", "滚")):
         return ResponseAct(
             move="silence",
-            text="I will remain quiet here.",
+            tone="quiet",
             response_channels=(TraceChannel.DISTANCE,),
         )
     if TraceChannel.BOUNDARY in dominant or boundary_events >= 3:
         return ResponseAct(
             move="boundary",
-            text="I need to hold a boundary and not move past it.",
+            tone="firm",
             response_channels=(TraceChannel.BOUNDARY, TraceChannel.COHERENCE),
         )
     if "sorry" in lowered or "对不起" in context.input_text or "修复" in context.input_text:
         return ResponseAct(
             move="repair",
-            text="I can stay with a repair attempt, but slowly.",
+            tone="gentle",
             response_channels=(TraceChannel.REPAIR, TraceChannel.WARMTH),
         )
     if context.has_knots and repairability < 0.30:
         return ResponseAct(
             move="withhold",
-            text="I am still here, but I need to keep distance for now.",
+            tone="guarded",
             response_channels=(TraceChannel.DISTANCE, TraceChannel.COHERENCE),
         )
     if distance >= 0.40:
         return ResponseAct(
             move="withhold",
-            text="I am not leaving, but I am keeping some distance.",
+            tone="guarded",
             response_channels=(TraceChannel.DISTANCE, TraceChannel.COHERENCE),
         )
     if TraceChannel.WARMTH in dominant or trust >= 0.35:
         return ResponseAct(
             move="approach",
-            text="I can feel the thread here and I want to stay with it.",
+            tone="gentle",
             response_channels=(TraceChannel.WARMTH, TraceChannel.RECOGNITION),
         )
     return ResponseAct(
         move="witness",
-        text="I am staying with what is present, without flattening it.",
+        tone="steady",
         response_channels=(TraceChannel.RECOGNITION, TraceChannel.COHERENCE),
     )
 

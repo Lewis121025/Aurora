@@ -304,7 +304,8 @@ Current shape:
 
 - `ExpressionContext` holds read-only inputs for outward behavior
 - `ResponseAct` planning happens in `aurora/expression/`
-- phase orchestration still materializes some immediate consequences of the chosen move
+- rendering for silence, refusal, tone, and response traces happens in `aurora/expression/`
+- phase orchestration now mainly commits the chosen outward result into canonical graph history
 
 Required final shape:
 

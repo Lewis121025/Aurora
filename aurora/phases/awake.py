@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from aurora.expression.context import ExpressionContext
+from aurora.expression.render import render_response
 from aurora.expression.response import plan_response
 from aurora.being.metabolic_state import MetabolicState
 from aurora.being.orientation import Orientation
@@ -14,7 +15,6 @@ from aurora.phases.transitions import phase_transition
 from aurora.relation.moment import RelationMoment
 from aurora.relation.store import RelationStore
 from aurora.runtime.contracts import (
-    AssocKind,
     AuroraMove,
     Phase,
     PhaseTransition,
@@ -87,16 +87,16 @@ def run_awake(
 
     dominant_channels = memory_store.build_activation_channels(recalled + (user_fragment,))
     relation_snapshot = relation_store.summarize_relation(relation_id)
-    response_act = plan_response(
-        ExpressionContext(
-            input_text=text,
-            relation_snapshot=relation_snapshot,
-            dominant_channels=dominant_channels,
-            has_knots=bool(memory_store.knots_for_relation(relation_id)),
-        )
+    expression_context = ExpressionContext(
+        input_text=text,
+        relation_snapshot=relation_snapshot,
+        dominant_channels=dominant_channels,
+        has_knots=bool(memory_store.knots_for_relation(relation_id)),
     )
-    response_text = response_act.text
-    aurora_move = response_act.move
+    response_act = plan_response(expression_context)
+    rendered_response = render_response(expression_context, response_act)
+    response_text = rendered_response.text
+    aurora_move = rendered_response.move
 
     aurora_turn = Turn(
         turn_id=f"turn_{uuid4().hex[:12]}",
@@ -112,7 +112,7 @@ def run_awake(
         surface=response_text[:180],
         vividness=0.42,
         salience=0.44,
-        unresolvedness=0.24 if aurora_move == "withhold" else 0.16,
+        unresolvedness=rendered_response.fragment_unresolvedness,
         now_ts=now_ts,
     )
     aurora_traces = tuple(
@@ -123,13 +123,13 @@ def run_awake(
             intensity=intensity,
             now_ts=now_ts,
         )
-        for channel, intensity in _trace_intensities(response_act.response_channels)
+        for channel, intensity in rendered_response.response_traces
     )
 
     memory_store.link_fragments(
         src_fragment_id=user_fragment.fragment_id,
         dst_fragment_id=aurora_fragment.fragment_id,
-        kind=_edge_kind_from_move(aurora_move),
+        kind=rendered_response.association_kind,
         weight=0.72,
         evidence=(user_turn.turn_id, aurora_turn.turn_id),
         now_ts=now_ts,
@@ -206,35 +206,6 @@ def _infer_traces(text: str) -> list[tuple[TraceChannel, float]]:
     ):
         traces.append((TraceChannel.DISTANCE, 0.50))
     return traces
-
-
-def _trace_intensities(channels: tuple[TraceChannel, ...]) -> list[tuple[TraceChannel, float]]:
-    intensity_map = {
-        TraceChannel.BOUNDARY: 0.70,
-        TraceChannel.COHERENCE: 0.42,
-        TraceChannel.REPAIR: 0.66,
-        TraceChannel.WARMTH: 0.32,
-        TraceChannel.DISTANCE: 0.48,
-        TraceChannel.RECOGNITION: 0.34,
-    }
-    fallback = {
-        TraceChannel.CURIOSITY: 0.30,
-        TraceChannel.HURT: 0.34,
-        TraceChannel.WONDER: 0.28,
-    }
-    return [
-        (channel, intensity_map.get(channel, fallback.get(channel, 0.28))) for channel in channels
-    ]
-
-
-def _edge_kind_from_move(aurora_move: AuroraMove) -> AssocKind:
-    if aurora_move == "boundary":
-        return AssocKind.BOUNDARY
-    if aurora_move == "repair":
-        return AssocKind.REPAIR
-    if aurora_move == "withhold":
-        return AssocKind.CONTRAST
-    return AssocKind.RELATION
 
 
 def _estimate_unresolvedness(text: str) -> float:
