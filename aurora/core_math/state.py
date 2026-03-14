@@ -40,9 +40,9 @@ def cosine(a: np.ndarray, b: np.ndarray, eps: float = 1e-8) -> float:
 
 @dataclass
 class LatentState:
-    core_vector: np.ndarray      # The unshakeable self
-    surface_vector: np.ndarray   # The volatile mood
-    user_model: np.ndarray       # Theory of Mind: the perceived user
+    core_vector: np.ndarray  # The unshakeable self
+    surface_vector: np.ndarray  # The volatile mood
+    user_model: np.ndarray  # Theory of Mind: the perceived user
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -93,6 +93,7 @@ class MetricState:
 @dataclass
 class Spark:
     """Holistic node representing Episodic, Fossil, or Concept memories, potentially multimodal."""
+
     spark_id: str
     type: str  # 'episodic' | 'fossil' | 'concept' | 'void'
     timestamp: str
@@ -104,7 +105,9 @@ class Spark:
     next_id: str | None = None
     resonant_links: list[str] = field(default_factory=list)
     # Multimodal & Affective extensions
-    vad_vector: list[float] = field(default_factory=lambda: [0.0, 0.0, 0.0]) # Valence, Arousal, Dominance
+    vad_vector: list[float] = field(
+        default_factory=lambda: [0.0, 0.0, 0.0]
+    )  # Valence, Arousal, Dominance
     media_refs: list[str] = field(default_factory=list)
     sensory_context: dict[str, Any] = field(default_factory=dict)
 
@@ -186,7 +189,11 @@ class SealedStateHeader:
     updated_at: str
 
     def to_dict(self) -> dict:
-        return {"version": self.version, "created_at": self.created_at, "updated_at": self.updated_at}
+        return {
+            "version": self.version,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "SealedStateHeader":
@@ -199,7 +206,7 @@ class SealedState:
     latent: LatentState
     metric: MetricState
     sparks: dict[str, Spark]  # 节点拓扑图字典
-    arrival: ArrivalState
+    arrival: ArrivalState | None
     rng_state: dict
     last_event_time: str
     next_wake_at: str | None = None
@@ -210,7 +217,7 @@ class SealedState:
             "latent": self.latent.to_dict(),
             "metric": self.metric.to_dict(),
             "sparks": {k: v.to_dict() for k, v in self.sparks.items()},
-            "arrival": self.arrival.to_dict(),
+            "arrival": self.arrival.to_dict() if self.arrival else None,
             "rng_state": self.rng_state,
             "last_event_time": self.last_event_time,
             "next_wake_at": self.next_wake_at,
@@ -219,41 +226,44 @@ class SealedState:
     @classmethod
     def from_dict(cls, data: dict) -> "SealedState":
         sparks_data = data["sparks"]
-        
+
         # Backward compatibility for v4 (thermodynamic array)
         header = SealedStateHeader.from_dict(data["header"])
         if isinstance(sparks_data, list) and header.version == "aurora-seed-v4-thermodynamic":
             sparks_dict = {}
             old_sparks = [Spark.from_dict(s) for s in sparks_data]
-            
+
             # Filter non-void sparks and sort by timestamp
             valid_sparks = [s for s in old_sparks if s.type != "void"]
             valid_sparks.sort(key=lambda s: parse_utc(s.timestamp))
-            
+
             for i, s in enumerate(valid_sparks):
                 if i > 0:
-                    s.prev_id = valid_sparks[i-1].spark_id
+                    s.prev_id = valid_sparks[i - 1].spark_id
                 if i < len(valid_sparks) - 1:
-                    s.next_id = valid_sparks[i+1].spark_id
+                    s.next_id = valid_sparks[i + 1].spark_id
                 sparks_dict[s.spark_id] = s
-                
-            # Keep void sparks without links to fill capacity if needed, 
-            # but in v5, capacity management might change to dynamic graph pruning. 
+
+            # Keep void sparks without links to fill capacity if needed,
+            # but in v5, capacity management might change to dynamic graph pruning.
             # We will retain void sparks just as disconnected nodes.
             for s in old_sparks:
                 if s.type == "void":
                     sparks_dict[s.spark_id] = s
-                    
+
             header.version = SEALED_STATE_VERSION
         else:
             sparks_dict = {k: Spark.from_dict(v) for k, v in sparks_data.items()}
+
+        arrival_data = data.get("arrival")
+        arrival = ArrivalState.from_dict(arrival_data) if arrival_data else None
 
         return cls(
             header=header,
             latent=LatentState.from_dict(data["latent"]),
             metric=MetricState.from_dict(data["metric"]),
             sparks=sparks_dict,
-            arrival=ArrivalState.from_dict(data["arrival"]),
+            arrival=arrival,
             rng_state=dict(data["rng_state"]),
             last_event_time=data["last_event_time"],
             next_wake_at=data.get("next_wake_at"),

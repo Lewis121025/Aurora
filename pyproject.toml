@@ -8,7 +8,6 @@ readme = "README.md"
 license = { text = "Proprietary" }
 dependencies = [
   "numpy>=1.24",
-  "scipy>=1.11",
   "pydantic>=2.6",
   "fastapi>=0.110",
   "uvicorn>=0.27",
@@ -17,6 +16,7 @@ dependencies = [
   "huggingface-hub>=1.6.0",
   "python-dotenv>=1.2.2",
   "rich>=14.3.3",
+  "networkx>=3.0",
 ]
 
 [project.optional-dependencies]

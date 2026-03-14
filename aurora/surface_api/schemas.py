@@ -1,40 +1,60 @@
 from __future__ import annotations
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 
-class InputRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    user_text: str = Field(
-        min_length=1,
-        validation_alias=AliasChoices("user_text", "text"),
-        serialization_alias="user_text",
-    )
-    language: str = "auto"
+class AddMemoryRequest(BaseModel):
+    text: str = Field(min_length=1)
+    user_id: str | None = None
 
 
-class InputResponse(BaseModel):
-    event_id: str
-    output_text: str | None
-    outcome: str
-    next_wake_at: str | None
+class AddMemoryResponse(BaseModel):
+    memory_id: str
+    user_id: str
+    text: str
+    created_at: str
+
+
+class SearchRequest(BaseModel):
+    query: str = Field(min_length=1)
+    user_id: str | None = None
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+class MemoryResult(BaseModel):
+    memory_id: str
+    text: str
+    source: str
+    timestamp: str
+    score: float
+
+
+class SearchResponse(BaseModel):
+    results: list[MemoryResult]
+
+
+class GetAllResponse(BaseModel):
+    memories: list[MemoryResult]
+
+
+class UpdateMemoryRequest(BaseModel):
+    data: str = Field(min_length=1)
+    user_id: str | None = None
+
+
+class UpdateMemoryResponse(BaseModel):
+    memory_id: str
+    text: str
+    updated_at: str
+
+
+class DeleteMemoryRequest(BaseModel):
+    memory_id: str = Field(min_length=1)
+    user_id: str | None = None
 
 
 class HealthResponse(BaseModel):
-    version: str
-    substrate_alive: bool
-    sealed_state_version: str
-    anchor_count: int
-    next_wake_at: str | None
-    last_error: str | None
-    provider_healthy: bool
-
-
-class IntegrityResponse(BaseModel):
-    version: str
-    runtime_boundary: str
-    substrate_transport: str
-    sealed_state_version: str
-    config_fingerprint: str
-    generated_at: str
+    status: str
+    user_id: str
+    graph: dict
+    core: dict
