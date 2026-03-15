@@ -5,9 +5,11 @@ from pathlib import Path
 from aurora.memory.recall import recent_recall
 from aurora.runtime.engine import AuroraEngine
 
+from tests.conftest import ContextAwareLLM, StubLLM
+
 
 def test_sleep_reweave_creates_thread_and_knot_from_clustered_fragments(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
     engine.handle_turn(session_id="s", text="谢谢你理解我")
     engine.handle_turn(session_id="s", text="我还是有点受伤，也有边界冲突")
 
@@ -22,7 +24,7 @@ def test_sleep_reweave_creates_thread_and_knot_from_clustered_fragments(tmp_path
 
 
 def test_recall_stays_relation_scoped(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
     engine.handle_turn(session_id="a", text="谢谢你，我记得这件事")
     engine.handle_turn(session_id="b", text="普通更新")
 
@@ -33,7 +35,7 @@ def test_recall_stays_relation_scoped(tmp_path: Path) -> None:
 
 
 def test_runtime_recovers_orientation_and_threads_from_persistence(tmp_path: Path) -> None:
-    first = AuroraEngine.create(data_dir=str(tmp_path))
+    first = AuroraEngine.create(data_dir=str(tmp_path), llm=ContextAwareLLM())
     first.handle_turn(session_id="s", text="谢谢你理解我")
     first.handle_turn(session_id="s", text="我还是有点受伤，但想修复")
     first.sleep()
@@ -43,7 +45,7 @@ def test_runtime_recovers_orientation_and_threads_from_persistence(tmp_path: Pat
         for source in first.state.orientation.self_evidence["recognition"]
     )
 
-    second = AuroraEngine.create(data_dir=str(tmp_path))
+    second = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
 
     assert second.persistence.turn_count() == 2
     assert second.memory_store.sleep_cycles >= 1
@@ -55,7 +57,7 @@ def test_runtime_recovers_orientation_and_threads_from_persistence(tmp_path: Pat
 
 
 def test_sleep_pushes_thread_or_knot_sources_into_orientation(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
     engine.handle_turn(session_id="s", text="谢谢你理解我")
     engine.handle_turn(session_id="s", text="我还是有点受伤，也有边界冲突")
 

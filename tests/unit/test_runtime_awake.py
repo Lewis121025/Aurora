@@ -6,22 +6,17 @@ from aurora.memory.recall import recent_recall
 from aurora.runtime.contracts import Phase
 from aurora.runtime.engine import AuroraEngine
 
+from tests.conftest import ContextAwareLLM, StubLLM
+
 
 def test_awake_writes_canonical_graph_objects(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
 
     output = engine.handle_turn(session_id="s1", text="谢谢你理解我，我有点害怕")
 
     assert output.turn_id
     assert output.response_text
-    assert output.aurora_move in {
-        "approach",
-        "withhold",
-        "boundary",
-        "repair",
-        "silence",
-        "witness",
-    }
+    assert output.aurora_move in {"approach", "withhold", "boundary", "repair", "silence", "witness"}
     assert engine.state.metabolic.phase is Phase.AWAKE
     assert len(engine.memory_store.fragments) == 2
     assert len(engine.memory_store.traces) >= 2
@@ -32,16 +27,15 @@ def test_awake_writes_canonical_graph_objects(tmp_path: Path) -> None:
 
 
 def test_boundary_input_pushes_boundary_move(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=ContextAwareLLM())
 
     output = engine.handle_turn(session_id="s2", text="不要再继续，停，边界在这里")
 
     assert output.aurora_move == "boundary"
-    assert "boundary" in output.response_text.lower()
 
 
 def test_phase_transitions_are_lifecycle_events(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
     engine.handle_turn(session_id="s3", text="我想知道我们之后会怎样")
 
     doze_output = engine.doze()
@@ -54,7 +48,7 @@ def test_phase_transitions_are_lifecycle_events(tmp_path: Path) -> None:
 
 
 def test_doze_hover_keeps_recent_relation_material_lightly_active(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
     engine.handle_turn(session_id="s4", text="谢谢你理解我")
 
     engine.doze()

@@ -7,9 +7,11 @@ from aurora.evaluation.relation_dynamics import evaluate_relation_dynamics
 from aurora.evaluation.sleep_effects import evaluate_sleep_effects, snapshot_sleep_state
 from aurora.runtime.engine import AuroraEngine
 
+from tests.conftest import ContextAwareLLM, StubLLM
+
 
 def test_continuity_check_accepts_live_runtime_state(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
     engine.handle_turn(session_id="s1", text="谢谢你理解我")
 
     report = evaluate_continuity(
@@ -22,7 +24,7 @@ def test_continuity_check_accepts_live_runtime_state(tmp_path: Path) -> None:
 
 
 def test_relation_dynamics_check_tracks_boundary_and_repair_history(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=ContextAwareLLM())
     engine.handle_turn(session_id="s1", text="不要继续，边界在这里")
     engine.handle_turn(session_id="s1", text="对不起，我想修复")
     engine.sleep()
@@ -39,7 +41,7 @@ def test_relation_dynamics_check_tracks_boundary_and_repair_history(tmp_path: Pa
 
 
 def test_sleep_effects_check_detects_reweave_output(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
     engine.handle_turn(session_id="s1", text="谢谢你理解我")
     engine.handle_turn(session_id="s1", text="我还是有点受伤，也有边界冲突")
 

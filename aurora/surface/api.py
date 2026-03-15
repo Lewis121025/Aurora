@@ -13,9 +13,9 @@ from aurora.surface.schemas import (
 )
 
 
-def build_app(engine: AuroraEngine | None = None) -> FastAPI:
+def build_app(engine: AuroraEngine) -> FastAPI:
     app = FastAPI(title="Aurora Surface")
-    runtime = engine or AuroraEngine.create()
+    runtime = engine
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
@@ -72,4 +72,5 @@ def build_app(engine: AuroraEngine | None = None) -> FastAPI:
     return app
 
 
-app = build_app()
+def create_app() -> FastAPI:
+    return build_app(AuroraEngine.create())

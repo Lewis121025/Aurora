@@ -2,15 +2,15 @@
 
 Aurora is a memory-bearing runtime with awake/doze/sleep continuity.
 
-It keeps internal state, forms relational history, and changes mostly internally before that change appears in behavior. When an LLM is configured, Aurora generates language from graph-derived context. Without one, it falls back to template rendering.
+It keeps internal state, forms relational history, and changes mostly internally before that change appears in behavior. Aurora requires an LLM — a single cognitive call produces touch, relational move, and response as one act.
 
 ## Package Layout
 
 ```text
 aurora/
-├── being/          # MetabolicState, Orientation, touch detection
+├── being/          # MetabolicState, Orientation
 ├── evaluation/     # ontology regression checks
-├── expression/     # response planning, rendering, LLM prompt assembly
+├── expression/     # unified LLM cognition (touch + move + response)
 ├── llm/            # LLMProvider protocol, OpenAI-compatible implementation
 ├── memory/         # Fragment, Trace, Association, Thread, Knot, recall, reweave
 ├── persistence/    # SQLite persistence (UPSERT-based)
@@ -36,7 +36,7 @@ AURORA_LLM_MODEL=gpt-4o-mini
 AURORA_LLM_API_KEY=your-key
 ```
 
-Any OpenAI-compatible API works (Bailian, DeepSeek, etc.). Without these variables, Aurora uses template rendering.
+Any OpenAI-compatible API works (Bailian, DeepSeek, etc.). Aurora will not start without these variables.
 
 ## CLI
 

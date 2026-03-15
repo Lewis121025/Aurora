@@ -7,9 +7,11 @@ from fastapi.testclient import TestClient
 from aurora.runtime.engine import AuroraEngine
 from aurora.surface.api import build_app
 
+from tests.conftest import StubLLM
+
 
 def test_health_and_state_endpoints_expose_runtime_projection(tmp_path: Path) -> None:
-    app = build_app(engine=AuroraEngine.create(data_dir=str(tmp_path)))
+    app = build_app(engine=AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM()))
     client = TestClient(app)
 
     health = client.get("/health")
@@ -24,7 +26,7 @@ def test_health_and_state_endpoints_expose_runtime_projection(tmp_path: Path) ->
 
 
 def test_turn_doze_sleep_endpoints_follow_final_surface_paths(tmp_path: Path) -> None:
-    app = build_app(engine=AuroraEngine.create(data_dir=str(tmp_path)))
+    app = build_app(engine=AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM()))
     client = TestClient(app)
 
     turn = client.post("/turn", json={"session_id": "s1", "text": "我想知道为什么"})

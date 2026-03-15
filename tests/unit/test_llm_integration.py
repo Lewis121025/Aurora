@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from aurora.expression.cognition import _build_messages, run_cognition
 from aurora.expression.context import ExpressionContext
-from aurora.expression.prompt import build_messages
-from aurora.expression.render import render_response
-from aurora.expression.response import ResponseAct, plan_response
 from aurora.relation.decision import RelationDecisionContext
 from aurora.runtime.contracts import TraceChannel
 from aurora.runtime.engine import AuroraEngine
+
+from tests.conftest import ContextAwareLLM, StubLLM
 
 
 def _ctx() -> RelationDecisionContext:
@@ -18,43 +20,41 @@ def _ctx() -> RelationDecisionContext:
     )
 
 
-def test_no_llm_falls_back_to_template() -> None:
+def test_cognition_returns_valid_result_from_stub() -> None:
     context = ExpressionContext(
         input_text="hello",
         relation_context=_ctx(),
-        dominant_channels=(TraceChannel.WARMTH, TraceChannel.RECOGNITION),
-        has_knots=False,
-    )
-    act = plan_response(context)
-    rendered = render_response(context, act, llm=None)
-
-    assert rendered.text
-    assert rendered.move in {"approach", "witness", "withhold", "boundary", "repair", "silence"}
-
-
-def test_prompt_build_includes_system_and_user() -> None:
-    context = ExpressionContext(
-        input_text="谢谢你理解我",
-        relation_context=_ctx(),
         dominant_channels=(TraceChannel.WARMTH,),
         has_knots=False,
-        recalled_surfaces=("之前的记忆片段",),
-        recent_summaries=("之前的交流摘要",),
     )
-    act = ResponseAct(
-        move="approach",
-        tone="gentle",
-        response_channels=(TraceChannel.WARMTH, TraceChannel.RECOGNITION),
+    result = run_cognition(context, StubLLM())
+
+    assert result is not None
+    assert result.move == "witness"
+    assert result.response_text
+    assert result.touch_channels
+
+
+def test_context_aware_llm_maps_boundary_input() -> None:
+    context = ExpressionContext(
+        input_text="不要继续，停",
+        relation_context=_ctx(),
+        dominant_channels=(),
+        has_knots=False,
     )
-    messages = build_messages(context, act)
+    result = run_cognition(context, ContextAwareLLM())
 
-    assert any(m["role"] == "system" for m in messages)
-    assert any(m["role"] == "user" for m in messages)
-    assert messages[-1]["content"] == "谢谢你理解我"
+    assert result is not None
+    assert result.move == "boundary"
 
 
-def test_engine_creates_without_llm_when_env_unset(tmp_path: Path) -> None:
-    engine = AuroraEngine.create(data_dir=str(tmp_path))
-    assert engine.llm is None
+def test_engine_requires_llm(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="requires an LLM provider"):
+        AuroraEngine.create(data_dir=str(tmp_path))
+
+
+def test_engine_turn_with_injected_llm(tmp_path: Path) -> None:
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
     output = engine.handle_turn(session_id="s1", text="hello")
     assert output.response_text
+    assert output.aurora_move in {"approach", "withhold", "boundary", "repair", "silence", "witness"}

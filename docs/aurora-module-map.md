@@ -34,7 +34,7 @@ aurora/
 └── surface/
 ```
 
-All modules are active. `expression/` owns response planning, rendering, and LLM-based language generation. `llm/` provides the LLM provider abstraction. `evaluation/` contains ontology checks for continuity, relation dynamics, and sleep effects.
+All modules are active. `expression/` owns unified LLM cognition. `llm/` provides the required LLM provider. `evaluation/` contains ontology checks for continuity, relation dynamics, and sleep effects.
 
 ## `aurora/being/`
 
@@ -42,16 +42,11 @@ Current files:
 
 - `metabolic_state.py`
 - `orientation.py`
-- `touch.py`
 
 Purpose:
 
 - hold lifecycle control state without pretending to explain Aurora's identity
 - hold long-running self/world/relation evidence with source links back to lived moments and sleep structures
-
-Current support code:
-
-- `touch.py` turns lexical hints into graph-mediated touch proposals; when no keywords match but graph has history, infers touch from recalled channels
 
 Current canonical objects:
 
@@ -155,7 +150,7 @@ Purpose:
 
 Current responsibilities:
 
-- `awake.py`: ingest interaction, write graph effects, update relation history, choose immediate outward move
+- `awake.py`: ingest interaction, run unified LLM cognition, write graph effects, update relation history
 - `doze.py`: hover around active relation material, then apply low-pressure decay and raise sleep pressure
 - `sleep.py`: reweave memory graph and feed resulting changes back into orientation and metabolic state
 - `transitions.py`: create explicit `PhaseTransition` records
@@ -270,33 +265,24 @@ Current files:
 
 Purpose:
 
-- provide LLM integration for expression rendering
+- provide the required LLM integration for Aurora's cognition
 - `provider.py` defines the `LLMProvider` protocol
 - `openai_compat.py` implements OpenAI-compatible API calls (covers Bailian, DeepSeek, etc.)
 - `config.py` loads provider configuration from environment variables
 
-When no LLM is configured, expression falls back to template rendering.
+Aurora requires an LLM provider. Without one, the engine refuses to start.
 
 ## `aurora/expression/`
 
 Current files:
 
+- `cognition.py`
 - `context.py`
-- `render.py`
-- `response.py`
-- `prompt.py`
-- `silence.py`
-- `template_store.py`
-- `templates.json`
-- `voice.py`
 
 Current role:
 
-- hold read-only expression context including recalled surfaces, moment summaries, and orientation snapshot
-- choose `ResponseAct` from current graph pressure, relation decision context, and orientation evidence
-- render refusal, silence, and voiced text without mutating canonical graph state
-- when LLM is available, generate language from graph-derived context via `prompt.py`
-- when LLM is unavailable, fall back to template rendering via `voice.py` and `silence.py`
+- `cognition.py`: unified LLM cognitive act — a single LLM call produces touch channels, relational move, and response text together, because a being experiences, decides, and speaks as one act
+- `context.py`: read-only expression context carrying recalled surfaces, moment summaries, and orientation snapshot
 
 Hard rule:
 
@@ -394,10 +380,8 @@ Meaning:
 - do not let `persistence/` dictate ontology from schema convenience
 - do not let `expression/` mutate canonical graph objects
 
-## Next Extraction Order
+## Next Refinement Order
 
-1. extract expression out of `phases/awake.py`
-2. finish expression rendering and silence/refusal modules
-3. introduce explicit projection/read-model modules
-4. expand evaluation with richer fixtures and projection-boundary checks
-5. tighten persistence semantics without changing the write-model center
+1. deepen sleep geometry with LLM-assisted semantic clustering
+2. refine orientation derivation from thread/knot/formation topology
+3. expand evaluation with richer scenario fixtures and projection-boundary checks

@@ -65,8 +65,6 @@ aurora/
 ### Phase 9: LLM Integration
 
 - `aurora/llm/` module: `LLMProvider` protocol, `OpenAICompatProvider`, env-based config
-- `expression/prompt.py`: context-aware prompt assembly from graph state
-- LLM generates language when configured; template fallback when not
 - engine injects LLM provider through to expression layer
 
 ### Phase 10: Touch Semantic Enhancement
@@ -76,12 +74,23 @@ aurora/
 
 ### Phase 11: Dead Code Cleanup
 
-- removed `aurora_ontology_core/` (empty directory with pyc remnants)
-- removed `dynamics_profile.json` (102 lines, zero references)
-- removed `version.py` (zero imports)
-- removed `runtime/policies.py` (non_malice_floor never triggered on template output)
+- removed `aurora_ontology_core/`, `dynamics_profile.json`, `version.py`, `runtime/policies.py`
 - removed Seed v1 references from `.env.example`, `tests/__init__.py`
 - all unused imports eliminated (ruff clean)
+
+### Phase 12: Unified Cognition
+
+- replaced split pipeline (keyword touch → rule-based move → LLM rendering) with single cognitive act
+- `expression/cognition.py`: one LLM call produces touch channels, relational move, and response text together
+
+### Phase 13: LLM Required — Delete All Heuristic Code
+
+- LLM is now required; engine refuses to start without it
+- deleted all heuristic modules: `expression/response.py`, `expression/render.py`, `expression/voice.py`, `expression/silence.py`, `expression/template_store.py`, `expression/templates.json`, `expression/prompt.py`
+- deleted keyword touch: `being/touch.py`, `being/touch_lexicon.json`
+- `awake.py` reduced from 303 to 204 lines; single code path through unified cognition
+- `surface/api.py`: removed eager module-level app creation; `build_app` requires an engine
+- test infrastructure: `StubLLM` and `ContextAwareLLM` fixtures for deterministic testing
 
 ## Remaining Work
 
@@ -92,7 +101,7 @@ aurora/
 
 ### Deepen Orientation Derivation
 
-- orientation evidence feeds into plan_response, but still accumulates via channel-counting shortcuts during awake
+- orientation evidence still accumulates via channel-counting shortcuts during awake
 - orientation strands should depend more on thread/knot/formation topology
 
 ### Expand Evaluation Coverage
@@ -100,11 +109,6 @@ aurora/
 - current evaluation covers continuity, relation dynamics, sleep effects
 - needs richer multi-turn scenario regressions
 - needs projection-boundary checks (ensure projections never become canonical)
-
-### Refine Touch with LLM
-
-- when LLM is available, use it for semantic touch proposals instead of keyword matching
-- keep graph mediation as calibration layer
 
 ## Non-Negotiable Rules
 

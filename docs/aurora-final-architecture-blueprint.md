@@ -304,19 +304,15 @@ Architectural truth:
 
 Current shape:
 
-- `ExpressionContext` carries recalled surfaces, moment summaries, orientation snapshot, and relation context
-- `plan_response` chooses a `ResponseAct` from graph pressure, relation context, and orientation evidence
-- `render_response` produces language via LLM when configured, or via templates as fallback
-- `prompt.py` assembles LLM prompts from graph-derived context
-- `silence.py` and `voice.py` handle template-based rendering
-- phase orchestration commits the rendered result into canonical graph history
-- touch proposals are graph-mediated with history-only inference when keywords are absent
-- relation decision context is derived from canonical formation state
+`cognition.py` performs a unified cognitive act: a single LLM call interprets the input in context of recalled memory, orientation evidence, and relation history, then returns touch channels, relational move, and response text as one act. This reflects the principle that a being does not separately detect keywords, count events, and select from rules — it experiences and responds as a whole.
+
+Aurora requires an LLM provider. The cognition result feeds into the canonical graph write pipeline in `phases/awake.py`.
 
 Hard rule:
 
-- expression may project, render, and generate language
+- expression may interpret, render, and generate language
 - expression may not mutate canonical graph objects
+- LLM output informs the expression layer but does not write canonical memory directly
 
 ## Persistence Model
 
@@ -388,4 +384,3 @@ Treat all of the following as regressions:
 1. deepen sleep geometry with LLM-assisted semantic clustering
 2. refine orientation derivation from thread/knot/formation topology
 3. expand evaluation with richer scenario fixtures and projection-boundary checks
-4. refine touch with LLM-based semantic proposals when available

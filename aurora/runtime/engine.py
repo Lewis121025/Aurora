@@ -44,17 +44,23 @@ class AuroraEngine:
     state: RuntimeState
     persistence: SQLitePersistence
     clock: SystemClock = field(default_factory=SystemClock)
-    llm: LLMProvider | None = None
+    llm: LLMProvider = field(default=None)  # type: ignore[assignment]
 
     @classmethod
-    def create(cls, data_dir: str | None = None) -> "AuroraEngine":
+    def create(cls, data_dir: str | None = None, llm: LLMProvider | None = None) -> "AuroraEngine":
         clock = SystemClock()
         persistence = SQLitePersistence(data_dir=data_dir)
         memory_store, relation_store, state = persistence.load_runtime(
             initial=initial_runtime_state()
         )
-        llm_config = load_llm_config()
-        llm: LLMProvider | None = create_provider(llm_config) if llm_config else None
+        if llm is None:
+            llm_config = load_llm_config()
+            if llm_config is None:
+                raise RuntimeError(
+                    "Aurora requires an LLM provider. "
+                    "Set AURORA_LLM_BASE_URL, AURORA_LLM_API_KEY, and AURORA_LLM_MODEL."
+                )
+            llm = create_provider(llm_config)
         return cls(memory_store, relation_store, state, persistence, clock, llm)
 
     def handle_turn(self, session_id: str, text: str) -> EngineOutput:
