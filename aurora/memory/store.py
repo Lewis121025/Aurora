@@ -184,6 +184,54 @@ class MemoryStore:
     def knots_for_relation(self, relation_id: str) -> tuple[Knot, ...]:
         return tuple(item for item in self.knots.values() if item.relation_id == relation_id)
 
+    def find_matching_thread(
+        self, relation_id: str, fragment_ids: tuple[str, ...], overlap: float = 0.75,
+    ) -> Thread | None:
+        target = set(fragment_ids)
+        for thread in self.threads_for_relation(relation_id):
+            existing = set(thread.fragment_ids)
+            if len(target & existing) / max(1, len(target | existing)) >= overlap:
+                return thread
+        return None
+
+    def find_matching_knot(
+        self, relation_id: str, fragment_ids: tuple[str, ...], overlap: float = 0.75,
+    ) -> Knot | None:
+        target = set(fragment_ids)
+        for knot in self.knots_for_relation(relation_id):
+            existing = set(knot.fragment_ids)
+            if len(target & existing) / max(1, len(target | existing)) >= overlap:
+                return knot
+        return None
+
+    def update_thread(self, thread: Thread) -> None:
+        old = self.threads.get(thread.thread_id)
+        self.threads[thread.thread_id] = thread
+        if old is None:
+            return
+        new_fids = set(thread.fragment_ids) - set(old.fragment_ids)
+        for fid in new_fids:
+            fragment = self.fragments[fid]
+            if thread.thread_id not in fragment.thread_ids:
+                self.fragments[fid] = replace(
+                    fragment,
+                    thread_ids=tuple(sorted(fragment.thread_ids + (thread.thread_id,))),
+                )
+
+    def update_knot(self, knot: Knot) -> None:
+        old = self.knots.get(knot.knot_id)
+        self.knots[knot.knot_id] = knot
+        if old is None:
+            return
+        new_fids = set(knot.fragment_ids) - set(old.fragment_ids)
+        for fid in new_fids:
+            fragment = self.fragments[fid]
+            if knot.knot_id not in fragment.knot_ids:
+                self.fragments[fid] = replace(
+                    fragment,
+                    knot_ids=tuple(sorted(fragment.knot_ids + (knot.knot_id,))),
+                )
+
     def touch_fragment(self, fragment_id: str, at: float, delta_salience: float = 0.08) -> None:
         self.fragments[fragment_id] = self.fragments[fragment_id].touched(
             at=at,

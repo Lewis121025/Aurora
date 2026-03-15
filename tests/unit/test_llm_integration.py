@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aurora.expression.cognition import _build_messages, run_cognition
+from aurora.expression.cognition import LLMCallError, _build_messages, run_cognition
 from aurora.expression.context import ExpressionContext
 from aurora.relation.decision import RelationDecisionContext
 from aurora.runtime.contracts import TraceChannel
@@ -46,6 +46,22 @@ def test_context_aware_llm_maps_boundary_input() -> None:
 
     assert result is not None
     assert result.move == "boundary"
+
+
+class _FailingLLM:
+    def complete(self, messages: list[dict[str, str]]) -> str:
+        raise ConnectionError("simulated network failure")
+
+
+def test_llm_provider_failure_raises_typed_error() -> None:
+    context = ExpressionContext(
+        input_text="hello",
+        relation_context=_ctx(),
+        dominant_channels=(),
+        has_knots=False,
+    )
+    with pytest.raises(LLMCallError, match="simulated network failure"):
+        run_cognition(context, _FailingLLM())
 
 
 def test_engine_requires_llm(tmp_path: Path) -> None:

@@ -82,7 +82,9 @@ def reweave(
     relation_ids = pending_relations or tuple(sorted(store.relation_fragments.keys()))
 
     created_thread_ids: list[str] = []
+    updated_thread_ids: list[str] = []
     created_knot_ids: list[str] = []
+    updated_knot_ids: list[str] = []
     strengthened_edge_ids: list[str] = []
     softened_fragment_ids: set[str] = set()
     affected_relation_ids: list[str] = []
@@ -101,22 +103,41 @@ def reweave(
 
         for region in regions[:3]:
             cluster = [store.fragments[fid] for fid in region.fragment_ids]
+            frag_ids = tuple(f.fragment_id for f in cluster)
 
-            thread = _build_thread(
-                relation_id, cluster, region.dominant_channels,
-                region.tension, region.coherence, now_ts,
-            )
-            store.add_thread(thread)
-            created_thread_ids.append(thread.thread_id)
+            existing_thread = store.find_matching_thread(relation_id, frag_ids)
+            if existing_thread is not None:
+                thread = _update_thread(
+                    existing_thread, cluster, region.dominant_channels,
+                    region.tension, region.coherence, now_ts,
+                )
+                store.update_thread(thread)
+                updated_thread_ids.append(thread.thread_id)
+            else:
+                thread = _build_thread(
+                    relation_id, cluster, region.dominant_channels,
+                    region.tension, region.coherence, now_ts,
+                )
+                store.add_thread(thread)
+                created_thread_ids.append(thread.thread_id)
             relation_thread_ids.append(thread.thread_id)
 
             knot: Knot | None = None
             if _should_form_knot(region, formation):
-                knot = _build_knot(
-                    relation_id, cluster, region.dominant_channels, region.tension, now_ts,
-                )
-                store.add_knot(knot)
-                created_knot_ids.append(knot.knot_id)
+                existing_knot = store.find_matching_knot(relation_id, frag_ids)
+                if existing_knot is not None:
+                    knot = _update_knot(
+                        existing_knot, cluster, region.dominant_channels,
+                        region.tension, now_ts,
+                    )
+                    store.update_knot(knot)
+                    updated_knot_ids.append(knot.knot_id)
+                else:
+                    knot = _build_knot(
+                        relation_id, cluster, region.dominant_channels, region.tension, now_ts,
+                    )
+                    store.add_knot(knot)
+                    created_knot_ids.append(knot.knot_id)
                 relation_knot_ids.append(knot.knot_id)
 
             for fragment in cluster:
@@ -155,13 +176,15 @@ def reweave(
                 now_ts=now_ts,
             )
 
-    if created_thread_ids or created_knot_ids:
+    all_thread_ids = created_thread_ids + updated_thread_ids
+    all_knot_ids = created_knot_ids + updated_knot_ids
+    if all_thread_ids or all_knot_ids:
         store.sleep_cycles += 1
         store.last_sleep_at = now_ts
 
     return SleepMutation(
-        created_thread_ids=tuple(created_thread_ids),
-        created_knot_ids=tuple(created_knot_ids),
+        created_thread_ids=tuple(all_thread_ids),
+        created_knot_ids=tuple(all_knot_ids),
         strengthened_edge_ids=tuple(strengthened_edge_ids),
         softened_fragment_ids=tuple(sorted(softened_fragment_ids)),
         affected_relation_ids=tuple(affected_relation_ids),
@@ -422,6 +445,26 @@ def _should_form_knot(
     return region.tension >= threshold
 
 
+def _update_thread(
+    existing: Thread,
+    cluster: list[Fragment],
+    dominant_channels: tuple[TraceChannel, ...],
+    tension: float,
+    coherence: float,
+    now_ts: float,
+) -> Thread:
+    return Thread(
+        thread_id=existing.thread_id,
+        relation_id=existing.relation_id,
+        fragment_ids=tuple(f.fragment_id for f in cluster),
+        dominant_channels=dominant_channels,
+        tension=round(clamp(tension), 4),
+        coherence=round(clamp(coherence), 4),
+        created_at=existing.created_at,
+        last_rewoven_at=now_ts,
+    )
+
+
 def _build_thread(
     relation_id: str,
     cluster: list[Fragment],
@@ -438,6 +481,25 @@ def _build_thread(
         tension=round(clamp(tension), 4),
         coherence=round(clamp(coherence), 4),
         created_at=now_ts,
+        last_rewoven_at=now_ts,
+    )
+
+
+def _update_knot(
+    existing: Knot,
+    cluster: list[Fragment],
+    dominant_channels: tuple[TraceChannel, ...],
+    intensity: float,
+    now_ts: float,
+) -> Knot:
+    return Knot(
+        knot_id=existing.knot_id,
+        relation_id=existing.relation_id,
+        fragment_ids=tuple(f.fragment_id for f in cluster),
+        dominant_channels=dominant_channels,
+        intensity=round(clamp(intensity), 4),
+        resolved=existing.resolved,
+        created_at=existing.created_at,
         last_rewoven_at=now_ts,
     )
 

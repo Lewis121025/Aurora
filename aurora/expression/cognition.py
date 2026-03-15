@@ -8,6 +8,22 @@ from aurora.expression.context import ExpressionContext
 from aurora.llm.provider import LLMProvider
 from aurora.runtime.contracts import AuroraMove, AssocKind, TraceChannel
 
+
+class CognitionError(Exception):
+    """Base for all cognition failures."""
+
+
+class LLMCallError(CognitionError):
+    """LLM provider raised during .complete() (network, auth, timeout)."""
+
+
+class LLMResponseParseError(CognitionError):
+    """LLM returned text that is not valid structured JSON."""
+
+
+class LLMEmptyResponseError(CognitionError):
+    """LLM returned valid JSON but the response text field is empty."""
+
 VALID_MOVES: set[AuroraMove] = {"approach", "withhold", "boundary", "repair", "silence", "witness"}
 
 VALID_CHANNELS: dict[str, TraceChannel] = {
@@ -64,12 +80,12 @@ class CognitionResult:
 def run_cognition(
     context: ExpressionContext,
     llm: LLMProvider,
-) -> CognitionResult | None:
+) -> CognitionResult:
     messages = _build_messages(context)
     try:
         raw = llm.complete(messages)
-    except Exception:
-        return None
+    except Exception as exc:
+        raise LLMCallError(f"LLM provider failed: {exc}") from exc
     return _parse_response(raw)
 
 
@@ -115,14 +131,14 @@ def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
     return messages
 
 
-def _parse_response(raw: str) -> CognitionResult | None:
+def _parse_response(raw: str) -> CognitionResult:
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
     try:
         data: dict[str, Any] = json.loads(cleaned)
-    except (json.JSONDecodeError, ValueError):
-        return None
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise LLMResponseParseError(f"Invalid JSON from LLM: {raw[:200]}") from exc
 
     move_raw = str(data.get("move", "witness"))
     move: AuroraMove = move_raw if move_raw in VALID_MOVES else "witness"  # type: ignore[assignment]
@@ -142,7 +158,7 @@ def _parse_response(raw: str) -> CognitionResult | None:
 
     response_text = str(data.get("response", ""))
     if not response_text.strip():
-        return None
+        raise LLMEmptyResponseError("LLM returned empty response text")
 
     assoc_kind = MOVE_TO_ASSOC.get(move, AssocKind.RELATION)
     unresolvedness = 0.24 if move in {"withhold", "silence", "boundary"} else 0.16

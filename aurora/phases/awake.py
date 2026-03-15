@@ -85,8 +85,6 @@ def run_awake(
     )
 
     cognition = run_cognition(context, llm)
-    if cognition is None:
-        raise RuntimeError("LLM cognition failed: no valid response from provider")
 
     user_turn = Turn(
         turn_id=f"turn_{uuid4().hex[:12]}",

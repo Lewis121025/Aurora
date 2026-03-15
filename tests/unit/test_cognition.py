@@ -2,14 +2,21 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from aurora.expression.cognition import (
     CognitionResult,
+    LLMEmptyResponseError,
+    LLMResponseParseError,
     _build_messages,
     _parse_response,
+    run_cognition,
 )
 from aurora.expression.context import ExpressionContext
 from aurora.relation.decision import RelationDecisionContext
 from aurora.runtime.contracts import AssocKind, TraceChannel
+
+from tests.conftest import ContextAwareLLM
 
 
 def _ctx(
@@ -59,13 +66,15 @@ def test_parse_boundary_move_maps_to_boundary_assoc() -> None:
     assert result.fragment_unresolvedness == 0.24
 
 
-def test_parse_invalid_json_returns_none() -> None:
-    assert _parse_response("not json at all") is None
+def test_parse_invalid_json_raises() -> None:
+    with pytest.raises(LLMResponseParseError, match="Invalid JSON"):
+        _parse_response("not json at all")
 
 
-def test_parse_empty_response_returns_none() -> None:
+def test_parse_empty_response_raises() -> None:
     raw = json.dumps({"move": "approach", "touch": [], "response": ""})
-    assert _parse_response(raw) is None
+    with pytest.raises(LLMEmptyResponseError, match="empty response"):
+        _parse_response(raw)
 
 
 def test_parse_unknown_move_defaults_to_witness() -> None:
@@ -112,6 +121,59 @@ def test_build_messages_minimal() -> None:
     messages = _build_messages(_ctx(text="hi"))
     assert messages[0]["role"] == "system"
     assert messages[-1] == {"role": "user", "content": "hi"}
+
+
+def test_context_recalled_surfaces_influence_llm_decision() -> None:
+    base = RelationDecisionContext(
+        boundary_events=0, repair_events=0, resonance_events=0,
+        thread_count=0, knot_count=0,
+    )
+    ctx_without = ExpressionContext(
+        input_text="hello",
+        relation_context=base,
+        dominant_channels=(),
+        has_knots=False,
+    )
+    ctx_with_recall = ExpressionContext(
+        input_text="hello",
+        relation_context=base,
+        dominant_channels=(),
+        has_knots=False,
+        recalled_surfaces=("a past conversation",),
+    )
+    llm = ContextAwareLLM()
+    result_without = run_cognition(ctx_without, llm)
+    result_with = run_cognition(ctx_with_recall, llm)
+    assert result_without.move == "witness"
+    assert result_with.move == "approach"
+
+
+def test_context_orientation_risk_influences_llm_decision() -> None:
+    base = RelationDecisionContext(
+        boundary_events=0, repair_events=0, resonance_events=0,
+        thread_count=0, knot_count=0,
+    )
+    ctx_no_risk = ExpressionContext(
+        input_text="hello",
+        relation_context=base,
+        dominant_channels=(),
+        has_knots=False,
+    )
+    ctx_with_risk = ExpressionContext(
+        input_text="hello",
+        relation_context=base,
+        dominant_channels=(),
+        has_knots=False,
+        orientation_snapshot={
+            "world": {"risk": {"count": 3, "sources": ["s1", "s2", "s3"]}},
+            "self": {},
+        },
+    )
+    llm = ContextAwareLLM()
+    result_no_risk = run_cognition(ctx_no_risk, llm)
+    result_with_risk = run_cognition(ctx_with_risk, llm)
+    assert result_no_risk.move == "witness"
+    assert result_with_risk.move == "withhold"
 
 
 def test_build_messages_includes_context() -> None:

@@ -56,6 +56,21 @@ def test_runtime_recovers_orientation_and_threads_from_persistence(tmp_path: Pat
     )
 
 
+def test_sleep_idempotent_no_duplicate_threads(tmp_path: Path) -> None:
+    engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
+    engine.handle_turn(session_id="s", text="谢谢你理解我")
+    engine.handle_turn(session_id="s", text="我还是有点受伤，也有边界冲突")
+
+    engine.sleep()
+    threads_after_first = len(engine.memory_store.threads)
+    knots_after_first = len(engine.memory_store.knots)
+    assert threads_after_first >= 1
+
+    engine.sleep()
+    assert len(engine.memory_store.threads) == threads_after_first
+    assert len(engine.memory_store.knots) == knots_after_first
+
+
 def test_sleep_pushes_thread_or_knot_sources_into_orientation(tmp_path: Path) -> None:
     engine = AuroraEngine.create(data_dir=str(tmp_path), llm=StubLLM())
     engine.handle_turn(session_id="s", text="谢谢你理解我")
