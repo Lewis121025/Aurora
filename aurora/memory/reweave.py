@@ -2,6 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from aurora.runtime.contracts import TraceChannel
+
+
+@dataclass(frozen=True, slots=True)
+class NarrativeRegion:
+    relation_id: str
+    anchor_fragment_id: str
+    fragment_ids: tuple[str, ...]
+    dominant_channels: tuple[TraceChannel, ...]
+    tension: float
+    coherence: float
+    support: float
+
 
 @dataclass(frozen=True, slots=True)
 class SleepMutation:

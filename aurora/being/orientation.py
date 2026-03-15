@@ -5,23 +5,48 @@ from dataclasses import dataclass, field
 from aurora.runtime.contracts import AuroraMove, TraceChannel
 
 
-def _default_self_evidence() -> dict[str, int]:
-    return {"recognition": 0, "fragility": 0, "openness": 0, "agency": 0}
+EvidenceMap = dict[str, tuple[str, ...]]
 
 
-def _default_world_evidence() -> dict[str, int]:
-    return {"welcome": 0, "risk": 0, "mystery": 0, "stability": 0}
+def _default_self_evidence() -> EvidenceMap:
+    return {"recognition": (), "fragility": (), "openness": (), "agency": ()}
 
 
-def _default_relation_evidence() -> dict[str, int]:
-    return {"closeness": 0, "distance": 0, "boundary": 0, "repair": 0}
+def _default_world_evidence() -> EvidenceMap:
+    return {"welcome": (), "risk": (), "mystery": (), "stability": ()}
+
+
+def _default_relation_evidence() -> EvidenceMap:
+    return {"closeness": (), "distance": (), "boundary": (), "repair": ()}
+
+
+def _merge_sources(
+    existing: tuple[str, ...], *source_groups: tuple[str, ...], limit: int = 16
+) -> tuple[str, ...]:
+    merged = list(existing)
+    for group in source_groups:
+        for source in group:
+            if not source:
+                continue
+            if source in merged:
+                merged.remove(source)
+            merged.append(source)
+    return tuple(merged[-limit:])
+
+
+def _append_sources(target: EvidenceMap, key: str, *source_groups: tuple[str, ...]) -> None:
+    target[key] = _merge_sources(target[key], *source_groups)
+
+
+def _snapshot_group(group: EvidenceMap) -> dict[str, dict[str, int | tuple[str, ...]]]:
+    return {key: {"count": len(sources), "sources": sources} for key, sources in group.items()}
 
 
 @dataclass(slots=True)
 class Orientation:
-    self_evidence: dict[str, int] = field(default_factory=_default_self_evidence)
-    world_evidence: dict[str, int] = field(default_factory=_default_world_evidence)
-    relation_evidence: dict[str, int] = field(default_factory=_default_relation_evidence)
+    self_evidence: EvidenceMap = field(default_factory=_default_self_evidence)
+    world_evidence: EvidenceMap = field(default_factory=_default_world_evidence)
+    relation_evidence: EvidenceMap = field(default_factory=_default_relation_evidence)
     anchor_thread_ids: tuple[str, ...] = ()
     active_knot_ids: tuple[str, ...] = ()
     last_updated_at: float = 0.0
@@ -30,37 +55,42 @@ class Orientation:
         self,
         user_channels: tuple[TraceChannel, ...],
         aurora_move: AuroraMove,
+        relation_moment_id: str,
+        user_fragment_id: str,
+        aurora_fragment_id: str,
         now_ts: float,
     ) -> None:
         channels = set(user_channels)
+        moment_sources = (relation_moment_id,)
+        exchange_sources = (relation_moment_id, user_fragment_id, aurora_fragment_id)
         if TraceChannel.RECOGNITION in channels:
-            self.self_evidence["recognition"] += 1
-            self.world_evidence["welcome"] += 1
-            self.relation_evidence["closeness"] += 1
+            _append_sources(self.self_evidence, "recognition", exchange_sources)
+            _append_sources(self.world_evidence, "welcome", exchange_sources)
+            _append_sources(self.relation_evidence, "closeness", moment_sources)
         if TraceChannel.HURT in channels:
-            self.self_evidence["fragility"] += 1
-            self.world_evidence["risk"] += 1
+            _append_sources(self.self_evidence, "fragility", exchange_sources)
+            _append_sources(self.world_evidence, "risk", exchange_sources)
         if TraceChannel.CURIOSITY in channels or TraceChannel.WONDER in channels:
-            self.world_evidence["mystery"] += 1
+            _append_sources(self.world_evidence, "mystery", exchange_sources)
         if TraceChannel.BOUNDARY in channels:
-            self.relation_evidence["boundary"] += 1
-            self.world_evidence["risk"] += 1
+            _append_sources(self.relation_evidence, "boundary", moment_sources)
+            _append_sources(self.world_evidence, "risk", exchange_sources)
         if TraceChannel.REPAIR in channels:
-            self.relation_evidence["repair"] += 1
-            self.world_evidence["stability"] += 1
+            _append_sources(self.relation_evidence, "repair", moment_sources)
+            _append_sources(self.world_evidence, "stability", exchange_sources)
         if TraceChannel.DISTANCE in channels:
-            self.relation_evidence["distance"] += 1
+            _append_sources(self.relation_evidence, "distance", moment_sources)
 
         if aurora_move in {"approach", "repair"}:
-            self.self_evidence["openness"] += 1
-            self.self_evidence["agency"] += 1
-            self.relation_evidence["closeness"] += 1
+            _append_sources(self.self_evidence, "openness", moment_sources)
+            _append_sources(self.self_evidence, "agency", moment_sources)
+            _append_sources(self.relation_evidence, "closeness", moment_sources)
         elif aurora_move in {"withhold", "silence"}:
-            self.relation_evidence["distance"] += 1
-            self.self_evidence["agency"] += 1
+            _append_sources(self.relation_evidence, "distance", moment_sources)
+            _append_sources(self.self_evidence, "agency", moment_sources)
         elif aurora_move == "boundary":
-            self.relation_evidence["boundary"] += 1
-            self.self_evidence["agency"] += 1
+            _append_sources(self.relation_evidence, "boundary", moment_sources)
+            _append_sources(self.self_evidence, "agency", moment_sources)
 
         self.last_updated_at = now_ts
 
@@ -71,22 +101,29 @@ class Orientation:
         dominant_channels: tuple[TraceChannel, ...],
         now_ts: float,
     ) -> None:
-        self.anchor_thread_ids = tuple([*self.anchor_thread_ids, *thread_ids][-12:])
-        self.active_knot_ids = tuple([*self.active_knot_ids, *knot_ids][-12:])
+        self.anchor_thread_ids = _merge_sources(self.anchor_thread_ids, thread_ids, limit=12)
+        self.active_knot_ids = _merge_sources(self.active_knot_ids, knot_ids, limit=12)
         channels = set(dominant_channels)
+        dominant_sources = knot_ids or thread_ids
         if TraceChannel.WARMTH in channels or TraceChannel.RECOGNITION in channels:
-            self.world_evidence["welcome"] += 1
-            self.world_evidence["stability"] += 1
+            _append_sources(self.world_evidence, "welcome", dominant_sources)
+            _append_sources(self.world_evidence, "stability", dominant_sources)
         if TraceChannel.HURT in channels or TraceChannel.BOUNDARY in channels:
-            self.world_evidence["risk"] += 1
-            self.self_evidence["fragility"] += 1
+            _append_sources(self.world_evidence, "risk", dominant_sources)
+            _append_sources(self.self_evidence, "fragility", dominant_sources)
+        if TraceChannel.REPAIR in channels:
+            _append_sources(self.relation_evidence, "repair", dominant_sources)
+        if TraceChannel.BOUNDARY in channels:
+            _append_sources(self.relation_evidence, "boundary", dominant_sources)
         self.last_updated_at = now_ts
 
-    def snapshot(self) -> dict[str, dict[str, int] | tuple[str, ...]]:
+    def snapshot(
+        self,
+    ) -> dict[str, dict[str, dict[str, int | tuple[str, ...]]] | tuple[str, ...]]:
         return {
-            "self": dict(self.self_evidence),
-            "world": dict(self.world_evidence),
-            "relation": dict(self.relation_evidence),
+            "self": _snapshot_group(self.self_evidence),
+            "world": _snapshot_group(self.world_evidence),
+            "relation": _snapshot_group(self.relation_evidence),
             "anchor_threads": self.anchor_thread_ids,
             "active_knots": self.active_knot_ids,
         }

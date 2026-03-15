@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aurora.expression.context import ExpressionContext
+from aurora.expression.prompt import build_messages
 from aurora.expression.response import ResponseAct
 from aurora.expression.silence import render_refusal
 from aurora.expression.voice import render_voice
+from aurora.llm.provider import LLMProvider
 from aurora.runtime.contracts import AssocKind, AuroraMove, TraceChannel
 
 
@@ -18,9 +20,15 @@ class RenderedResponse:
     fragment_unresolvedness: float
 
 
-def render_response(context: ExpressionContext, act: ResponseAct) -> RenderedResponse:
+def render_response(
+    context: ExpressionContext,
+    act: ResponseAct,
+    llm: LLMProvider | None = None,
+) -> RenderedResponse:
     if act.move in {"silence", "boundary", "withhold"}:
         text = render_refusal(context=context, move=act.move, tone=act.tone)
+    elif llm is not None:
+        text = _render_with_llm(context, act, llm)
     else:
         text = render_voice(context=context, act=act)
     return RenderedResponse(
@@ -30,6 +38,19 @@ def render_response(context: ExpressionContext, act: ResponseAct) -> RenderedRes
         association_kind=_edge_kind_from_move(act.move),
         fragment_unresolvedness=0.24 if act.move == "withhold" else 0.16,
     )
+
+
+def _render_with_llm(
+    context: ExpressionContext,
+    act: ResponseAct,
+    llm: LLMProvider,
+) -> str:
+    messages = build_messages(context, act)
+    try:
+        result = llm.complete(messages)
+    except Exception:
+        return render_voice(context=context, act=act)
+    return result.strip() if result.strip() else render_voice(context=context, act=act)
 
 
 def _trace_intensities(

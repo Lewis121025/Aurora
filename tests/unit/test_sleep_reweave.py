@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from aurora.memory.recall import recent_recall
 from aurora.runtime.engine import AuroraEngine
 
 
@@ -25,7 +26,7 @@ def test_recall_stays_relation_scoped(tmp_path: Path) -> None:
     engine.handle_turn(session_id="a", text="谢谢你，我记得这件事")
     engine.handle_turn(session_id="b", text="普通更新")
 
-    recalled = engine.memory_store.recent_recall(relation_id="rel:a", limit=4)
+    recalled = recent_recall(engine.memory_store, relation_id="rel:a", limit=4)
 
     assert recalled
     assert all(fragment.relation_id == "rel:a" for fragment in recalled)
@@ -37,8 +38,32 @@ def test_runtime_recovers_orientation_and_threads_from_persistence(tmp_path: Pat
     first.handle_turn(session_id="s", text="我还是有点受伤，但想修复")
     first.sleep()
 
+    assert any(
+        source.startswith("moment_")
+        for source in first.state.orientation.self_evidence["recognition"]
+    )
+
     second = AuroraEngine.create(data_dir=str(tmp_path))
 
     assert second.persistence.turn_count() == 2
     assert second.memory_store.sleep_cycles >= 1
     assert second.memory_store.threads or second.state.orientation.anchor_thread_ids
+    assert any(
+        source.startswith("moment_")
+        for source in second.state.orientation.self_evidence["recognition"]
+    )
+
+
+def test_sleep_pushes_thread_or_knot_sources_into_orientation(tmp_path: Path) -> None:
+    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine.handle_turn(session_id="s", text="谢谢你理解我")
+    engine.handle_turn(session_id="s", text="我还是有点受伤，也有边界冲突")
+
+    engine.sleep()
+
+    risk_sources = engine.state.orientation.world_evidence["risk"]
+    assert engine.state.orientation.anchor_thread_ids
+    assert any(
+        source.startswith("thread_") or source.startswith("knot_")
+        for source in risk_sources + engine.state.orientation.anchor_thread_ids
+    )

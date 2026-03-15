@@ -2,268 +2,126 @@
 
 ## Status
 
-The rewrite is no longer a hypothetical track.
+Aurora runs on a single mainline runtime inside `aurora/`.
 
-Aurora now runs on a single mainline runtime inside `aurora/`.
-The old parallel runtime tracks have been removed.
+Forward-only decisions:
 
-Current forward-only decisions:
-
-- one Aurora
-- one ontology
+- one Aurora, one ontology
 - no compatibility theater
-- no revival of `aurora_ontology_core`
 - no return to `BeingState` or `RelationState` as canonical truth
-
-## What Is Already Done
-
-The repository has already crossed the original rewrite boundary.
-
-Completed structural changes:
-
-- old parallel runtime track removed
-- old `runtime/models.py` removed
-- canonical write model moved into small focused modules
-- `awake / doze / sleep` wired through one engine path
-- HTTP surface aligned to `/health`, `/state`, `/turn`, `/doze`, `/sleep`
-- SQLite persistence rewritten around canonical objects instead of one opaque snapshot payload
-- tests and type checks updated to the new ontology
 
 ## Current Mainline Shape
 
 Canonical write model:
 
-- `Turn`
-- `Fragment`
-- `Trace`
-- `Association`
-- `RelationMoment`
-- `Thread`
-- `Knot`
-- `RelationFormation`
-- `Orientation`
-- `MetabolicState`
-- `PhaseTransition`
-
-Current active package spine:
+- `Turn`, `Fragment`, `Trace`, `Association`
+- `RelationMoment`, `RelationFormation`
+- `Thread`, `Knot`
+- `Orientation`, `MetabolicState`, `PhaseTransition`
 
 ```text
 aurora/
 ├── being/
+├── evaluation/
+├── expression/
+├── llm/
 ├── memory/
-├── relation/
-├── phases/
 ├── persistence/
+├── phases/
+├── relation/
 ├── runtime/
 └── surface/
 ```
 
-Reserved next boundaries:
+## Completed Phases
 
-- `aurora/expression/`
-- `aurora/evaluation/`
+### Phase 0–5: Original Rewrite
 
-These boundaries are still conceptually correct, but they should only be expanded when they hold real code, not placeholder structure.
+- ontology lock: reject personality-first, memory-CRUD, sleep-as-maintenance
+- canonical objects extracted into focused modules
+- awake/doze/sleep wired through single engine path
+- persistence rewritten around canonical objects
+- surface reconnected as thin boundary
+- parallel tracks deleted (`aurora_ontology_core` removed)
 
-## Rewrite Phases: Completed
+### Phase 6: Memory Module Split
 
-## Phase 0: Ontology Lock
+- `memory/store.py` reduced from 759 to 208 lines
+- extracted `recall.py`, `doze_ops.py`, `reweave_engine.py`, `affinity.py`, `tags.py`
+- all magic numbers extracted to named constants
 
-Completed:
+### Phase 7: Persistence Safety
 
-- reject personality-first core
-- reject memory CRUD center
-- reject sleep-as-maintenance
-- reject parallel implementation truth
+- replaced DELETE-all + INSERT-all with UPSERT (INSERT OR REPLACE)
+- removed destructive `_ensure_schema` that dropped all tables on error
+- removed legacy compatibility branches from evidence map loading
 
-Result:
+### Phase 8: Behavioral Feedback Loop
 
-- the repository now has one accepted architectural center
+- `ExpressionContext` expanded with recalled surfaces, moment summaries, orientation snapshot
+- `plan_response` now uses orientation risk/stability evidence to influence move selection
+- graph state feeds back into expression decisions
 
-## Phase 1: Core Object Extraction
+### Phase 9: LLM Integration
 
-Completed:
+- `aurora/llm/` module: `LLMProvider` protocol, `OpenAICompatProvider`, env-based config
+- `expression/prompt.py`: context-aware prompt assembly from graph state
+- LLM generates language when configured; template fallback when not
+- engine injects LLM provider through to expression layer
 
-- `aurora/runtime/contracts.py`
-- `aurora/being/metabolic_state.py`
-- `aurora/being/orientation.py`
-- `aurora/memory/{fragment,trace,association,thread,knot,reweave}.py`
-- `aurora/relation/{moment,formation}.py`
+### Phase 10: Touch Semantic Enhancement
 
-Result:
+- history-only touch: when no keywords match but graph has history, infer touch from recalled channels
+- touch is no longer purely keyword-gated
 
-- canonical objects exist as explicit modules instead of one giant mixed models file
+### Phase 11: Dead Code Cleanup
 
-## Phase 2: Runtime Path Rewrite
-
-Completed:
-
-- `aurora/phases/awake.py`
-- `aurora/phases/doze.py`
-- `aurora/phases/sleep.py`
-- `aurora/runtime/engine.py`
-- `aurora/runtime/bootstrap.py`
-
-Result:
-
-- Aurora now moves through one real lifecycle path
-
-## Phase 3: Persistence Rewrite
-
-Completed:
-
-- event tables for turns and phase transitions
-- canonical tables for fragments, traces, associations, threads, knots, relation moments, relation formations
-- singleton persistence for `orientation_state` and `metabolic_state`
-- hard reset on old incompatible local schemas
-
-Result:
-
-- persistence now follows ontology instead of hiding it in a monolithic payload blob
-
-## Phase 4: Surface Reconnection
-
-Completed:
-
-- `aurora/surface/api.py`
-- `aurora/surface/schemas.py`
-- `aurora/surface/cli.py`
-- contract doc synchronized with tests
-
-Result:
-
-- surface is now a thin boundary over the new runtime rather than the system center
-
-## Phase 5: Parallel-Track Deletion
-
-Completed:
-
-- remove `aurora_ontology_core`
-- remove transitional `aurora/new.md`
-- remove config exclusions that existed only to tolerate the parallel track
-
-Result:
-
-- the repository now enforces a single forward path
+- removed `aurora_ontology_core/` (empty directory with pyc remnants)
+- removed `dynamics_profile.json` (102 lines, zero references)
+- removed `version.py` (zero imports)
+- removed `runtime/policies.py` (non_malice_floor never triggered on template output)
+- removed Seed v1 references from `.env.example`, `tests/__init__.py`
+- all unused imports eliminated (ruff clean)
 
 ## Remaining Work
 
-The rewrite is structurally complete, but the architecture is not finished.
+### Deepen Sleep Geometry
 
-## Priority 1: Finish Expression Boundary
+- reweave is still heuristic; thread/knot formation could benefit from LLM-assisted semantic clustering
+- knot formation threshold is fixed; could adapt based on relation formation history
 
-Current truth:
+### Deepen Orientation Derivation
 
-- response planning now lives in `aurora/expression/`
-- rendering now also lives in `aurora/expression/`
-- `aurora/phases/awake.py` still commits the rendered result into canonical graph history
+- orientation evidence feeds into plan_response, but still accumulates via channel-counting shortcuts during awake
+- orientation strands should depend more on thread/knot/formation topology
 
-Required next move:
+### Expand Evaluation Coverage
 
-- keep expanding expression around `ResponseAct`, `ExpressionContext`, and explicit render modules
-- isolate richer tone evolution and future silence/refusal nuance without moving graph writes into expression
-- keep expression read-only over canonical graph state
+- current evaluation covers continuity, relation dynamics, sleep effects
+- needs richer multi-turn scenario regressions
+- needs projection-boundary checks (ensure projections never become canonical)
 
-Rule:
+### Refine Touch with LLM
 
-- expression may project
-- expression may render
-- expression may not mutate canonical ontology
+- when LLM is available, use it for semantic touch proposals instead of keyword matching
+- keep graph mediation as calibration layer
 
-## Priority 2: Add Evaluation Package
+## Non-Negotiable Rules
 
-Current truth:
-
-- ontology regression protection still relies mostly on unit tests in `tests/unit/`
-
-Required next move:
-
-- create `aurora/evaluation/` only when it holds real checks
-- add continuity, relation dynamics, sleep effects, and projection-drift tests
-
-Rule:
-
-- evaluation must test ontology behavior, not only endpoint responses
-
-## Priority 3: Tighten Persistence Semantics
-
-Current truth:
-
-- persistence stores canonical objects and event logs correctly
-- full graph tables are still rewritten wholesale on each persist pass
-
-Required next move:
-
-- move toward incremental writes where useful
-- add explicit schema versioning
-- add integrity checks around partial failures and replay assumptions
-
-Rule:
-
-- keep ontology primary; do not let the database dictate the model upward
-
-## Priority 4: Introduce Explicit Read Models
-
-Current truth:
-
-- relation summaries and state summaries are still produced close to core code
-
-Required next move:
-
-- isolate projections from write models more sharply
-- make `/state` and relation summaries clearly projection-only modules
-
-Rule:
-
-- no projection field may silently become canonical truth
-
-## Priority 5: Refine Sleep Geometry
-
-Current truth:
-
-- `sleep` already creates `Thread` and `Knot`
-- current clustering and affinity logic is intentionally simple
-
-Required next move:
-
-- make knot formation more semantically exact
-- make thread continuity less heuristic-only
-- give orientation stronger evidence linkage back to threads, knots, and relation formations
-
-Rule:
-
-- complexity is allowed only if it increases semantic precision without reintroducing scoreboards
-
-## Non-Negotiable Rules From Here
-
-- do not recreate `BeingState`
-- do not recreate `RelationState`
+- do not recreate `BeingState` or `RelationState`
 - do not bring back `Chapter` as canonical memory structure
-- do not reintroduce a second runtime line for experimentation
+- do not reintroduce a second runtime line
 - do not let LLM output write canonical memory directly
-- do not expand surface debug fields into a fake soul dashboard
-
-## Repository Hygiene Rules
-
-- delete transitional experiments instead of parking them indefinitely
-- do not add speculative package trees without concrete code
-- keep docs aligned with mainline runtime, not with abandoned plans
-- keep tests, docs, and surface contract synchronized
-
-## Practical Next Build Order
-
-1. finish expression boundary
-2. add evaluation package with ontology-level checks
-3. improve persistence semantics without changing the ontology center
-4. refine sleep/thread/knot/orientation linkage
-5. keep surface minimal
+- do not expand surface into a soul dashboard
+- expression may not mutate canonical graph state
 
 ## Completion Condition
 
-The rewrite should be considered complete only when all of the following are true:
+The rewrite is complete when:
 
-- expression is fully separated from phase orchestration and rendering is explicit
-- evaluation exists as a first-class package
-- persistence semantics are explicit and durable
-- projections are cleanly separated from write models
-- no stale rewrite-track documents remain that describe removed runtime paths as live options
+- expression generates language from graph state (done: LLM integration)
+- expression is read-only over canonical graph (done)
+- evaluation exists as first-class package (done, needs scenario expansion)
+- persistence is safe and durable (done: UPSERT)
+- projections are cleanly separated from write models (done)
+- no stale documents describe removed paths as live options (done)

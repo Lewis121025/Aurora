@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from aurora.memory.recall import recent_recall
 from aurora.runtime.contracts import Phase
 from aurora.runtime.engine import AuroraEngine
 
@@ -50,3 +51,14 @@ def test_phase_transitions_are_lifecycle_events(tmp_path: Path) -> None:
     assert sleep_output.phase is Phase.SLEEP
     assert len(engine.state.transitions) >= 2
     assert engine.state.metabolic.pending_sleep_relation_ids == ()
+
+
+def test_doze_hover_keeps_recent_relation_material_lightly_active(tmp_path: Path) -> None:
+    engine = AuroraEngine.create(data_dir=str(tmp_path))
+    engine.handle_turn(session_id="s4", text="谢谢你理解我")
+
+    engine.doze()
+
+    recalled = recent_recall(engine.memory_store, "rel:s4", limit=4)
+    assert recalled
+    assert any(fragment.activation_count >= 1 for fragment in recalled)

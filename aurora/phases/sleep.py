@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from aurora.being.metabolic_state import MetabolicState
 from aurora.being.orientation import Orientation
+from aurora.memory.reweave_engine import reweave
 from aurora.memory.store import MemoryStore
 from aurora.phases.outcomes import PhaseOutcome
 from aurora.phases.transitions import phase_transition
@@ -19,7 +20,8 @@ def run_sleep(
     previous = metabolic.phase
     metabolic.enter_phase(Phase.SLEEP, now_ts)
 
-    mutation = memory_store.reweave(
+    mutation = reweave(
+        store=memory_store,
         relation_formations=relation_store.formations,
         now_ts=now_ts,
         pending_relations=metabolic.pending_sleep_relation_ids or None,

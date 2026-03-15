@@ -23,7 +23,9 @@ So module boundaries must preserve:
 ```text
 aurora/
 ├── being/
+├── evaluation/
 ├── expression/
+├── llm/
 ├── memory/
 ├── persistence/
 ├── phases/
@@ -32,11 +34,7 @@ aurora/
 └── surface/
 ```
 
-Status notes:
-
-- `being/`, `memory/`, `relation/`, `phases/`, `expression/`, `persistence/`, `runtime/`, and `surface/` are active
-- `expression/` now owns response planning, but not the full rendering stack yet
-- `evaluation/` is not yet in the tree and should only be added when it contains real ontology checks
+All modules are active. `expression/` owns response planning, rendering, and LLM-based language generation. `llm/` provides the LLM provider abstraction. `evaluation/` contains ontology checks for continuity, relation dynamics, and sleep effects.
 
 ## `aurora/being/`
 
@@ -44,11 +42,16 @@ Current files:
 
 - `metabolic_state.py`
 - `orientation.py`
+- `touch.py`
 
 Purpose:
 
 - hold lifecycle control state without pretending to explain Aurora's identity
-- hold long-running self/world/relation evidence without reducing it to scoreboard floats
+- hold long-running self/world/relation evidence with source links back to lived moments and sleep structures
+
+Current support code:
+
+- `touch.py` turns lexical hints into graph-mediated touch proposals; when no keywords match but graph has history, infers touch from recalled channels
 
 Current canonical objects:
 
@@ -72,6 +75,11 @@ Current files:
 - `knot.py`
 - `reweave.py`
 - `store.py`
+- `recall.py`
+- `doze_ops.py`
+- `reweave_engine.py`
+- `affinity.py`
+- `tags.py`
 
 Purpose:
 
@@ -87,14 +95,13 @@ Current canonical objects:
 - `Knot`
 - `SleepMutation`
 
-`store.py` currently owns:
+`store.py` owns graph data and CRUD. Operational logic is extracted into focused modules:
 
-- graph storage
-- recall ranking
-- doze decay
-- sleep candidate selection
-- simple clustering
-- thread and knot formation
+- `recall.py`: recall ranking and activation channel extraction
+- `doze_ops.py`: hover and decay operations
+- `reweave_engine.py`: sleep reweave orchestration, region building, thread/knot formation
+- `affinity.py`: fragment affinity, overlap, and structural pressure calculations
+- `tags.py`: text tag extraction
 
 Must not become:
 
@@ -109,6 +116,8 @@ Current files:
 - `moment.py`
 - `formation.py`
 - `store.py`
+- `decision.py`
+- `projectors.py`
 
 Purpose:
 
@@ -147,14 +156,15 @@ Purpose:
 Current responsibilities:
 
 - `awake.py`: ingest interaction, write graph effects, update relation history, choose immediate outward move
-- `doze.py`: apply low-pressure decay and raise sleep pressure
+- `doze.py`: hover around active relation material, then apply low-pressure decay and raise sleep pressure
 - `sleep.py`: reweave memory graph and feed resulting changes back into orientation and metabolic state
 - `transitions.py`: create explicit `PhaseTransition` records
 - `outcomes.py`: keep phase outputs small and typed
 
 Known debt:
 
-- response planning has been extracted, but rendering is still intentionally minimal
+- doze resonance is still heuristic compared with the intended hovering semantics
+- sleep reweave is structural and heuristic; LLM-assisted semantic clustering is the next step
 
 ## `aurora/runtime/`
 
@@ -165,7 +175,7 @@ Current files:
 - `bootstrap.py`
 - `clock.py`
 - `engine.py`
-- `policies.py`
+- `projections.py`
 
 Purpose:
 
@@ -178,7 +188,7 @@ Current responsibilities:
 - `bootstrap.py`: initialize clean runtime state
 - `clock.py`: current time source
 - `engine.py`: orchestration for turn, doze, sleep, and projections
-- `policies.py`: minimal runtime policy helpers
+- `projections.py`: health and state summary projections for surface endpoints
 
 Must not become:
 
@@ -215,9 +225,10 @@ Important boundary:
 - persistence stores ontology faithfully
 - persistence must not redefine ontology upward from database convenience
 
+Persistence uses UPSERT (INSERT OR REPLACE) for graph tables and ON CONFLICT for singletons.
+
 Known debt:
 
-- core tables are rewritten wholesale on persist
 - explicit schema versioning is not yet present
 
 ## `aurora/surface/`
@@ -249,6 +260,23 @@ Important boundary:
 - `/state` is a projection
 - `/state` is not canonical self-knowledge
 
+## `aurora/llm/`
+
+Current files:
+
+- `provider.py`
+- `config.py`
+- `openai_compat.py`
+
+Purpose:
+
+- provide LLM integration for expression rendering
+- `provider.py` defines the `LLMProvider` protocol
+- `openai_compat.py` implements OpenAI-compatible API calls (covers Bailian, DeepSeek, etc.)
+- `config.py` loads provider configuration from environment variables
+
+When no LLM is configured, expression falls back to template rendering.
+
 ## `aurora/expression/`
 
 Current files:
@@ -256,18 +284,19 @@ Current files:
 - `context.py`
 - `render.py`
 - `response.py`
+- `prompt.py`
 - `silence.py`
+- `template_store.py`
+- `templates.json`
 - `voice.py`
 
 Current role:
 
-- hold read-only expression context
-- choose `ResponseAct` from current graph pressure and relation projection
+- hold read-only expression context including recalled surfaces, moment summaries, and orientation snapshot
+- choose `ResponseAct` from current graph pressure, relation decision context, and orientation evidence
 - render refusal, silence, and voiced text without mutating canonical graph state
-
-Future role:
-
-- expand from current planning and rendering into a fuller expression stack if real complexity appears
+- when LLM is available, generate language from graph-derived context via `prompt.py`
+- when LLM is unavailable, fall back to template rendering via `voice.py` and `silence.py`
 
 Hard rule:
 
@@ -275,14 +304,21 @@ Hard rule:
 
 ## `aurora/evaluation/`
 
-Current status:
+Current files:
 
-- not yet implemented
+- `continuity.py`
+- `relation_dynamics.py`
+- `sleep_effects.py`
 
-Correct future role:
+Current role:
 
-- protect ontology against regression
-- test continuity, relation dynamics, sleep effects, and projection boundaries
+- protect ontology against regression at the package level
+- test continuity, relation dynamics, and sleep effects without going through surface-only assertions
+
+Future role:
+
+- add projection-boundary checks
+- add richer scenario fixtures
 
 Hard rule:
 
@@ -363,5 +399,5 @@ Meaning:
 1. extract expression out of `phases/awake.py`
 2. finish expression rendering and silence/refusal modules
 3. introduce explicit projection/read-model modules
-4. add `evaluation/` once ontology checks are concrete
+4. expand evaluation with richer fixtures and projection-boundary checks
 5. tighten persistence semantics without changing the write-model center

@@ -65,6 +65,7 @@ Purpose:
 
 Current architectural rule:
 
+- `doze` may hover around active relation material and nearby graph paths
 - `doze` may soften or decay recent material
 - `doze` may not author deep semantic order
 
@@ -228,9 +229,9 @@ The current architectural split is:
 
 Orientation should carry:
 
-- self evidence
-- world evidence
-- relation evidence
+- self evidence linked back to moments, threads, and knots
+- world evidence linked back to moments, threads, and knots
+- relation evidence linked back to relation moments and sleep structures
 - anchor threads
 - active knots
 
@@ -258,9 +259,9 @@ Current conceptual pipeline:
 
 1. receive a user turn
 2. create a user fragment
-3. infer trace channels
+3. infer touch proposals and trace channels
 4. recall nearby graph material for the same relation
-5. choose an Aurora move from current graph pressure and relation projection
+5. choose an Aurora move from current graph pressure and canonical relation context
 6. create an Aurora turn and Aurora fragment
 7. create relation-linked association edges
 8. record a `RelationMoment`
@@ -272,20 +273,21 @@ Current conceptual pipeline:
 Current conceptual pipeline:
 
 1. enter `doze`
-2. soften recent fragment salience and unresolvedness
-3. reduce trace intensity gradually
-4. raise `sleep_need`
-5. persist the resulting lighter internal shifts
+2. hover around active relation material and nearby graph paths
+3. soften recent fragment salience and unresolvedness
+4. reduce trace intensity gradually
+5. raise `sleep_need`
+6. persist the resulting lighter internal shifts
 
 ## During `sleep`
 
 Current conceptual pipeline:
 
 1. choose candidate fragments per relation
-2. cluster by affinity
+2. expand narrative regions through graph neighbors, prior threads, prior knots, and affinity
 3. form `Thread`
 4. form `Knot` when tension remains high
-5. strengthen associations inside the rewoven region
+5. strengthen associations inside the rewoven region instead of blindly duplicating links
 6. soften fragment prominence while preserving structure
 7. feed the outcome into `RelationFormation`
 8. feed the outcome into `Orientation`
@@ -293,26 +295,28 @@ Current conceptual pipeline:
 
 ## Expression Boundary
 
-Expression is now an active but still incomplete boundary.
+Expression is a complete boundary between graph state and outward behavior.
 
 Architectural truth:
 
-- outward behavior should be downstream of graph state
+- outward behavior is downstream of graph state
 - expression must not become the place where ontology is authored
 
 Current shape:
 
-- `ExpressionContext` holds read-only inputs for outward behavior
-- `ResponseAct` planning happens in `aurora/expression/`
-- rendering for silence, refusal, tone, and response traces happens in `aurora/expression/`
-- phase orchestration now mainly commits the chosen outward result into canonical graph history
+- `ExpressionContext` carries recalled surfaces, moment summaries, orientation snapshot, and relation context
+- `plan_response` chooses a `ResponseAct` from graph pressure, relation context, and orientation evidence
+- `render_response` produces language via LLM when configured, or via templates as fallback
+- `prompt.py` assembles LLM prompts from graph-derived context
+- `silence.py` and `voice.py` handle template-based rendering
+- phase orchestration commits the rendered result into canonical graph history
+- touch proposals are graph-mediated with history-only inference when keywords are absent
+- relation decision context is derived from canonical formation state
 
-Required final shape:
+Hard rule:
 
-- graph activation and relation projection feed an `ExpressionContext`
-- expression planning chooses a `ResponseAct`
-- rendering turns that act into language or silence
-- canonical graph writes remain outside the expression layer
+- expression may project, render, and generate language
+- expression may not mutate canonical graph objects
 
 ## Persistence Model
 
@@ -359,6 +363,14 @@ It must be judged by whether it preserves:
 - sleep change without summary theater
 - surface thinness without ontology leakage
 
+Current package-level evaluation now covers:
+
+- continuity invariants
+- relation dynamics invariants
+- sleep effects invariants
+
+The next step is to deepen these checks from unit-scale invariants into richer scenario regressions.
+
 ## Architectural Anti-Goals
 
 Treat all of the following as regressions:
@@ -371,10 +383,9 @@ Treat all of the following as regressions:
 - turning `/state` into a semantic debug soul panel
 - reintroducing a second runtime line for experiments
 
-## Current Next Step
+## Next Refinement Order
 
-The next architectural move should be:
-
-- complete the expression extraction beyond planning into explicit rendering modules
-- keep it read-only over canonical graph state
-- then add ontology-focused evaluation modules
+1. deepen sleep geometry with LLM-assisted semantic clustering
+2. refine orientation derivation from thread/knot/formation topology
+3. expand evaluation with richer scenario fixtures and projection-boundary checks
+4. refine touch with LLM-based semantic proposals when available

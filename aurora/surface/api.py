@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
-from aurora.runtime.engine import AuroraEngine, StateSummary
+from aurora.runtime.engine import AuroraEngine
+from aurora.runtime.projections import StateSummary
 from aurora.surface.schemas import (
     HealthResponse,
     PhaseResponse,

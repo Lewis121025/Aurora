@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from aurora.relation.formation import RelationFormation
 from aurora.relation.moment import RelationMoment
+from aurora.relation.projectors import RelationProjection, project_relation
 from aurora.runtime.contracts import AuroraMove, TraceChannel, unique_channels
 
 
@@ -60,8 +61,8 @@ class RelationStore:
             now_ts=now_ts,
         )
 
-    def summarize_relation(self, relation_id: str) -> dict[str, float | tuple[str, ...] | int]:
-        return self.formation_for(relation_id).snapshot()
+    def summarize_relation(self, relation_id: str) -> RelationProjection:
+        return project_relation(self.formation_for(relation_id))
 
     def relation_count(self) -> int:
         return len(self.formations)

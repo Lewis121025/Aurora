@@ -40,24 +40,11 @@ class SQLitePersistence:
             self._connection.execute("SELECT id, phase, sleep_need FROM metabolic_state LIMIT 1")
             self._connection.execute("SELECT id, self_evidence FROM orientation_state LIMIT 1")
             self._connection.execute("SELECT thread_id FROM threads LIMIT 1")
-        except sqlite3.OperationalError:
-            with self._connection:
-                for table in (
-                    "turn_events",
-                    "phase_events",
-                    "fragments",
-                    "traces",
-                    "associations",
-                    "threads",
-                    "knots",
-                    "relation_moments",
-                    "relation_formations",
-                    "orientation_state",
-                    "metabolic_state",
-                    "runtime_snapshots",
-                ):
-                    self._connection.execute(f"DROP TABLE IF EXISTS {table}")
-            apply_migrations(self._connection)
+        except sqlite3.OperationalError as exc:
+            raise RuntimeError(
+                f"Incompatible database schema at {self.db_path}. "
+                "Delete the database file to reset, or migrate manually."
+            ) from exc
 
     def load_runtime(
         self,
@@ -221,9 +208,9 @@ class SQLitePersistence:
         memory_store.last_sleep_at = max(sleep_transitions) if sleep_transitions else 0.0
 
         orientation = Orientation(
-            self_evidence=_load_dict_int(orientation_row["self_evidence"]),
-            world_evidence=_load_dict_int(orientation_row["world_evidence"]),
-            relation_evidence=_load_dict_int(orientation_row["relation_evidence"]),
+            self_evidence=_load_evidence_map(orientation_row["self_evidence"]),
+            world_evidence=_load_evidence_map(orientation_row["world_evidence"]),
+            relation_evidence=_load_evidence_map(orientation_row["relation_evidence"]),
             anchor_thread_ids=_load_tuple_str(orientation_row["anchor_thread_ids"]),
             active_knot_ids=_load_tuple_str(orientation_row["active_knot_ids"]),
             last_updated_at=float(orientation_row["last_updated_at"]),
@@ -326,20 +313,9 @@ class SQLitePersistence:
         memory_store: MemoryStore,
         relation_store: RelationStore,
     ) -> None:
-        for table in (
-            "fragments",
-            "traces",
-            "associations",
-            "threads",
-            "knots",
-            "relation_moments",
-            "relation_formations",
-        ):
-            self._connection.execute(f"DELETE FROM {table}")
-
         for fragment in memory_store.fragments.values():
             self._connection.execute(
-                "INSERT INTO fragments(fragment_id, relation_id, turn_id, surface, tags, vividness, salience, "
+                "INSERT OR REPLACE INTO fragments(fragment_id, relation_id, turn_id, surface, tags, vividness, salience, "
                 "unresolvedness, thread_ids, knot_ids, created_at, last_touched_at, activation_count) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
@@ -361,7 +337,7 @@ class SQLitePersistence:
 
         for trace in memory_store.traces.values():
             self._connection.execute(
-                "INSERT INTO traces(trace_id, relation_id, fragment_id, channel, intensity, carry, created_at, last_touched_at) "
+                "INSERT OR REPLACE INTO traces(trace_id, relation_id, fragment_id, channel, intensity, carry, created_at, last_touched_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     trace.trace_id,
@@ -377,7 +353,7 @@ class SQLitePersistence:
 
         for association in memory_store.associations.values():
             self._connection.execute(
-                "INSERT INTO associations(edge_id, src_fragment_id, dst_fragment_id, kind, weight, evidence, created_at, last_touched_at) "
+                "INSERT OR REPLACE INTO associations(edge_id, src_fragment_id, dst_fragment_id, kind, weight, evidence, created_at, last_touched_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     association.edge_id,
@@ -393,7 +369,7 @@ class SQLitePersistence:
 
         for thread in memory_store.threads.values():
             self._connection.execute(
-                "INSERT INTO threads(thread_id, relation_id, fragment_ids, dominant_channels, tension, coherence, created_at, last_rewoven_at) "
+                "INSERT OR REPLACE INTO threads(thread_id, relation_id, fragment_ids, dominant_channels, tension, coherence, created_at, last_rewoven_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     thread.thread_id,
@@ -409,7 +385,7 @@ class SQLitePersistence:
 
         for knot in memory_store.knots.values():
             self._connection.execute(
-                "INSERT INTO knots(knot_id, relation_id, fragment_ids, dominant_channels, intensity, resolved, created_at, last_rewoven_at) "
+                "INSERT OR REPLACE INTO knots(knot_id, relation_id, fragment_ids, dominant_channels, intensity, resolved, created_at, last_rewoven_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     knot.knot_id,
@@ -426,7 +402,7 @@ class SQLitePersistence:
         for moments in relation_store.moments.values():
             for moment in moments:
                 self._connection.execute(
-                    "INSERT INTO relation_moments(moment_id, relation_id, user_turn_id, aurora_turn_id, user_channels, aurora_move, boundary_event, repair_event, summary, created_at) "
+                    "INSERT OR REPLACE INTO relation_moments(moment_id, relation_id, user_turn_id, aurora_turn_id, user_channels, aurora_move, boundary_event, repair_event, summary, created_at) "
                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         moment.moment_id,
@@ -444,7 +420,7 @@ class SQLitePersistence:
 
         for formation in relation_store.formations.values():
             self._connection.execute(
-                "INSERT INTO relation_formations(relation_id, thread_ids, knot_ids, boundary_events, repair_events, resonance_events, last_contact_at) "
+                "INSERT OR REPLACE INTO relation_formations(relation_id, thread_ids, knot_ids, boundary_events, repair_events, resonance_events, last_contact_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?)",
                 (
                     formation.relation_id,
@@ -506,6 +482,9 @@ def _load_tuple_str(raw: Any) -> tuple[str, ...]:
     return tuple(str(item) for item in value)
 
 
-def _load_dict_int(raw: Any) -> dict[str, int]:
+def _load_evidence_map(raw: Any) -> dict[str, tuple[str, ...]]:
     value = cast(dict[str, Any], json.loads(str(raw)))
-    return {str(key): int(item) for key, item in value.items()}
+    return {
+        str(key): tuple(str(entry) for entry in item) if isinstance(item, list) else ()
+        for key, item in value.items()
+    }

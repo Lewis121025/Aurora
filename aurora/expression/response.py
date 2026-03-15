@@ -17,48 +17,75 @@ class ResponseAct:
     response_channels: tuple[TraceChannel, ...]
 
 
-def plan_response(context: ExpressionContext) -> ResponseAct:
-    lowered = context.input_text.lower()
-    boundary_events = _as_int(context.relation_snapshot.get("boundary_events", 0))
-    repairability = _as_float(context.relation_snapshot.get("repairability", 0.0))
-    trust = _as_float(context.relation_snapshot.get("trust", 0.0))
-    distance = _as_float(context.relation_snapshot.get("distance", 0.0))
-    dominant = set(context.dominant_channels)
+ORIENTATION_RISK_THRESHOLD = 3
+ORIENTATION_STABILITY_THRESHOLD = 2
 
-    if any(token in lowered for token in ("shut up", "get lost", "闭嘴", "滚")):
-        return ResponseAct(
-            move="silence",
-            tone="quiet",
-            response_channels=(TraceChannel.DISTANCE,),
-        )
-    if TraceChannel.BOUNDARY in dominant or boundary_events >= 3:
+
+def plan_response(context: ExpressionContext) -> ResponseAct:
+    relation = context.relation_context
+    dominant = set(context.dominant_channels)
+    risk_pressure = _orientation_risk_pressure(context.orientation_snapshot)
+    stability_support = _orientation_stability_support(context.orientation_snapshot)
+
+    if TraceChannel.BOUNDARY in dominant and relation.boundary_events >= relation.repair_events:
         return ResponseAct(
             move="boundary",
             tone="firm",
             response_channels=(TraceChannel.BOUNDARY, TraceChannel.COHERENCE),
         )
-    if "sorry" in lowered or "对不起" in context.input_text or "修复" in context.input_text:
+    if relation.boundary_events >= 3 and relation.repair_events == 0:
+        return ResponseAct(
+            move="boundary",
+            tone="firm",
+            response_channels=(TraceChannel.BOUNDARY, TraceChannel.COHERENCE),
+        )
+    if TraceChannel.REPAIR in dominant:
         return ResponseAct(
             move="repair",
             tone="gentle",
             response_channels=(TraceChannel.REPAIR, TraceChannel.WARMTH),
         )
-    if context.has_knots and repairability < 0.30:
+    if (
+        TraceChannel.DISTANCE in dominant
+        and TraceChannel.HURT in dominant
+        and relation.boundary_events > relation.resonance_events
+        and relation.knot_count > 0
+    ):
+        return ResponseAct(
+            move="silence",
+            tone="quiet",
+            response_channels=(TraceChannel.DISTANCE,),
+        )
+    if (
+        context.has_knots
+        and relation.repair_events * 2 < relation.boundary_events + relation.knot_count
+    ):
         return ResponseAct(
             move="withhold",
             tone="guarded",
             response_channels=(TraceChannel.DISTANCE, TraceChannel.COHERENCE),
         )
-    if distance >= 0.40:
+    if TraceChannel.DISTANCE in dominant and relation.resonance_events <= relation.boundary_events:
         return ResponseAct(
             move="withhold",
             tone="guarded",
             response_channels=(TraceChannel.DISTANCE, TraceChannel.COHERENCE),
         )
-    if TraceChannel.WARMTH in dominant or trust >= 0.35:
+    if risk_pressure and TraceChannel.HURT in dominant:
+        return ResponseAct(
+            move="withhold",
+            tone="guarded",
+            response_channels=(TraceChannel.DISTANCE, TraceChannel.COHERENCE),
+        )
+    if (
+        TraceChannel.WARMTH in dominant or TraceChannel.RECOGNITION in dominant
+    ) and relation.resonance_events + relation.thread_count >= relation.boundary_events:
+        tone: Tone = "gentle"
+        if stability_support:
+            tone = "gentle"
         return ResponseAct(
             move="approach",
-            tone="gentle",
+            tone=tone,
             response_channels=(TraceChannel.WARMTH, TraceChannel.RECOGNITION),
         )
     return ResponseAct(
@@ -68,9 +95,27 @@ def plan_response(context: ExpressionContext) -> ResponseAct:
     )
 
 
-def _as_float(value: float | tuple[str, ...] | int) -> float:
-    return float(value) if isinstance(value, (int, float)) else 0.0
+def _orientation_risk_pressure(snapshot: dict[str, object] | None) -> bool:
+    if snapshot is None:
+        return False
+    world = snapshot.get("world")
+    if not isinstance(world, dict):
+        return False
+    risk = world.get("risk")
+    if not isinstance(risk, dict):
+        return False
+    count = risk.get("count", 0)
+    return int(count) >= ORIENTATION_RISK_THRESHOLD if isinstance(count, (int, float)) else False
 
 
-def _as_int(value: float | tuple[str, ...] | int) -> int:
-    return int(value) if isinstance(value, (int, float)) else 0
+def _orientation_stability_support(snapshot: dict[str, object] | None) -> bool:
+    if snapshot is None:
+        return False
+    world = snapshot.get("world")
+    if not isinstance(world, dict):
+        return False
+    stability = world.get("stability")
+    if not isinstance(stability, dict):
+        return False
+    count = stability.get("count", 0)
+    return int(count) >= ORIENTATION_STABILITY_THRESHOLD if isinstance(count, (int, float)) else False

@@ -44,7 +44,7 @@ wheels = [
 ]
 
 [[package]]
-name = "aurora-memory"
+name = "aurora"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [
