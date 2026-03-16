@@ -1,51 +1,76 @@
 """运行时状态模块。
 
-定义 Aurora 运行时状态（RuntimeState），包含：
-- 本体定向（Orientation）
-- 代谢状态（MetabolicState）
-- 相位转换历史
+定义 Aurora 运行时状态（RuntimeState），管理：
+- 活跃会话
+- 轮数累积
+- 最后交互时间
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-
-from aurora.being.metabolic_state import MetabolicState
-from aurora.being.orientation import Orientation
-from aurora.runtime.contracts import PhaseTransition
-
-
-TRANSITION_CAP = 256  # 相位转换历史记录上限
 
 
 @dataclass(slots=True)
 class RuntimeState:
     """Aurora 运行时状态。
 
-    封装 Aurora 的核心状态组件，管理相位转换历史。
-
     Attributes:
-        orientation: 本体定向状态。
-        metabolic: 代谢状态。
-        transitions: 相位转换历史记录列表。
+        session_turn_counts: 会话 -> 轮数映射。
+        last_interaction_at: 最后交互时间戳。
+        active_sessions: 活跃会话集合。
     """
 
-    orientation: Orientation
-    """本体定向状态。"""
+    session_turn_counts: dict[str, int] = field(default_factory=dict)
+    last_interaction_at: float = 0.0
+    active_sessions: set[str] = field(default_factory=set)
 
-    metabolic: MetabolicState
-    """代谢状态。"""
-
-    transitions: list[PhaseTransition] = field(default_factory=list)
-    """相位转换历史记录列表。"""
-
-    def append_transition(self, transition: PhaseTransition) -> None:
-        """添加相位转换记录。
-
-        超出容量上限时自动移除最旧的记录。
+    def record_turn(self, session_id: str, now_ts: float) -> int:
+        """记录一次对话轮次。
 
         Args:
-            transition: 相位转换对象。
+            session_id: 会话 ID。
+            now_ts: 当前时间戳。
+
+        Returns:
+            累计轮数。
         """
-        self.transitions.append(transition)
-        if len(self.transitions) > TRANSITION_CAP:
-            del self.transitions[: len(self.transitions) - TRANSITION_CAP]
+        self.last_interaction_at = now_ts
+        self.active_sessions.add(session_id)
+        count = self.session_turn_counts.get(session_id, 0) + 1
+        self.session_turn_counts[session_id] = count
+        return count
+
+    def get_turn_count(self, session_id: str) -> int:
+        """获取会话轮数。
+
+        Args:
+            session_id: 会话 ID。
+
+        Returns:
+            轮数。
+        """
+        return self.session_turn_counts.get(session_id, 0)
+
+    def is_idle(self, now_ts: float, timeout_seconds: float) -> bool:
+        """判断是否空闲。
+
+        Args:
+            now_ts: 当前时间戳。
+            timeout_seconds: 超时阈值（秒）。
+
+        Returns:
+            是否空闲。
+        """
+        if self.last_interaction_at == 0.0:
+            return True
+        return (now_ts - self.last_interaction_at) >= timeout_seconds
+
+    def clear_session(self, session_id: str) -> None:
+        """清除会话数据。
+
+        Args:
+            session_id: 会话 ID。
+        """
+        self.active_sessions.discard(session_id)
+        self.session_turn_counts.pop(session_id, None)

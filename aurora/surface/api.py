@@ -1,14 +1,10 @@
 """HTTP API 模块。
 
-定义 Aurora 的 HTTP API 接口，基于 FastAPI：
+基于 FastAPI 提供 Aurora 接口：
 - GET /health: 健康检查
-- GET /state: 状态查询
 - POST /turn: 执行认知循环
-- POST /doze: 进入 doze 状态
-- POST /sleep: 进入 sleep 状态
-
-支持 API Key 认证（通过 AURORA_API_KEY 环境变量）。
 """
+
 from __future__ import annotations
 
 import os
@@ -17,140 +13,39 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from aurora.runtime.engine import AuroraEngine
-from aurora.runtime.projections import StateSummary
-from aurora.surface.schemas import (
-    HealthResponse,
-    PhaseResponse,
-    StateResponse,
-    TurnRequest,
-    TurnResponse,
-)
 
-# 无需认证的路径
 _OPEN_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
 
 
 def build_app(engine: AuroraEngine) -> FastAPI:
-    """构建 FastAPI 应用。
-
-    Args:
-        engine: Aurora 引擎实例。
-
-    Returns:
-        FastAPI: 应用实例。
-    """
-    app = FastAPI(title="Aurora Surface")
-    runtime = engine
+    """构建 FastAPI 应用。"""
+    app = FastAPI(title="Aurora")
     api_key = os.environ.get("AURORA_API_KEY")
 
     @app.middleware("http")
     async def _auth(request: Request, call_next):  # type: ignore[no-untyped-def]
-        """认证中间件。
-
-        若设置了 API Key，则对非公开路径进行认证检查。
-
-        Args:
-            request: HTTP 请求。
-            call_next: 下一个处理函数。
-
-        Returns:
-            HTTP 响应。
-        """
         if api_key and request.url.path not in _OPEN_PATHS:
             provided = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
             if provided != api_key:
                 return JSONResponse(status_code=401, content={"detail": "unauthorized"})
         return await call_next(request)
 
-    @app.get("/health", response_model=HealthResponse)
-    def health() -> HealthResponse:
-        """健康检查端点。
+    @app.get("/health")
+    def health() -> dict:
+        return {"status": "ok", "relations": len(engine.relational_states)}
 
-        Returns:
-            HealthResponse: 健康摘要。
-        """
-        summary = runtime.health_summary()
-        return HealthResponse(
-            status=str(summary["status"]),
-            phase=str(summary["phase"]),
-            turns=int(summary["turns"]),
-            transitions=int(summary["transitions"]),
-        )
-
-    @app.get("/state", response_model=StateResponse)
-    def state() -> StateResponse:
-        """状态查询端点。
-
-        Returns:
-            StateResponse: 完整状态摘要。
-        """
-        summary: StateSummary = runtime.state_summary()
-        return StateResponse(
-            phase=str(summary["phase"]),
-            sleep_need=summary["sleep_need"],
-            active_relation_ids=summary["active_relation_ids"],
-            pending_sleep_relation_ids=summary["pending_sleep_relation_ids"],
-            active_knot_ids=summary["active_knot_ids"],
-            anchor_thread_ids=summary["anchor_thread_ids"],
-            turns=summary["turns"],
-            memory_fragments=summary["memory_fragments"],
-            memory_traces=summary["memory_traces"],
-            memory_associations=summary["memory_associations"],
-            memory_threads=summary["memory_threads"],
-            memory_knots=summary["memory_knots"],
-            relation_formations=summary["relation_formations"],
-            relation_moments=summary["relation_moments"],
-            sleep_cycles=summary["sleep_cycles"],
-            transitions=summary["transitions"],
-        )
-
-    @app.post("/turn", response_model=TurnResponse)
-    def turn(request: TurnRequest) -> TurnResponse:
-        """执行认知循环端点。
-
-        Args:
-            request: turn 请求，包含 session_id 和 text。
-
-        Returns:
-            TurnResponse: turn 输出。
-        """
-        output = runtime.handle_turn(session_id=request.session_id, text=request.text)
-        return TurnResponse(
-            turn_id=output.turn_id,
-            response_text=output.response_text,
-            aurora_move=output.aurora_move,
-            dominant_channels=output.dominant_channels,
-        )
-
-    @app.post("/doze", response_model=PhaseResponse)
-    def doze() -> PhaseResponse:
-        """进入 doze 状态端点。
-
-        Returns:
-            PhaseResponse: 相位输出。
-        """
-        output = runtime.doze()
-        return PhaseResponse(phase=output.phase, transition_id=output.transition_id)
-
-    @app.post("/sleep", response_model=PhaseResponse)
-    def sleep() -> PhaseResponse:
-        """进入 sleep 状态端点。
-
-        Returns:
-            PhaseResponse: 相位输出。
-        """
-        output = runtime.sleep()
-        return PhaseResponse(phase=output.phase, transition_id=output.transition_id)
+    @app.post("/turn")
+    def turn(session_id: str, text: str) -> dict:
+        output = engine.handle_turn(session_id=session_id, text=text)
+        return {
+            "turn_id": output.turn_id,
+            "response_text": output.response_text,
+            "aurora_move": output.aurora_move,
+        }
 
     return app
 
 
 def create_app() -> FastAPI:
-    """创建 FastAPI 应用实例。
-
-    自动从环境变量加载配置并创建 Aurora 引擎。
-
-    Returns:
-        FastAPI: 应用实例。
-    """
+    """创建 FastAPI 应用实例。"""
     return build_app(AuroraEngine.create())

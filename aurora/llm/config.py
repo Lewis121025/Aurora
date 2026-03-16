@@ -1,11 +1,11 @@
 """LLM 配置模块。
 
-定义 LLM 配置结构及加载函数，从环境变量读取：
-- AURORA_LLM_BASE_URL: LLM API 基础 URL
-- AURORA_LLM_MODEL: 模型名称
-- AURORA_LLM_API_KEY: API 密钥
-- AURORA_LLM_TIMEOUT_S: 请求超时（秒）
+定义 LLM 配置及运行时参数：
+- LLM 配置（环境变量读取）
+- 蒸馏阈值配置
+- 会话超时配置
 """
+
 from __future__ import annotations
 
 import os
@@ -17,16 +17,26 @@ class LLMConfig:
     """LLM 配置。
 
     Attributes:
-        base_url: LLM API 基础 URL（如 https://api.openai.com/v1）。
-        model: 模型名称（如 gpt-4o-mini）。
+        base_url: LLM API 基础 URL。
+        model: 模型名称。
         api_key: API 密钥。
-        timeout_s: 请求超时（秒），默认 30 秒。
+        timeout_s: 请求超时（秒）。
     """
 
     base_url: str
     model: str
     api_key: str
     timeout_s: float = 30.0
+
+
+DISTILL_THRESHOLD_TURNS = 20
+"""蒸馏触发阈值：单会话累计轮数达到此值时触发蒸馏。"""
+
+SESSION_IDLE_TIMEOUT_MINUTES = 30
+"""会话空闲超时（分钟）：超过此时间无交互则触发蒸馏。"""
+
+EMBEDDING_DIM = 384
+"""向量维度（MiniLM all-MiniLM-L6-v2）。"""
 
 
 def load_llm_config() -> LLMConfig | None:
@@ -47,7 +57,6 @@ def load_llm_config() -> LLMConfig | None:
     model = os.environ.get("AURORA_LLM_MODEL", "")
     api_key = os.environ.get("AURORA_LLM_API_KEY", "")
 
-    # 必需变量缺失时返回 None
     if not base_url or not api_key:
         return None
 

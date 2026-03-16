@@ -1,37 +1,25 @@
 """Aurora 引擎模块。
 
-实现 Aurora 核心引擎（AuroraEngine），提供：
-- 初始化：从持久化加载状态或创建新实例
+实现 Aurora 核心引擎（AuroraEngine）：
 - handle_turn: 处理用户输入
-- doze: 进入 doze 状态
-- sleep: 进入 sleep 状态
-- health_summary/state_summary: 状态查询
+- 会话轮数累积与蒸馏触发
+- 状态投影到 System Prompt
 """
+
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass
 
-from aurora.being.metabolic_state import MetabolicState
-from aurora.being.orientation import Orientation
-from aurora.llm.config import load_llm_config
+from aurora.llm.config import load_llm_config, DISTILL_THRESHOLD_TURNS, SESSION_IDLE_TIMEOUT_MINUTES
 from aurora.llm.openai_compat import OpenAICompatProvider
 from aurora.llm.provider import LLMProvider
 from aurora.memory.store import MemoryStore
-from aurora.persistence.store import SQLitePersistence
+from aurora.pipelines.distillation import apply_distillation, distill_session
+from aurora.relation.state import RelationalState
+from aurora.relation.tension import TensionQueue
+from aurora.runtime.contracts import AuroraMove
 from aurora.phases.awake import run_awake
-from aurora.phases.doze import run_doze
-from aurora.phases.sleep import run_sleep
-from aurora.relation.store import RelationStore
-from aurora.runtime.contracts import AuroraMove, Phase
-from aurora.runtime.identity import IdentityResolver
-from aurora.runtime.projections import (
-    HealthSummary,
-    StateSummary,
-    project_health_summary,
-    project_state_summary,
-)
-from aurora.runtime.state import RuntimeState
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,70 +30,48 @@ class EngineOutput:
         turn_id: 用户转换 ID。
         response_text: Aurora 响应文本。
         aurora_move: Aurora 行为选择。
-        dominant_channels: 主导通道列表。
     """
 
     turn_id: str
     response_text: str
     aurora_move: AuroraMove
-    dominant_channels: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class PhaseOutput:
-    """相位输出。
-
-    Attributes:
-        phase: 相位类型。
-        transition_id: 转换 ID。
-    """
-
-    phase: Phase
-    transition_id: str
 
 
 class AuroraEngine:
     """Aurora 核心引擎。
 
-    封装运行时状态、记忆存储、关系存储、持久化和 LLM 提供者，
-    提供统一的接口处理交互和相位控制。
-
     Attributes:
         memory_store: 记忆存储。
-        relation_store: 关系存储。
+        relational_states: 关系状态字典。
+        tension_queues: 张力队列字典。
         state: 运行时状态。
-        persistence: 持久化存储。
         llm: LLM 提供者。
-        identity: 身份解析器。
+        _conversation_buffer: 会话缓冲 [(user, aurora), ...]。
     """
 
-    __slots__ = ("memory_store", "relation_store", "state", "persistence", "llm", "identity")
+    __slots__ = (
+        "memory_store",
+        "relational_states",
+        "tension_queues",
+        "state",
+        "llm",
+        "_conversation_buffer",
+    )
 
     def __init__(
         self,
         memory_store: MemoryStore,
-        relation_store: RelationStore,
-        state: RuntimeState,
-        persistence: SQLitePersistence,
+        relational_states: dict[str, RelationalState],
+        tension_queues: dict[str, TensionQueue],
+        state,
         llm: LLMProvider,
-        identity: IdentityResolver,
     ) -> None:
-        """初始化引擎。
-
-        Args:
-            memory_store: 记忆存储。
-            relation_store: 关系存储。
-            state: 运行时状态。
-            persistence: 持久化存储。
-            llm: LLM 提供者。
-            identity: 身份解析器。
-        """
         self.memory_store = memory_store
-        self.relation_store = relation_store
+        self.relational_states = relational_states
+        self.tension_queues = tension_queues
         self.state = state
-        self.persistence = persistence
         self.llm = llm
-        self.identity = identity
+        self._conversation_buffer: dict[str, list[tuple[str, str]]] = {}
 
     @classmethod
     def create(
@@ -113,26 +79,7 @@ class AuroraEngine:
         data_dir: str | None = None,
         llm: LLMProvider | None = None,
     ) -> "AuroraEngine":
-        """创建引擎实例。
-
-        从持久化加载状态，若不存在则创建初始状态。
-        若未提供 LLM 提供者则从环境变量加载配置。
-
-        Args:
-            data_dir: 数据目录，默认 `.aurora`。
-            llm: LLM 提供者，默认从环境变量加载。
-
-        Returns:
-            AuroraEngine: 引擎实例。
-
-        Raises:
-            RuntimeError: LLM 配置缺失。
-        """
-        persistence = SQLitePersistence(data_dir=data_dir)
-        initial = RuntimeState(orientation=Orientation(), metabolic=MetabolicState())
-        memory_store, relation_store, state = persistence.load_runtime(initial=initial)
-        identity = IdentityResolver(persistence.connection)
-
+        """创建引擎实例。"""
         if llm is None:
             llm_config = load_llm_config()
             if llm_config is None:
@@ -142,127 +89,115 @@ class AuroraEngine:
                 )
             llm = OpenAICompatProvider(llm_config)
 
-        return cls(memory_store, relation_store, state, persistence, llm, identity)
+        from aurora.runtime.state import RuntimeState
 
-    def handle_turn(self, session_id: str, text: str) -> EngineOutput:
+        memory_store = MemoryStore()
+        relational_states: dict[str, RelationalState] = {}
+        tension_queues: dict[str, TensionQueue] = {}
+        state = RuntimeState()
+
+        return cls(memory_store, relational_states, tension_queues, state, llm)
+
+    def handle_turn(
+        self, session_id: str, text: str, relation_id: str | None = None
+    ) -> EngineOutput:
         """处理用户输入。
-
-        执行 awake 相位，创建记忆结构，持久化结果。
 
         Args:
             session_id: 会话 ID。
             text: 用户输入文本。
+            relation_id: 关系 ID（可选，默认使用 session_id）。
 
         Returns:
             EngineOutput: turn 输出。
         """
         now_ts = time.time()
-        relation_id = self.identity.resolve(session_id, now_ts)
+        rid = relation_id or session_id
+
+        if rid not in self.relational_states:
+            self.relational_states[rid] = RelationalState()
+        if rid not in self.tension_queues:
+            self.tension_queues[rid] = TensionQueue()
+        if rid not in self._conversation_buffer:
+            self._conversation_buffer[rid] = []
+
+        relational_state = self.relational_states[rid]
+        tension_queue = self.tension_queues[rid]
 
         outcome = run_awake(
-            relation_id=relation_id,
+            relation_id=rid,
             session_id=session_id,
             text=text,
-            orientation=self.state.orientation,
-            metabolic=self.state.metabolic,
+            relational_state=relational_state,
+            tension_queue=tension_queue,
             memory_store=self.memory_store,
-            relation_store=self.relation_store,
             now_ts=now_ts,
             llm=self.llm,
         )
 
-        if outcome.transition is not None:
-            self.state.append_transition(outcome.transition)
+        self._conversation_buffer[rid].append((text, outcome.response_text))
 
-        self.persistence.persist_awake(
-            outcome=outcome,
-            state=self.state,
-            memory_store=self.memory_store,
-            relation_store=self.relation_store,
-        )
+        turn_count = self.state.record_turn(rid, now_ts)
+
+        if turn_count >= DISTILL_THRESHOLD_TURNS:
+            self._trigger_distillation(rid, now_ts)
+            self.state.session_turn_counts[rid] = 0
+            self._conversation_buffer[rid] = []
 
         return EngineOutput(
             turn_id=outcome.user_turn.turn_id,
             response_text=outcome.response_text,
             aurora_move=outcome.aurora_move,
-            dominant_channels=tuple(channel.value for channel in outcome.dominant_channels),
         )
 
-    def doze(self) -> PhaseOutput:
-        """进入 doze 状态。
+    def on_session_idle(self, session_id: str | None = None) -> None:
+        """会话空闲触发蒸馏。
 
-        执行 doze 相位，维护记忆，持久化结果。
-
-        Returns:
-            PhaseOutput: 相位输出。
+        Args:
+            session_id: 会话 ID（可选，默认处理所有关系）。
         """
-        outcome = run_doze(
-            metabolic=self.state.metabolic,
-            memory_store=self.memory_store,
-            now_ts=time.time(),
-        )
-        self.state.append_transition(outcome.transition)
-        self.persistence.persist_phase(
-            outcome=outcome,
-            state=self.state,
-            memory_store=self.memory_store,
-            relation_store=self.relation_store,
-        )
-        return PhaseOutput(
-            phase=outcome.phase,
-            transition_id=outcome.transition.transition_id,
-        )
+        now_ts = time.time()
+        timeout_seconds = SESSION_IDLE_TIMEOUT_MINUTES * 60
 
-    def sleep(self) -> PhaseOutput:
-        """进入 sleep 状态。
+        if self.state.is_idle(now_ts, timeout_seconds):
+            relations = [session_id] if session_id else list(self.relational_states.keys())
+            for rid in relations:
+                if self._conversation_buffer.get(rid):
+                    self._trigger_distillation(rid, now_ts)
 
-        执行 sleep 相位，整合记忆，持久化结果。
+    def _trigger_distillation(self, relation_id: str, now_ts: float) -> None:
+        """触发蒸馏管道。
 
-        Returns:
-            PhaseOutput: 相位输出。
+        Args:
+            relation_id: 关系 ID。
+            now_ts: 当前时间戳。
         """
-        outcome = run_sleep(
-            metabolic=self.state.metabolic,
-            orientation=self.state.orientation,
+        conversation = self._conversation_buffer.get(relation_id, [])
+        if not conversation:
+            return
+
+        relational_state = self.relational_states.get(relation_id)
+        tension_queue = self.tension_queues.get(relation_id)
+
+        if relational_state is None or tension_queue is None:
+            return
+
+        patch = distill_session(
+            conversation=conversation,
+            relation_id=relation_id,
+            current_state=relational_state,
             memory_store=self.memory_store,
-            relation_store=self.relation_store,
-            now_ts=time.time(),
+            now_ts=now_ts,
             llm=self.llm,
         )
-        self.state.append_transition(outcome.transition)
-        self.persistence.persist_phase(
-            outcome=outcome,
-            state=self.state,
-            memory_store=self.memory_store,
-            relation_store=self.relation_store,
-        )
-        return PhaseOutput(
-            phase=outcome.phase,
-            transition_id=outcome.transition.transition_id,
+
+        apply_distillation(
+            patch=patch,
+            relational_state=relational_state,
+            tension_queue=tension_queue,
+            now_ts=now_ts,
         )
 
-    def health_summary(self) -> HealthSummary:
-        """获取健康摘要。
+        relational_state.last_distilled_at = now_ts
 
-        Returns:
-            HealthSummary: 健康摘要。
-        """
-        return project_health_summary(
-            state=self.state,
-            turns=self.persistence.turn_count(),
-            transitions=self.persistence.phase_transition_count(),
-        )
-
-    def state_summary(self) -> StateSummary:
-        """获取状态摘要。
-
-        Returns:
-            StateSummary: 状态摘要。
-        """
-        return project_state_summary(
-            state=self.state,
-            memory_store=self.memory_store,
-            relation_store=self.relation_store,
-            turns=self.persistence.turn_count(),
-            transitions=self.persistence.phase_transition_count(),
-        )
+        self._conversation_buffer[relation_id] = []
