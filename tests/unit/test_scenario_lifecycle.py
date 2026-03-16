@@ -66,8 +66,10 @@ def test_relation_dynamics_after_mixed_turns(tmp_path: Path) -> None:
     engine = _build_multi_turn_engine(tmp_path)
     engine.sleep()
 
+    relation_id = engine.identity.relation_for("s1")
+    assert relation_id is not None
     dynamics = evaluate_relation_dynamics(
-        engine.relation_store, engine.memory_store, "rel:s1",
+        engine.relation_store, engine.memory_store, relation_id,
     )
     assert dynamics.ok
     assert dynamics.moment_count >= 3
@@ -77,7 +79,9 @@ def test_relation_dynamics_after_mixed_turns(tmp_path: Path) -> None:
 def test_relation_projection_reflects_history(tmp_path: Path) -> None:
     engine = _build_multi_turn_engine(tmp_path)
 
-    formation = engine.relation_store.formation_for("rel:s1")
+    relation_id = engine.identity.relation_for("s1")
+    assert relation_id is not None
+    formation = engine.relation_store.formation_for(relation_id)
     projection = project_relation(formation, 1_000_000.0)
 
     assert 0.0 <= projection.trust <= 1.0

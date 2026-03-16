@@ -50,7 +50,9 @@ def test_recall_works_after_persistence_reload(tmp_path: Path) -> None:
     first.handle_turn(session_id="s", text="谢谢你理解我")
 
     second = AuroraEngine.create(data_dir=str(tmp_path), llm=_llm())
-    recalled = recent_recall(second.memory_store, "rel:s", limit=4)
+    relation_id = second.identity.relation_for("s")
+    assert relation_id is not None
+    recalled = recent_recall(second.memory_store, relation_id, limit=4)
 
     assert len(recalled) >= 2
-    assert all(f.relation_id == "rel:s" for f in recalled)
+    assert all(f.relation_id == relation_id for f in recalled)

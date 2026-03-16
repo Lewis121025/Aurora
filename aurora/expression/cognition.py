@@ -190,6 +190,8 @@ def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
     if context.has_knots:
         parts.append("Unresolved tension knots are present.")
 
+    if context.structural_hint:
+        parts.append(context.structural_hint)
     if context.relation_hint:
         parts.append(context.relation_hint)
 

@@ -24,6 +24,7 @@ from aurora.phases.doze import run_doze
 from aurora.phases.sleep import run_sleep
 from aurora.relation.store import RelationStore
 from aurora.runtime.contracts import AuroraMove, Phase
+from aurora.runtime.identity import IdentityResolver
 from aurora.runtime.projections import (
     HealthSummary,
     StateSummary,
@@ -75,9 +76,10 @@ class AuroraEngine:
         state: 运行时状态。
         persistence: 持久化存储。
         llm: LLM 提供者。
+        identity: 身份解析器。
     """
 
-    __slots__ = ("memory_store", "relation_store", "state", "persistence", "llm")
+    __slots__ = ("memory_store", "relation_store", "state", "persistence", "llm", "identity")
 
     def __init__(
         self,
@@ -86,6 +88,7 @@ class AuroraEngine:
         state: RuntimeState,
         persistence: SQLitePersistence,
         llm: LLMProvider,
+        identity: IdentityResolver,
     ) -> None:
         """初始化引擎。
 
@@ -95,12 +98,14 @@ class AuroraEngine:
             state: 运行时状态。
             persistence: 持久化存储。
             llm: LLM 提供者。
+            identity: 身份解析器。
         """
         self.memory_store = memory_store
         self.relation_store = relation_store
         self.state = state
         self.persistence = persistence
         self.llm = llm
+        self.identity = identity
 
     @classmethod
     def create(
@@ -126,6 +131,7 @@ class AuroraEngine:
         persistence = SQLitePersistence(data_dir=data_dir)
         initial = RuntimeState(orientation=Orientation(), metabolic=MetabolicState())
         memory_store, relation_store, state = persistence.load_runtime(initial=initial)
+        identity = IdentityResolver(persistence.connection)
 
         if llm is None:
             llm_config = load_llm_config()
@@ -136,7 +142,7 @@ class AuroraEngine:
                 )
             llm = OpenAICompatProvider(llm_config)
 
-        return cls(memory_store, relation_store, state, persistence, llm)
+        return cls(memory_store, relation_store, state, persistence, llm, identity)
 
     def handle_turn(self, session_id: str, text: str) -> EngineOutput:
         """处理用户输入。
@@ -151,7 +157,7 @@ class AuroraEngine:
             EngineOutput: turn 输出。
         """
         now_ts = time.time()
-        relation_id = f"rel:{session_id}"
+        relation_id = self.identity.resolve(session_id, now_ts)
 
         outcome = run_awake(
             relation_id=relation_id,

@@ -2,10 +2,48 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from aurora.being.orientation import Orientation
 from aurora.memory.recall import recent_recall
+from aurora.memory.store import MemoryStore
+from aurora.memory.thread import Thread
+from aurora.phases.sleep import _apply_thread_remap
+from aurora.relation.store import RelationStore
 from aurora.runtime.engine import AuroraEngine
 
 from tests.conftest import ContextAwareLLM, StubLLM
+
+
+def test_thread_remap_rewrites_formation_and_anchor_ids() -> None:
+    memory_store = MemoryStore()
+    memory_store.add_thread(
+        Thread(
+            thread_id="thread_live",
+            relation_id="rel:x",
+            fragment_ids=(),
+            dominant_channels=(),
+            tension=0.2,
+            coherence=0.4,
+            created_at=1.0,
+            last_rewoven_at=1.0,
+        )
+    )
+
+    relation_store = RelationStore()
+    formation = relation_store.formation_for("rel:x")
+    formation.thread_ids.update({"thread_live", "thread_dead"})
+    relation_store.clear_dirty()
+
+    orientation = Orientation(anchor_thread_ids=("thread_dead", "thread_live"))
+    _apply_thread_remap(
+        relation_store=relation_store,
+        orientation=orientation,
+        memory_store=memory_store,
+        thread_remap={"thread_dead": "thread_live"},
+    )
+
+    assert formation.thread_ids == {"thread_live"}
+    assert orientation.anchor_thread_ids == ("thread_live",)
+    assert "rel:x" in relation_store._dirty_formations
 
 
 def test_sleep_reweave_creates_thread_and_knot_from_clustered_fragments(tmp_path: Path) -> None:
@@ -28,10 +66,12 @@ def test_recall_stays_relation_scoped(tmp_path: Path) -> None:
     engine.handle_turn(session_id="a", text="谢谢你，我记得这件事")
     engine.handle_turn(session_id="b", text="普通更新")
 
-    recalled = recent_recall(engine.memory_store, relation_id="rel:a", limit=4)
+    relation_id = engine.identity.relation_for("a")
+    assert relation_id is not None
+    recalled = recent_recall(engine.memory_store, relation_id=relation_id, limit=4)
 
     assert recalled
-    assert all(fragment.relation_id == "rel:a" for fragment in recalled)
+    assert all(fragment.relation_id == relation_id for fragment in recalled)
 
 
 def test_runtime_recovers_orientation_and_threads_from_persistence(tmp_path: Path) -> None:

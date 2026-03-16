@@ -29,10 +29,12 @@ def test_relation_dynamics_check_tracks_boundary_and_repair_history(tmp_path: Pa
     engine.handle_turn(session_id="s1", text="对不起，我想修复")
     engine.sleep()
 
+    relation_id = engine.identity.relation_for("s1")
+    assert relation_id is not None
     report = evaluate_relation_dynamics(
         relation_store=engine.relation_store,
         memory_store=engine.memory_store,
-        relation_id="rel:s1",
+        relation_id=relation_id,
     )
 
     assert report.ok

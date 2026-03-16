@@ -52,3 +52,6 @@ class ExpressionContext:
 
     relation_hint: str = ""
     """关系偏置提示，由 relation/decision 派生，注入认知上下文。"""
+
+    structural_hint: str = ""
+    """结构驱动提示，由 expression/structure 派生，包含关系阶段、触碰检测、战略姿态。"""

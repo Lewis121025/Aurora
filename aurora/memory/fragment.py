@@ -35,6 +35,7 @@ class Fragment:
         created_at: 创建时间戳。
         last_touched_at: 最后触碰时间戳。
         activation_count: 激活次数。
+        durability: 持久度（0.0–1.0），高值表示长期有效信号（偏好/事实/承诺/边界）。
     """
 
     fragment_id: str
@@ -50,6 +51,7 @@ class Fragment:
     created_at: float
     last_touched_at: float
     activation_count: int = 0
+    durability: float = 0.0
 
     def touched(
         self,

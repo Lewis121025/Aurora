@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def current_schema_version(connection: sqlite3.Connection) -> int | None:
@@ -45,6 +45,12 @@ def _migrate_to_current(connection: sqlite3.Connection) -> None:
     if existing is None or existing >= SCHEMA_VERSION:
         return
     # v1 -> v2: 无结构变更，仅版本号提升（首次引入版本管理）
+    if existing < 3:
+        # v2 -> v3: fragments 表新增 durability 字段
+        try:
+            connection.execute("ALTER TABLE fragments ADD COLUMN durability REAL NOT NULL DEFAULT 0.0")
+        except sqlite3.OperationalError:
+            pass  # 字段已存在
 
 
 def apply_migrations(connection: sqlite3.Connection) -> None:
@@ -84,7 +90,8 @@ def apply_migrations(connection: sqlite3.Connection) -> None:
             "fragment_id TEXT PRIMARY KEY, relation_id TEXT NOT NULL, turn_id TEXT, surface TEXT NOT NULL, "
             "tags TEXT NOT NULL, vividness REAL NOT NULL, salience REAL NOT NULL, "
             "unresolvedness REAL NOT NULL, thread_ids TEXT NOT NULL, knot_ids TEXT NOT NULL, "
-            "created_at REAL NOT NULL, last_touched_at REAL NOT NULL, activation_count INTEGER NOT NULL)"
+            "created_at REAL NOT NULL, last_touched_at REAL NOT NULL, activation_count INTEGER NOT NULL, "
+            "durability REAL NOT NULL DEFAULT 0.0)"
         )
 
         # 轨迹表：片段的通道记录

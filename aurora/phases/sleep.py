@@ -12,6 +12,7 @@ from __future__ import annotations
 from aurora.being.metabolic_state import MetabolicState
 from aurora.being.orientation import Orientation
 from aurora.llm.provider import LLMProvider
+from aurora.memory.narrative import restructure
 from aurora.memory.reweave_engine import reweave
 from aurora.memory.sediment import sediment
 from aurora.memory.semantic import SemanticScorer
@@ -20,6 +21,43 @@ from aurora.phases.outcomes import PhaseOutcome
 from aurora.phases.transitions import phase_transition
 from aurora.relation.store import RelationStore
 from aurora.runtime.contracts import Phase, TraceChannel
+
+
+def _apply_thread_remap(
+    relation_store: RelationStore,
+    orientation: Orientation,
+    memory_store: MemoryStore,
+    thread_remap: dict[str, str],
+) -> None:
+    """将被合并线程的映射同步到长期状态。
+
+    narrative.restructure 可能移除线程 ID。这里统一修正：
+    - relation formation 的 thread_ids
+    - orientation 的 anchor_thread_ids
+    """
+    if not thread_remap:
+        return
+
+    live_threads = set(memory_store.threads)
+
+    for relation_id, formation in relation_store.formations.items():
+        remapped = {
+            thread_remap.get(thread_id, thread_id)
+            for thread_id in formation.thread_ids
+        }
+        remapped = {thread_id for thread_id in remapped if thread_id in live_threads}
+        if remapped != formation.thread_ids:
+            formation.thread_ids = remapped
+            relation_store._dirty_formations.add(relation_id)
+
+    remapped_anchors: list[str] = []
+    for thread_id in orientation.anchor_thread_ids:
+        mapped = thread_remap.get(thread_id, thread_id)
+        if mapped not in live_threads or mapped in remapped_anchors:
+            continue
+        remapped_anchors.append(mapped)
+    if tuple(remapped_anchors) != orientation.anchor_thread_ids:
+        orientation.anchor_thread_ids = tuple(remapped_anchors)
 
 
 def run_sleep(
@@ -60,12 +98,34 @@ def run_sleep(
         semantic_scorer=scorer,
     )
 
+    # reweave 直接修改 formation 对象，需补充脏标记
+    for rid in mutation.affected_relation_ids:
+        relation_store._dirty_formations.add(rid)
+
+    # 叙事重组：冲突→修复弧检测、持久锚点提升、主题收敛
+    thread_remap: dict[str, str] = {}
+    for rid in mutation.affected_relation_ids:
+        result = restructure(memory_store, relation_store, rid, now_ts)
+        thread_remap.update(result.thread_remap)
+    _apply_thread_remap(
+        relation_store=relation_store,
+        orientation=orientation,
+        memory_store=memory_store,
+        thread_remap=thread_remap,
+    )
+
     # 执行沉积清理
     sediment(memory_store, now_ts)
 
+    # 将合并线程映射应用到 mutation 输出，过滤已移除的线程
+    live_thread_ids = tuple(
+        thread_remap.get(tid, tid) for tid in mutation.created_thread_ids
+        if thread_remap.get(tid, tid) in memory_store.threads
+    )
+
     # 收集主导通道
     dominant: set[TraceChannel] = set()
-    for thread_id in mutation.created_thread_ids:
+    for thread_id in live_thread_ids:
         if thread_id in memory_store.threads:
             dominant.update(memory_store.threads[thread_id].dominant_channels)
     for knot_id in mutation.created_knot_ids:
@@ -74,7 +134,7 @@ def run_sleep(
 
     # 吸收 sleep 结果到定向系统
     orientation.absorb_sleep(
-        thread_ids=mutation.created_thread_ids,
+        thread_ids=live_thread_ids,
         knot_ids=mutation.created_knot_ids,
         dominant_channels=tuple(sorted(dominant, key=lambda item: item.value)),
         now_ts=now_ts,
@@ -82,7 +142,7 @@ def run_sleep(
 
     # 从拓扑精细推导证据
     topology_threads = tuple(
-        memory_store.threads[tid] for tid in mutation.created_thread_ids
+        memory_store.threads[tid] for tid in live_thread_ids
         if tid in memory_store.threads
     )
     topology_knots = tuple(

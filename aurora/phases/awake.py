@@ -18,8 +18,10 @@ from aurora.being.metabolic_state import MetabolicState
 from aurora.being.orientation import Orientation
 from aurora.expression.cognition import run_cognition
 from aurora.expression.context import ExpressionContext
+from aurora.expression.structure import build_structural_context
 from aurora.llm.provider import LLMProvider
 from aurora.relation.decision import compute_bias
+from aurora.memory.durability import estimate_durability
 from aurora.memory.fragment import Fragment
 from aurora.memory.recall import build_activation_channels, recent_recall
 from aurora.memory.store import MemoryStore
@@ -173,6 +175,13 @@ def run_awake(
     formation = relation_store.formation_for(relation_id)
     bias = compute_bias(formation, now_ts)
 
+    structural = build_structural_context(
+        user_text=text,
+        relation_id=relation_id,
+        formation=formation,
+        memory_store=memory_store,
+    )
+
     context = ExpressionContext(
         input_text=text,
         dominant_channels=prior_channels,
@@ -181,6 +190,7 @@ def run_awake(
         recent_summaries=tuple(m.summary for m in recent_moments[-3:]),
         orientation_snapshot=orientation.snapshot(),
         relation_hint=bias.hint,
+        structural_hint=structural.hint,
     )
 
     # 执行认知
@@ -195,6 +205,8 @@ def run_awake(
         text=text,
         created_at=now_ts,
     )
+    is_boundary = TraceChannel.BOUNDARY in {ch for ch, _ in cognition.touch_channels}
+    user_durability = estimate_durability(text, cognition.move, is_boundary)
     user_fragment = memory_store.create_fragment(
         relation_id=relation_id,
         turn_id=user_turn.turn_id,
@@ -203,6 +215,7 @@ def run_awake(
         salience=USER_BASE_SALIENCE,
         unresolvedness=cognition.fragment_unresolvedness,
         now_ts=now_ts,
+        durability=user_durability,
     )
     user_traces = tuple(
         memory_store.create_trace(

@@ -163,6 +163,7 @@ class MemoryStore:
         salience: float,
         unresolvedness: float,
         now_ts: float,
+        durability: float = 0.0,
     ) -> Fragment:
         """创建片段。
 
@@ -176,6 +177,7 @@ class MemoryStore:
             salience: 显著性。
             unresolvedness: 未解决度。
             now_ts: 当前时间戳。
+            durability: 持久度（0.0–1.0），高值保护长期信号。
 
         Returns:
             Fragment: 新片段。
@@ -193,6 +195,7 @@ class MemoryStore:
             knot_ids=(),
             created_at=now_ts,
             last_touched_at=now_ts,
+            durability=clamp(durability),
         )
         self.add_fragment(fragment)
         return fragment

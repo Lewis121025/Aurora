@@ -72,6 +72,11 @@ class SQLitePersistence:
         apply_migrations(self._connection)
         self._ensure_schema()
 
+    @property
+    def connection(self) -> sqlite3.Connection:
+        """底层 SQLite 连接（供 IdentityResolver 等共享）。"""
+        return self._connection
+
     def _ensure_schema(self) -> None:
         """验证数据库 schema 兼容性。
 
@@ -156,6 +161,7 @@ class SQLitePersistence:
                     created_at=float(row["created_at"]),
                     last_touched_at=float(row["last_touched_at"]),
                     activation_count=int(row["activation_count"]),
+                    durability=float(row["durability"]) if row["durability"] is not None else 0.0,
                 )
             )
 
@@ -434,8 +440,8 @@ class SQLitePersistence:
             fragment = memory_store.fragments[fid]
             self._connection.execute(
                 "INSERT OR REPLACE INTO fragments(fragment_id, relation_id, turn_id, surface, tags, vividness, salience, "
-                "unresolvedness, thread_ids, knot_ids, created_at, last_touched_at, activation_count) "
-                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "unresolvedness, thread_ids, knot_ids, created_at, last_touched_at, activation_count, durability) "
+                "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     fragment.fragment_id,
                     fragment.relation_id,
@@ -450,6 +456,7 @@ class SQLitePersistence:
                     fragment.created_at,
                     fragment.last_touched_at,
                     fragment.activation_count,
+                    fragment.durability,
                 ),
             )
 

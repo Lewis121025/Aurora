@@ -23,7 +23,9 @@ def test_awake_writes_canonical_graph_objects(tmp_path: Path) -> None:
     assert len(engine.memory_store.associations) >= 1
     assert engine.relation_store.moment_count() == 1
     assert engine.relation_store.relation_count() == 1
-    assert engine.state.metabolic.pending_sleep_relation_ids == ("rel:s1",)
+    relation_id = engine.identity.relation_for("s1")
+    assert relation_id is not None
+    assert engine.state.metabolic.pending_sleep_relation_ids == (relation_id,)
 
 
 def test_boundary_input_pushes_boundary_move(tmp_path: Path) -> None:
@@ -53,7 +55,9 @@ def test_doze_hover_keeps_recent_relation_material_lightly_active(tmp_path: Path
 
     engine.doze()
 
-    recalled = recent_recall(engine.memory_store, "rel:s4", limit=4)
+    relation_id = engine.identity.relation_for("s4")
+    assert relation_id is not None
+    recalled = recent_recall(engine.memory_store, relation_id, limit=4)
     assert recalled
     assert any(fragment.activation_count >= 1 for fragment in recalled)
 

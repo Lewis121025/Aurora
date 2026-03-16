@@ -12,7 +12,9 @@ def test_formation_records_boundary_and_repair_events(tmp_path: Path) -> None:
     engine.handle_turn(session_id="s1", text="不要继续，边界在这里")
     engine.handle_turn(session_id="s1", text="对不起，我想修复")
 
-    formation = engine.relation_store.formation_for("rel:s1")
+    relation_id = engine.identity.relation_for("s1")
+    assert relation_id is not None
+    formation = engine.relation_store.formation_for(relation_id)
 
     assert formation.boundary_events >= 1
     assert formation.repair_events >= 1

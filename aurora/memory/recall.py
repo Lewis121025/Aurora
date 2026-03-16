@@ -22,12 +22,13 @@ if TYPE_CHECKING:
 
 
 # 检索评分权重配置
-SALIENCE_WEIGHT = 0.30              # 显著性权重
-UNRESOLVEDNESS_WEIGHT = 0.22        # 未解决度权重
-ACTIVATION_WEIGHT = 0.12            # 激活次数权重
+SALIENCE_WEIGHT = 0.26              # 显著性权重
+UNRESOLVEDNESS_WEIGHT = 0.20        # 未解决度权重
+ACTIVATION_WEIGHT = 0.10            # 激活次数权重
 STRUCTURAL_WEIGHT = 0.10            # 结构性压力权重
 THREAD_KNOT_WEIGHT = 0.10           # 线程/记忆结关联权重
-RECENCY_WEIGHT = 0.16               # 时间邻近度权重
+RECENCY_WEIGHT = 0.14               # 时间邻近度权重
+DURABILITY_WEIGHT = 0.10            # 持久度权重
 ACTIVATION_CAP = 4.0                # 激活次数上限（用于对数缩放）
 RECENCY_HALF_LIFE_HOURS = 24.0      # 时间衰减半衰期（小时）
 SALIENCE_FLOOR = 0.06               # 显著性下限（低于此值的片段不参与检索）
@@ -70,6 +71,7 @@ def _recall_score(
         + STRUCTURAL_WEIGHT * structural_pressure(store, item)
         + THREAD_KNOT_WEIGHT * thread_knot
         + RECENCY_WEIGHT * recency
+        + DURABILITY_WEIGHT * item.durability
     )
 
 

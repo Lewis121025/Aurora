@@ -56,12 +56,15 @@ def _is_sediment_candidate(fragment: "Fragment", now_ts: float) -> bool:
     Returns:
         是否为清理候选。
     """
+    if fragment.durability >= 0.5:
+        return False
     hours_stale = (now_ts - fragment.last_touched_at) / 3600.0
+    staleness_threshold = STALENESS_HOURS * (1.0 + fragment.durability * 3.0)
     below_floor = (
         fragment.salience < SALIENCE_FLOOR
         and fragment.unresolvedness < UNRESOLVED_FLOOR
     )
-    return below_floor or hours_stale >= STALENESS_HOURS
+    return below_floor or hours_stale >= staleness_threshold
 
 
 def sediment(store: MemoryStore, now_ts: float) -> SedimentResult:
