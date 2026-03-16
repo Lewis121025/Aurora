@@ -1,3 +1,9 @@
+"""运行时投影模块。
+
+定义状态投影函数，将运行时状态转换为可序列化的摘要字典：
+- HealthSummary: 健康检查摘要
+- StateSummary: 完整状态摘要
+"""
 from __future__ import annotations
 
 from typing import TypedDict
@@ -8,6 +14,15 @@ from aurora.runtime.state import RuntimeState
 
 
 class HealthSummary(TypedDict):
+    """健康摘要类型。
+
+    Attributes:
+        status: 状态（固定为 "ok"）。
+        phase: 当前相位。
+        turns: 转换次数。
+        transitions: 相位转换次数。
+    """
+
     status: str
     phase: str
     turns: int
@@ -15,6 +30,27 @@ class HealthSummary(TypedDict):
 
 
 class StateSummary(TypedDict):
+    """状态摘要类型。
+
+    Attributes:
+        phase: 当前相位。
+        sleep_need: 睡眠需求（0.0–1.0）。
+        active_relation_ids: 活跃关系 ID 列表。
+        pending_sleep_relation_ids: 待处理关系 ID 列表。
+        active_knot_ids: 活跃记忆结 ID 列表。
+        anchor_thread_ids: 锚定线程 ID 列表。
+        turns: 转换次数。
+        memory_fragments: 记忆片段数。
+        memory_traces: 记忆轨迹数。
+        memory_associations: 关联边数。
+        memory_threads: 记忆线程数。
+        memory_knots: 记忆结数。
+        relation_formations: 关系形成记录数。
+        relation_moments: 关系时刻数。
+        sleep_cycles: sleep 周期数。
+        transitions: 相位转换次数。
+    """
+
     phase: str
     sleep_need: float
     active_relation_ids: tuple[str, ...]
@@ -33,7 +69,21 @@ class StateSummary(TypedDict):
     transitions: int
 
 
-def project_health_summary(state: RuntimeState, turns: int, transitions: int) -> HealthSummary:
+def project_health_summary(
+    state: RuntimeState,
+    turns: int,
+    transitions: int,
+) -> HealthSummary:
+    """投影健康摘要。
+
+    Args:
+        state: 运行时状态。
+        turns: 转换次数。
+        transitions: 相位转换次数。
+
+    Returns:
+        HealthSummary: 健康摘要。
+    """
     return {
         "status": "ok",
         "phase": state.metabolic.phase.value,
@@ -49,6 +99,18 @@ def project_state_summary(
     turns: int,
     transitions: int,
 ) -> StateSummary:
+    """投影状态摘要。
+
+    Args:
+        state: 运行时状态。
+        memory_store: 记忆存储。
+        relation_store: 关系存储。
+        turns: 转换次数。
+        transitions: 相位转换次数。
+
+    Returns:
+        StateSummary: 状态摘要。
+    """
     metabolic = state.metabolic
     orientation = state.orientation
     return {

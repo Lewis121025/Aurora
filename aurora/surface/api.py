@@ -1,3 +1,14 @@
+"""HTTP API 模块。
+
+定义 Aurora 的 HTTP API 接口，基于 FastAPI：
+- GET /health: 健康检查
+- GET /state: 状态查询
+- POST /turn: 执行认知循环
+- POST /doze: 进入 doze 状态
+- POST /sleep: 进入 sleep 状态
+
+支持 API Key 认证（通过 AURORA_API_KEY 环境变量）。
+"""
 from __future__ import annotations
 
 import os
@@ -15,16 +26,36 @@ from aurora.surface.schemas import (
     TurnResponse,
 )
 
+# 无需认证的路径
 _OPEN_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
 
 
 def build_app(engine: AuroraEngine) -> FastAPI:
+    """构建 FastAPI 应用。
+
+    Args:
+        engine: Aurora 引擎实例。
+
+    Returns:
+        FastAPI: 应用实例。
+    """
     app = FastAPI(title="Aurora Surface")
     runtime = engine
     api_key = os.environ.get("AURORA_API_KEY")
 
     @app.middleware("http")
     async def _auth(request: Request, call_next):  # type: ignore[no-untyped-def]
+        """认证中间件。
+
+        若设置了 API Key，则对非公开路径进行认证检查。
+
+        Args:
+            request: HTTP 请求。
+            call_next: 下一个处理函数。
+
+        Returns:
+            HTTP 响应。
+        """
         if api_key and request.url.path not in _OPEN_PATHS:
             provided = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
             if provided != api_key:
@@ -33,6 +64,11 @@ def build_app(engine: AuroraEngine) -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
+        """健康检查端点。
+
+        Returns:
+            HealthResponse: 健康摘要。
+        """
         summary = runtime.health_summary()
         return HealthResponse(
             status=str(summary["status"]),
@@ -43,6 +79,11 @@ def build_app(engine: AuroraEngine) -> FastAPI:
 
     @app.get("/state", response_model=StateResponse)
     def state() -> StateResponse:
+        """状态查询端点。
+
+        Returns:
+            StateResponse: 完整状态摘要。
+        """
         summary: StateSummary = runtime.state_summary()
         return StateResponse(
             phase=str(summary["phase"]),
@@ -65,6 +106,14 @@ def build_app(engine: AuroraEngine) -> FastAPI:
 
     @app.post("/turn", response_model=TurnResponse)
     def turn(request: TurnRequest) -> TurnResponse:
+        """执行认知循环端点。
+
+        Args:
+            request: turn 请求，包含 session_id 和 text。
+
+        Returns:
+            TurnResponse: turn 输出。
+        """
         output = runtime.handle_turn(session_id=request.session_id, text=request.text)
         return TurnResponse(
             turn_id=output.turn_id,
@@ -75,11 +124,21 @@ def build_app(engine: AuroraEngine) -> FastAPI:
 
     @app.post("/doze", response_model=PhaseResponse)
     def doze() -> PhaseResponse:
+        """进入 doze 状态端点。
+
+        Returns:
+            PhaseResponse: 相位输出。
+        """
         output = runtime.doze()
         return PhaseResponse(phase=output.phase, transition_id=output.transition_id)
 
     @app.post("/sleep", response_model=PhaseResponse)
     def sleep() -> PhaseResponse:
+        """进入 sleep 状态端点。
+
+        Returns:
+            PhaseResponse: 相位输出。
+        """
         output = runtime.sleep()
         return PhaseResponse(phase=output.phase, transition_id=output.transition_id)
 
@@ -87,4 +146,11 @@ def build_app(engine: AuroraEngine) -> FastAPI:
 
 
 def create_app() -> FastAPI:
+    """创建 FastAPI 应用实例。
+
+    自动从环境变量加载配置并创建 Aurora 引擎。
+
+    Returns:
+        FastAPI: 应用实例。
+    """
     return build_app(AuroraEngine.create())

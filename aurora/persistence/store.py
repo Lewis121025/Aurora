@@ -1,3 +1,10 @@
+"""SQLite 持久化存储模块。
+
+实现 Aurora 运行时状态的 SQLite 持久化：
+- 加载：从数据库恢复 MemoryStore、RelationStore、RuntimeState
+- 保存：将脏标记数据写入数据库（UPSERT 模式）
+- 线程安全：使用锁保护并发访问
+"""
 from __future__ import annotations
 
 import json
@@ -25,18 +32,54 @@ from aurora.runtime.state import RuntimeState
 
 
 class SQLitePersistence:
-    def __init__(self, data_dir: str | None = None, db_name: str = "aurora.sqlite3") -> None:
+    """SQLite 持久化存储。
+
+    管理 Aurora 运行时状态的持久化，支持：
+    - 完整状态加载/保存
+    - 增量更新（仅写入脏标记数据）
+    - 线程安全（使用互斥锁）
+    - WAL 模式（支持并发读取）
+
+    Attributes:
+        db_path: 数据库文件路径。
+    """
+
+    def __init__(
+        self,
+        data_dir: str | None = None,
+        db_name: str = "aurora.sqlite3",
+    ) -> None:
+        """初始化持久化存储。
+
+        Args:
+            data_dir: 数据目录，默认 `.aurora`。
+            db_name: 数据库文件名，默认 `aurora.sqlite3`。
+
+        Raises:
+            RuntimeError: 数据库 schema 不兼容。
+        """
         base_dir = Path(data_dir) if data_dir is not None else Path(".aurora")
         base_dir.mkdir(parents=True, exist_ok=True)
         self.db_path = base_dir / db_name
+
+        # 创建线程安全的数据库连接
         self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
         self._connection.execute("PRAGMA journal_mode=WAL")
         self._lock = threading.Lock()
+
+        # 应用迁移并验证 schema
         apply_migrations(self._connection)
         self._ensure_schema()
 
     def _ensure_schema(self) -> None:
+        """验证数据库 schema 兼容性。
+
+        检查关键表和字段是否存在，若不兼容则抛出异常。
+
+        Raises:
+            RuntimeError: schema 不兼容。
+        """
         try:
             self._connection.execute("SELECT id, phase, sleep_need FROM metabolic_state LIMIT 1")
             self._connection.execute("SELECT id, self_evidence FROM orientation_state LIMIT 1")
@@ -51,10 +94,22 @@ class SQLitePersistence:
         self,
         initial: RuntimeState,
     ) -> tuple[MemoryStore, RelationStore, RuntimeState]:
+        """加载运行时状态。
+
+        从数据库恢复 MemoryStore、RelationStore 和 RuntimeState。
+        若数据库为空则返回初始状态。
+
+        Args:
+            initial: 初始运行时状态（数据库为空时使用）。
+
+        Returns:
+            (MemoryStore, RelationStore, RuntimeState) 三元组。
+        """
         memory_store = MemoryStore()
         relation_store = RelationStore()
 
         with self._lock:
+            # 加载核心状态
             orientation_row = self._connection.execute(
                 "SELECT * FROM orientation_state WHERE id = 1"
             ).fetchone()
@@ -62,22 +117,29 @@ class SQLitePersistence:
                 "SELECT * FROM metabolic_state WHERE id = 1"
             ).fetchone()
 
+            # 加载记忆结构
             fragment_rows = self._connection.execute("SELECT * FROM fragments").fetchall()
             trace_rows = self._connection.execute("SELECT * FROM traces").fetchall()
             association_rows = self._connection.execute("SELECT * FROM associations").fetchall()
             thread_rows = self._connection.execute("SELECT * FROM threads").fetchall()
             knot_rows = self._connection.execute("SELECT * FROM knots").fetchall()
+
+            # 加载关系数据
             formation_rows = self._connection.execute(
                 "SELECT * FROM relation_formations"
             ).fetchall()
             moment_rows = self._connection.execute("SELECT * FROM relation_moments").fetchall()
+
+            # 加载相位转换历史
             transition_rows = self._connection.execute(
                 "SELECT * FROM phase_events ORDER BY created_at ASC"
             ).fetchall()
 
+        # 数据库为空时返回初始状态
         if orientation_row is None or metabolic_row is None:
             return MemoryStore(), RelationStore(), initial
 
+        # 重建片段
         for row in fragment_rows:
             memory_store.add_fragment(
                 Fragment(
@@ -97,6 +159,7 @@ class SQLitePersistence:
                 )
             )
 
+        # 重建轨迹
         for row in trace_rows:
             memory_store.add_trace(
                 Trace(
@@ -111,6 +174,7 @@ class SQLitePersistence:
                 )
             )
 
+        # 重建关联边
         for row in association_rows:
             memory_store.add_association(
                 Association(
@@ -125,6 +189,7 @@ class SQLitePersistence:
                 )
             )
 
+        # 重建线程
         for row in thread_rows:
             memory_store.add_thread(
                 Thread(
@@ -141,6 +206,7 @@ class SQLitePersistence:
                 )
             )
 
+        # 重建记忆结
         for row in knot_rows:
             memory_store.add_knot(
                 Knot(
@@ -157,6 +223,7 @@ class SQLitePersistence:
                 )
             )
 
+        # 重建关系形成记录
         for row in formation_rows:
             relation_store.formations[str(row["relation_id"])] = RelationFormation(
                 relation_id=str(row["relation_id"]),
@@ -168,6 +235,7 @@ class SQLitePersistence:
                 last_contact_at=float(row["last_contact_at"]),
             )
 
+        # 重建关系时刻
         for row in moment_rows:
             moment = RelationMoment(
                 moment_id=str(row["moment_id"]),
@@ -185,6 +253,7 @@ class SQLitePersistence:
             )
             relation_store.moments[moment.relation_id].append(moment)
 
+        # 为没有 formation 的关系创建记录
         for relation_id, moments in relation_store.moments.items():
             if relation_id in relation_store.formations:
                 continue
@@ -192,6 +261,7 @@ class SQLitePersistence:
             for moment in moments:
                 formation.register_moment(moment)
 
+        # 重建相位转换历史
         transitions = [
             PhaseTransition(
                 transition_id=str(row["transition_id"]),
@@ -202,12 +272,13 @@ class SQLitePersistence:
             )
             for row in transition_rows
         ]
+
+        # 计算 sleep 周期
         memory_store.sleep_cycles = sum(1 for item in transitions if item.to_phase is Phase.SLEEP)
-        sleep_transitions = [
-            item.created_at for item in transitions if item.to_phase is Phase.SLEEP
-        ]
+        sleep_transitions = [item.created_at for item in transitions if item.to_phase is Phase.SLEEP]
         memory_store.last_sleep_at = max(sleep_transitions) if sleep_transitions else 0.0
 
+        # 重建定向和代谢状态
         orientation = Orientation(
             self_evidence=_load_evidence_map(orientation_row["self_evidence"]),
             world_evidence=_load_evidence_map(orientation_row["world_evidence"]),
@@ -224,6 +295,7 @@ class SQLitePersistence:
             pending_sleep_relation_ids=_load_tuple_str(metabolic_row["pending_sleep_relation_ids"]),
             last_transition_at=float(metabolic_row["last_transition_at"]),
         )
+
         return (
             memory_store,
             relation_store,
@@ -241,6 +313,14 @@ class SQLitePersistence:
         memory_store: MemoryStore,
         relation_store: RelationStore,
     ) -> None:
+        """持久化 awake 阶段结果。
+
+        Args:
+            outcome: awake 阶段产出。
+            state: 运行时状态。
+            memory_store: 记忆存储。
+            relation_store: 关系存储。
+        """
         with self._lock:
             with self._connection:
                 self._insert_turn(outcome.user_turn)
@@ -260,6 +340,14 @@ class SQLitePersistence:
         memory_store: MemoryStore,
         relation_store: RelationStore,
     ) -> None:
+        """持久化相位阶段结果。
+
+        Args:
+            outcome: 相位产出。
+            state: 运行时状态。
+            memory_store: 记忆存储。
+            relation_store: 关系存储。
+        """
         with self._lock:
             with self._connection:
                 self._insert_transition(outcome.transition)
@@ -270,6 +358,11 @@ class SQLitePersistence:
                 )
 
     def turn_count(self) -> int:
+        """获取用户转换次数。
+
+        Returns:
+            用户转换记录数。
+        """
         with self._lock:
             row = self._connection.execute(
                 "SELECT COUNT(*) AS count FROM turn_events WHERE speaker = 'user'"
@@ -277,11 +370,21 @@ class SQLitePersistence:
         return int(row["count"]) if row is not None else 0
 
     def phase_transition_count(self) -> int:
+        """获取相位转换次数。
+
+        Returns:
+            相位转换记录数。
+        """
         with self._lock:
             row = self._connection.execute("SELECT COUNT(*) AS count FROM phase_events").fetchone()
         return int(row["count"]) if row is not None else 0
 
     def _insert_turn(self, turn: Turn) -> None:
+        """插入转换记录。
+
+        Args:
+            turn: 转换对象。
+        """
         self._connection.execute(
             "INSERT INTO turn_events(turn_id, relation_id, session_id, speaker, text, created_at) "
             "VALUES(?, ?, ?, ?, ?, ?)",
@@ -296,6 +399,11 @@ class SQLitePersistence:
         )
 
     def _insert_transition(self, transition: PhaseTransition) -> None:
+        """插入相位转换记录。
+
+        Args:
+            transition: 相位转换对象。
+        """
         self._connection.execute(
             "INSERT INTO phase_events(transition_id, from_phase, to_phase, reason, created_at) "
             "VALUES(?, ?, ?, ?, ?)",
@@ -314,6 +422,14 @@ class SQLitePersistence:
         memory_store: MemoryStore,
         relation_store: RelationStore,
     ) -> None:
+        """持久化运行时表（脏标记数据）。
+
+        Args:
+            state: 运行时状态。
+            memory_store: 记忆存储。
+            relation_store: 关系存储。
+        """
+        # 持久化片段
         for fid in memory_store._dirty_fragments:
             fragment = memory_store.fragments[fid]
             self._connection.execute(
@@ -337,6 +453,7 @@ class SQLitePersistence:
                 ),
             )
 
+        # 持久化轨迹
         for tid in memory_store._dirty_traces:
             trace = memory_store.traces[tid]
             self._connection.execute(
@@ -354,6 +471,7 @@ class SQLitePersistence:
                 ),
             )
 
+        # 持久化关联边
         for eid in memory_store._dirty_associations:
             association = memory_store.associations[eid]
             self._connection.execute(
@@ -371,6 +489,7 @@ class SQLitePersistence:
                 ),
             )
 
+        # 持久化线程
         for thid in memory_store._dirty_threads:
             thread = memory_store.threads[thid]
             self._connection.execute(
@@ -388,6 +507,7 @@ class SQLitePersistence:
                 ),
             )
 
+        # 持久化记忆结
         for kid in memory_store._dirty_knots:
             knot = memory_store.knots[kid]
             self._connection.execute(
@@ -405,6 +525,7 @@ class SQLitePersistence:
                 ),
             )
 
+        # 持久化关系时刻
         for rel_id in relation_store._dirty_moment_relations:
             for moment in relation_store.moments.get(rel_id, ()):
                 self._connection.execute(
@@ -424,6 +545,7 @@ class SQLitePersistence:
                     ),
                 )
 
+        # 持久化关系形成记录
         for rel_id in relation_store._dirty_formations:
             formation = relation_store.formations[rel_id]
             self._connection.execute(
@@ -440,6 +562,7 @@ class SQLitePersistence:
                 ),
             )
 
+        # 删除已标记的记录
         for fid in memory_store._deleted_fragments:
             self._connection.execute("DELETE FROM fragments WHERE fragment_id = ?", (fid,))
         for tid in memory_store._deleted_traces:
@@ -451,9 +574,11 @@ class SQLitePersistence:
         for kid in memory_store._deleted_knots:
             self._connection.execute("DELETE FROM knots WHERE knot_id = ?", (kid,))
 
+        # 清空脏标记
         memory_store.clear_dirty()
         relation_store.clear_dirty()
 
+        # 持久化定向状态
         orientation = state.orientation
         metabolic = state.metabolic
 
@@ -474,6 +599,7 @@ class SQLitePersistence:
             ),
         )
 
+        # 持久化代谢状态
         self._connection.execute(
             "INSERT INTO metabolic_state(id, phase, sleep_need, active_relation_ids, active_knot_ids, pending_sleep_relation_ids, last_transition_at) "
             "VALUES(1, ?, ?, ?, ?, ?, ?) "
@@ -493,10 +619,26 @@ class SQLitePersistence:
 
 
 def _dump_json(value: Any) -> str:
+    """将值序列化为 JSON 字符串。
+
+    Args:
+        value: 任意 Python 值。
+
+    Returns:
+        JSON 字符串（紧凑格式）。
+    """
     return json.dumps(value, ensure_ascii=True, separators=(",", ":"))
 
 
 def _load_tuple_str(raw: Any) -> tuple[str, ...]:
+    """从 JSON 字符串加载字符串元组。
+
+    Args:
+        raw: JSON 字符串或 None。
+
+    Returns:
+        字符串元组。
+    """
     if raw is None:
         return ()
     value = cast(list[Any], json.loads(str(raw)))
@@ -504,6 +646,14 @@ def _load_tuple_str(raw: Any) -> tuple[str, ...]:
 
 
 def _load_evidence_map(raw: Any) -> dict[str, tuple[str, ...]]:
+    """从 JSON 字符串加载证据映射。
+
+    Args:
+        raw: JSON 字符串或 None。
+
+    Returns:
+        证据映射（维度名 -> 证据源 ID 元组）。
+    """
     value = cast(dict[str, Any], json.loads(str(raw)))
     return {
         str(key): tuple(str(entry) for entry in item) if isinstance(item, list) else ()

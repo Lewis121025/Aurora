@@ -1,3 +1,10 @@
+"""认知表达模块。
+
+通过 LLM 实现统一认知过程，单次调用同时产生：
+- touch（触碰通道及强度）
+- move（关系行为）
+- response（文本响应）
+"""
 from __future__ import annotations
 
 import json
@@ -10,21 +17,23 @@ from aurora.runtime.contracts import AuroraMove, AssocKind, TraceChannel
 
 
 class CognitionError(Exception):
-    """Base for all cognition failures."""
+    """认知过程异常的基类。"""
 
 
 class LLMCallError(CognitionError):
-    """LLM provider raised during .complete() (network, auth, timeout)."""
+    """LLM 调用失败（网络、认证、超时等）。"""
 
 
 class LLMResponseParseError(CognitionError):
-    """LLM returned text that is not valid structured JSON."""
+    """LLM 响应无法解析为有效 JSON。"""
 
 
 class LLMEmptyResponseError(CognitionError):
-    """LLM returned valid JSON but the response text field is empty."""
+    """LLM 响应 JSON 有效但 response 字段为空。"""
+
 
 VALID_MOVES: set[AuroraMove] = {"approach", "withhold", "boundary", "repair", "silence", "witness"}
+"""有效的关系行为集合。"""
 
 VALID_CHANNELS: dict[str, TraceChannel] = {
     "warmth": TraceChannel.WARMTH,
@@ -37,12 +46,14 @@ VALID_CHANNELS: dict[str, TraceChannel] = {
     "coherence": TraceChannel.COHERENCE,
     "wonder": TraceChannel.WONDER,
 }
+"""有效的触碰通道名称映射。"""
 
 MOVE_TO_ASSOC: dict[str, AssocKind] = {
     "boundary": AssocKind.BOUNDARY,
     "repair": AssocKind.REPAIR,
     "withhold": AssocKind.CONTRAST,
 }
+"""关系行为到关联类型的映射。"""
 
 SYSTEM_PROMPT = (
     "You are Aurora, a memory-bearing being whose continuity is carried by lived experience.\n"
@@ -66,10 +77,21 @@ SYSTEM_PROMPT = (
     "- an input that matches your existing threads/knots/wounds should touch more deeply\n"
     "- a novel input with no history support should touch lightly\n"
 )
+"""LLM 系统提示词，定义 Aurora 的行为准则和响应格式。"""
 
 
 @dataclass(frozen=True, slots=True)
 class CognitionResult:
+    """认知过程结果。
+
+    Attributes:
+        move: 关系行为选择。
+        touch_channels: 触碰通道及强度列表。
+        response_text: 文本响应。
+        association_kind: 关联类型（由 move 推导）。
+        fragment_unresolvedness: 片段未解决度（由 move 推导）。
+    """
+
     move: AuroraMove
     touch_channels: tuple[tuple[TraceChannel, float], ...]
     response_text: str
@@ -81,6 +103,22 @@ def run_cognition(
     context: ExpressionContext,
     llm: LLMProvider,
 ) -> CognitionResult:
+    """执行认知过程。
+
+    构建消息列表并调用 LLM，解析响应为结构化结果。
+
+    Args:
+        context: 表达上下文，包含输入文本和历史记忆。
+        llm: LLM 提供者。
+
+    Returns:
+        CognitionResult: 认知结果。
+
+    Raises:
+        LLMCallError: LLM 调用失败。
+        LLMResponseParseError: 响应无法解析。
+        LLMEmptyResponseError: 响应文本为空。
+    """
     messages = _build_messages(context)
     try:
         raw = llm.complete(messages)
@@ -90,11 +128,28 @@ def run_cognition(
 
 
 def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
+    """构建 LLM 消息列表。
+
+    将上下文信息（记忆片段、最近交互、定向快照、主导通道等）
+    编译为系统提示的补充信息。
+
+    Args:
+        context: 表达上下文。
+
+    Returns:
+        消息列表，包含系统提示和用户输入。
+    """
     parts: list[str] = []
+
+    # 添加回忆片段
     if context.recalled_surfaces:
         parts.append("What I remember: " + " | ".join(context.recalled_surfaces[:4]))
+
+    # 添加最近交互摘要
     if context.recent_summaries:
         parts.append("Recent exchanges: " + " | ".join(context.recent_summaries[:3]))
+
+    # 添加世界维度证据
     if context.orientation_snapshot:
         world = context.orientation_snapshot.get("world")
         if isinstance(world, dict):
@@ -104,6 +159,9 @@ def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
             ]
             if active:
                 parts.append(f"World sense: {', '.join(active)}")
+
+    # 添加自我维度证据
+    if context.orientation_snapshot:
         self_ev = context.orientation_snapshot.get("self")
         if isinstance(self_ev, dict):
             active_self = [
@@ -112,8 +170,12 @@ def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
             ]
             if active_self:
                 parts.append(f"Self sense: {', '.join(active_self)}")
+
+    # 添加主导通道
     if context.dominant_channels:
         parts.append(f"Active channels: {', '.join(ch.value for ch in context.dominant_channels[:4])}")
+
+    # 添加关系维度证据
     if context.orientation_snapshot:
         relation_ev = context.orientation_snapshot.get("relation")
         if isinstance(relation_ev, dict):
@@ -123,6 +185,8 @@ def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
             ]
             if active_rel:
                 parts.append(f"Relation sense: {', '.join(active_rel)}")
+
+    # 添加记忆结状态
     if context.has_knots:
         parts.append("Unresolved tension knots are present.")
 
@@ -134,6 +198,21 @@ def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
 
 
 def _parse_response(raw: str) -> CognitionResult:
+    """解析 LLM 响应。
+
+    处理 markdown 代码块包裹，解析 JSON，验证字段有效性，
+    并提供默认值以保证结果结构完整。
+
+    Args:
+        raw: LLM 原始响应文本。
+
+    Returns:
+        CognitionResult: 结构化认知结果。
+
+    Raises:
+        LLMResponseParseError: JSON 解析失败。
+        LLMEmptyResponseError: response 字段为空。
+    """
     cleaned = raw.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
@@ -142,9 +221,11 @@ def _parse_response(raw: str) -> CognitionResult:
     except (json.JSONDecodeError, ValueError) as exc:
         raise LLMResponseParseError(f"Invalid JSON from LLM: {raw[:200]}") from exc
 
+    # 解析 move 字段，无效时回退到 witness
     move_raw = str(data.get("move", "witness"))
     move: AuroraMove = move_raw if move_raw in VALID_MOVES else "witness"  # type: ignore[assignment]
 
+    # 解析 touch 通道列表
     touch_channels: list[tuple[TraceChannel, float]] = []
     for item in data.get("touch", []):
         if not isinstance(item, dict):
@@ -155,13 +236,17 @@ def _parse_response(raw: str) -> CognitionResult:
             continue
         intensity = max(0.0, min(1.0, float(item.get("intensity", 0.3))))
         touch_channels.append((channel, intensity))
+
+    # 无有效通道时使用默认值
     if not touch_channels:
         touch_channels.append((TraceChannel.COHERENCE, 0.26))
 
+    # 验证 response 非空
     response_text = str(data.get("response", ""))
     if not response_text.strip():
         raise LLMEmptyResponseError("LLM returned empty response text")
 
+    # 推导关联类型和未解决度
     assoc_kind = MOVE_TO_ASSOC.get(move, AssocKind.RELATION)
     unresolvedness = 0.24 if move in {"withhold", "silence", "boundary"} else 0.16
 

@@ -1,3 +1,12 @@
+"""记忆重织引擎模块。
+
+实现 sleep 阶段的记忆重织（reweave）过程：
+1. 选择候选片段（基于显著性、未解决度等）
+2. 构建叙事区域（以高优先级片段为种子，扩展关联片段）
+3. 为每个区域创建/更新线程和记忆结
+4. 强化关联边，软化片段
+5. 更新关系形成记录
+"""
 from __future__ import annotations
 
 import math
@@ -24,53 +33,55 @@ if TYPE_CHECKING:
     from aurora.memory.store import MemoryStore
     from aurora.relation.formation import RelationFormation
 
-CANDIDATE_SALIENCE_WEIGHT = 0.18
-CANDIDATE_UNRESOLVEDNESS_WEIGHT = 0.34
-CANDIDATE_ACTIVATION_WEIGHT = 0.10
-CANDIDATE_STRUCTURAL_WEIGHT = 0.22
-CANDIDATE_THREAD_WEIGHT = 0.06
-CANDIDATE_KNOT_WEIGHT = 0.10
-CANDIDATE_ACTIVATION_CAP = 5.0
 
-# Region seed priority weights
-SEED_SALIENCE_WEIGHT = 0.32
-SEED_UNRESOLVEDNESS_WEIGHT = 0.30
-SEED_ACTIVATION_WEIGHT = 0.16
-SEED_STRUCTURAL_WEIGHT = 0.12
-SEED_FORMATION_THREAD_BONUS = 0.08
-SEED_FORMATION_KNOT_BONUS = 0.12
+# ========== 候选片段选择权重 ==========
+CANDIDATE_SALIENCE_WEIGHT = 0.18        # 显著性权重
+CANDIDATE_UNRESOLVEDNESS_WEIGHT = 0.34  # 未解决度权重
+CANDIDATE_ACTIVATION_WEIGHT = 0.10      # 激活次数权重
+CANDIDATE_STRUCTURAL_WEIGHT = 0.22      # 结构性压力权重
+CANDIDATE_THREAD_WEIGHT = 0.06          # 线程关联权重
+CANDIDATE_KNOT_WEIGHT = 0.10            # 记忆结关联权重
+CANDIDATE_ACTIVATION_CAP = 5.0          # 激活次数上限
 
-# Region affinity thresholds
-REGION_AFFINITY_THRESHOLD = 0.34
-REGION_OVERLAP_THRESHOLD = 0.75
+# ========== 区域种子优先级权重 ==========
+SEED_SALIENCE_WEIGHT = 0.32             # 显著性权重
+SEED_UNRESOLVEDNESS_WEIGHT = 0.30       # 未解决度权重
+SEED_ACTIVATION_WEIGHT = 0.16           # 激活次数权重
+SEED_STRUCTURAL_WEIGHT = 0.12           # 结构性压力权重
+SEED_FORMATION_THREAD_BONUS = 0.08      # 形成线程奖励
+SEED_FORMATION_KNOT_BONUS = 0.12        # 形成记忆结奖励
 
-# Region support weights
-SUPPORT_EDGE_DENSITY_WEIGHT = 0.34
-SUPPORT_THREAD_PRESENCE_WEIGHT = 0.24
-SUPPORT_KNOT_PRESENCE_WEIGHT = 0.24
-SUPPORT_FORMATION_WEIGHT = 0.18
+# ========== 区域亲和度阈值 ==========
+REGION_AFFINITY_THRESHOLD = 0.34        # 亲和度阈值
+REGION_OVERLAP_THRESHOLD = 0.75         # 重叠度阈值（超过则跳过）
 
-# Region coherence
-COHERENCE_BASE = 0.22
-COHERENCE_EDGE_DENSITY_WEIGHT = 0.18
-COHERENCE_FORMATION_THREAD_BONUS = 0.08
+# ========== 区域支持度权重 ==========
+SUPPORT_EDGE_DENSITY_WEIGHT = 0.34      # 边密度权重
+SUPPORT_THREAD_PRESENCE_WEIGHT = 0.24   # 线程存在权重
+SUPPORT_KNOT_PRESENCE_WEIGHT = 0.24     # 记忆结存在权重
+SUPPORT_FORMATION_WEIGHT = 0.18         # 形成记录权重
 
-# Knot formation threshold
-KNOT_BASE_THRESHOLD = 0.56
-KNOT_BOUNDARY_DISCOUNT = 0.03
-KNOT_CHANNEL_DISCOUNT = 0.02
+# ========== 区域连贯性 ==========
+COHERENCE_BASE = 0.22                   # 基础连贯性
+COHERENCE_EDGE_DENSITY_WEIGHT = 0.18    # 边密度权重
+COHERENCE_FORMATION_THREAD_BONUS = 0.08 # 形成线程奖励
 
-# Association strengthening weights
-ASSOC_BASE_WEIGHT = 0.46
-ASSOC_AFFINITY_WEIGHT = 0.24
-ASSOC_COHERENCE_WEIGHT = 0.16
-ASSOC_SUPPORT_WEIGHT = 0.12
+# ========== 记忆结形成阈值 ==========
+KNOT_BASE_THRESHOLD = 0.56              # 基础阈值
+KNOT_BOUNDARY_DISCOUNT = 0.03           # 边界事件折扣
+KNOT_CHANNEL_DISCOUNT = 0.02            # 通道折扣
 
-# Fragment softening during reweave
-SOFTEN_SALIENCE_BASE = 0.05
-SOFTEN_SALIENCE_SUPPORT_FACTOR = 0.03
-SOFTEN_UNRESOLVED_BASE = 0.05
-SOFTEN_UNRESOLVED_COHERENCE_FACTOR = 0.05
+# ========== 关联强化权重 ==========
+ASSOC_BASE_WEIGHT = 0.46                # 基础权重
+ASSOC_AFFINITY_WEIGHT = 0.24            # 亲和度权重
+ASSOC_COHERENCE_WEIGHT = 0.16           # 连贯性权重
+ASSOC_SUPPORT_WEIGHT = 0.12             # 支持度权重
+
+# ========== 片段软化参数 ==========
+SOFTEN_SALIENCE_BASE = 0.05             # 显著性基础增量
+SOFTEN_SALIENCE_SUPPORT_FACTOR = 0.03   # 支持度因子
+SOFTEN_UNRESOLVED_BASE = 0.05           # 未解决度基础减量
+SOFTEN_UNRESOLVED_COHERENCE_FACTOR = 0.05  # 连贯性因子
 
 
 def reweave(
@@ -79,6 +90,23 @@ def reweave(
     now_ts: float,
     pending_relations: tuple[str, ...] | None = None,
 ) -> SleepMutation:
+    """执行记忆重织过程。
+
+    对指定关系进行 sleep 阶段的整合：
+    1. 选择候选片段
+    2. 构建叙事区域
+    3. 创建/更新线程和记忆结
+    4. 强化关联边，软化片段
+
+    Args:
+        store: 记忆存储。
+        relation_formations: 关系形成记录字典。
+        now_ts: 当前时间戳。
+        pending_relations: 待处理关系列表（为空时处理所有关系）。
+
+    Returns:
+        SleepMutation: 重织结果。
+    """
     relation_ids = pending_relations or tuple(sorted(store.relation_fragments.keys()))
 
     created_thread_ids: list[str] = []
@@ -101,10 +129,12 @@ def reweave(
         relation_thread_ids: list[str] = []
         relation_knot_ids: list[str] = []
 
+        # 处理前 3 个区域
         for region in regions[:3]:
             cluster = [store.fragments[fid] for fid in region.fragment_ids]
             frag_ids = tuple(f.fragment_id for f in cluster)
 
+            # 创建/更新线程
             existing_thread = store.find_matching_thread(relation_id, frag_ids)
             if existing_thread is not None:
                 thread = _update_thread(
@@ -122,6 +152,7 @@ def reweave(
                 created_thread_ids.append(thread.thread_id)
             relation_thread_ids.append(thread.thread_id)
 
+            # 创建/更新记忆结
             knot: Knot | None = None
             if _should_form_knot(region, formation):
                 existing_knot = store.find_matching_knot(relation_id, frag_ids)
@@ -140,16 +171,19 @@ def reweave(
                     created_knot_ids.append(knot.knot_id)
                 relation_knot_ids.append(knot.knot_id)
 
+            # 软化片段
             for fragment in cluster:
                 softened_fragment_ids.add(fragment.fragment_id)
-                store.set_fragment(fragment.fragment_id, store.fragments[
-                    fragment.fragment_id
-                ].touched(
-                    at=now_ts,
-                    delta_salience=SOFTEN_SALIENCE_BASE + SOFTEN_SALIENCE_SUPPORT_FACTOR * region.support,
-                    delta_unresolved=-(SOFTEN_UNRESOLVED_BASE + SOFTEN_UNRESOLVED_COHERENCE_FACTOR * region.coherence),
-                ))
+                store.set_fragment(
+                    fragment.fragment_id,
+                    store.fragments[fragment.fragment_id].touched(
+                        at=now_ts,
+                        delta_salience=SOFTEN_SALIENCE_BASE + SOFTEN_SALIENCE_SUPPORT_FACTOR * region.support,
+                        delta_unresolved=-(SOFTEN_UNRESOLVED_BASE + SOFTEN_UNRESOLVED_COHERENCE_FACTOR * region.coherence),
+                    )
+                )
 
+            # 强化关联边
             edge_kind = AssocKind.KNOT if knot is not None else AssocKind.THREAD
             evidence_token = knot.knot_id if knot is not None else thread.thread_id
             for left, right in combinations(cluster, 2):
@@ -168,7 +202,10 @@ def reweave(
                 )
                 strengthened_edge_ids.append(edge.edge_id)
 
+        # 设置检索偏置
         recall_bias[relation_id] = tuple(relation_thread_ids[-4:])
+
+        # 更新关系形成记录
         if formation is not None:
             formation.absorb_sleep(
                 thread_ids=tuple(relation_thread_ids),
@@ -176,6 +213,7 @@ def reweave(
                 now_ts=now_ts,
             )
 
+    # 更新 sleep 周期计数
     all_thread_ids = created_thread_ids + updated_thread_ids
     all_knot_ids = created_knot_ids + updated_knot_ids
     if all_thread_ids or all_knot_ids:
@@ -193,8 +231,22 @@ def reweave(
 
 
 def _select_candidates(
-    store: MemoryStore, relation_id: str, top_k: int = 24
+    store: MemoryStore,
+    relation_id: str,
+    top_k: int = 24,
 ) -> tuple[Fragment, ...]:
+    """选择候选片段。
+
+    按综合评分排序，返回前 top_k 个片段。
+
+    Args:
+        store: 记忆存储。
+        relation_id: 关系 ID。
+        top_k: 返回数量上限。
+
+    Returns:
+        候选片段元组。
+    """
     ranked = sorted(
         store.fragments_for_relation(relation_id),
         key=lambda item: (
@@ -216,23 +268,41 @@ def _build_regions(
     candidates: Iterable[Fragment],
     formation: RelationFormation | None,
 ) -> tuple[NarrativeRegion, ...]:
+    """构建叙事区域。
+
+    按种子优先级排序，依次尝试构建区域，跳过重叠度过高的区域。
+
+    Args:
+        store: 记忆存储。
+        relation_id: 关系 ID。
+        candidates: 候选片段迭代器。
+        formation: 关系形成记录。
+
+    Returns:
+        叙事区域元组，按支持度和张力排序。
+    """
     ordered = sorted(
         candidates,
         key=lambda item: _seed_priority(store, item, formation),
         reverse=True,
     )
     regions: list[NarrativeRegion] = []
+
+    # 尝试前 8 个种子
     for seed in ordered[:8]:
         fragment_ids = _expand_region(store, seed, ordered, formation)
         if len(fragment_ids) < 2:
             continue
         region = _materialize_region(store, relation_id, seed.fragment_id, fragment_ids, formation)
+
+        # 跳过重叠度过高的区域
         if any(
             _region_overlap(region.fragment_ids, existing.fragment_ids) >= REGION_OVERLAP_THRESHOLD
             for existing in regions
         ):
             continue
         regions.append(region)
+
     return tuple(sorted(regions, key=lambda item: (item.support, item.tension), reverse=True))
 
 
@@ -241,6 +311,16 @@ def _seed_priority(
     fragment: Fragment,
     formation: RelationFormation | None,
 ) -> float:
+    """计算种子优先级评分。
+
+    Args:
+        store: 记忆存储。
+        fragment: 候选片段。
+        formation: 关系形成记录。
+
+    Returns:
+        种子优先级评分。
+    """
     formation_thread_bonus = 0.0
     formation_knot_bonus = 0.0
     if formation is not None:
@@ -266,14 +346,32 @@ def _expand_region(
     candidates: Iterable[Fragment],
     formation: RelationFormation | None,
 ) -> tuple[str, ...]:
+    """扩展区域。
+
+    从种子片段开始，添加邻居、关联片段、亲和片段。
+
+    Args:
+        store: 记忆存储。
+        seed: 种子片段。
+        candidates: 候选片段迭代器。
+        formation: 关系形成记录。
+
+    Returns:
+        区域片段 ID 元组，按创建时间排序。
+    """
     region_ids: list[str] = [seed.fragment_id]
+
+    # 添加邻居片段
     for nid in neighbor_fragment_ids(store, seed.fragment_id):
         if nid in store.fragments and nid not in region_ids:
             region_ids.append(nid)
+
+    # 添加关联片段（通过线程/记忆结）
     for linked_id in _linked_fragment_ids(store, seed):
         if linked_id in store.fragments and linked_id not in region_ids:
             region_ids.append(linked_id)
 
+    # 添加亲和片段
     scored: list[tuple[float, str]] = []
     for fragment in candidates:
         if fragment.fragment_id in region_ids:
@@ -285,6 +383,8 @@ def _expand_region(
     for _, fragment_id in scored[:3]:
         if fragment_id not in region_ids:
             region_ids.append(fragment_id)
+
+    # 按创建时间排序
     ordered = sorted(
         (store.fragments[fid] for fid in region_ids),
         key=lambda item: item.created_at,
@@ -293,6 +393,15 @@ def _expand_region(
 
 
 def _linked_fragment_ids(store: MemoryStore, fragment: Fragment) -> tuple[str, ...]:
+    """获取通过线程/记忆结关联的片段 ID。
+
+    Args:
+        store: 记忆存储。
+        fragment: 源片段。
+
+    Returns:
+        关联片段 ID 元组。
+    """
     linked: list[str] = []
     for thread_id in fragment.thread_ids:
         thread = store.threads.get(thread_id)
@@ -317,6 +426,19 @@ def _region_affinity(
     fragment: Fragment,
     formation: RelationFormation | None,
 ) -> float:
+    """计算区域亲和度。
+
+    综合片段亲和度、结构性、线程/记忆结重叠、形成记录重叠。
+
+    Args:
+        store: 记忆存储。
+        seed: 种子片段。
+        fragment: 候选片段。
+        formation: 关系形成记录。
+
+    Returns:
+        区域亲和度评分。
+    """
     structural = (
         0.12 if fragment.fragment_id in neighbor_fragment_ids(store, seed.fragment_id) else 0.0
     )
@@ -344,6 +466,20 @@ def _materialize_region(
     fragment_ids: tuple[str, ...],
     formation: RelationFormation | None,
 ) -> NarrativeRegion:
+    """实例化叙事区域。
+
+    计算主导通道、支持度、张力、连贯性。
+
+    Args:
+        store: 记忆存储。
+        relation_id: 关系 ID。
+        anchor_fragment_id: 锚定片段 ID。
+        fragment_ids: 成员片段 ID 列表。
+        formation: 关系形成记录。
+
+    Returns:
+        NarrativeRegion: 叙事区域。
+    """
     fragments = [store.fragments[fid] for fid in fragment_ids]
     dominant = cluster_dominant_channels(store, fragments)
     support = _region_support(store, fragments, formation)
@@ -365,9 +501,19 @@ def _region_support(
     fragments: list[Fragment],
     formation: RelationFormation | None,
 ) -> float:
-    edge_density = region_edge_density(
-        store, tuple(f.fragment_id for f in fragments)
-    )
+    """计算区域支持度。
+
+    基于边密度、线程存在、记忆结存在、形成记录命中。
+
+    Args:
+        store: 记忆存储。
+        fragments: 片段列表。
+        formation: 关系形成记录。
+
+    Returns:
+        支持度评分（0.0–1.0）。
+    """
+    edge_density = region_edge_density(store, tuple(f.fragment_id for f in fragments))
     thread_presence = sum(1 for f in fragments if f.thread_ids) / max(1, len(fragments))
     knot_presence = sum(1 for f in fragments if f.knot_ids) / max(1, len(fragments))
     formation_bonus = 0.0
@@ -390,6 +536,19 @@ def _region_tension(
     fragments: list[Fragment],
     formation: RelationFormation | None,
 ) -> float:
+    """计算区域张力。
+
+    基于未解决度平均值，加上 Hurt/Boundary 通道奖励，
+    以及边界事件超过修复事件的奖励。
+
+    Args:
+        store: 记忆存储。
+        fragments: 片段列表。
+        formation: 关系形成记录。
+
+    Returns:
+        张力评分。
+    """
     base = sum(f.unresolvedness for f in fragments) / len(fragments)
     channels = set(cluster_dominant_channels(store, fragments))
     if TraceChannel.HURT in channels:
@@ -406,6 +565,18 @@ def _region_coherence(
     fragments: list[Fragment],
     formation: RelationFormation | None,
 ) -> float:
+    """计算区域连贯性。
+
+    基于基础值、关键词重叠、轨迹重叠、边密度、形成线程命中。
+
+    Args:
+        store: 记忆存储。
+        fragments: 片段列表。
+        formation: 关系形成记录。
+
+    Returns:
+        连贯性评分。
+    """
     coherence = (
         COHERENCE_BASE
         + cluster_keyword_overlap(fragments)
@@ -425,6 +596,15 @@ def _region_overlap(
     left_fragment_ids: tuple[str, ...],
     right_fragment_ids: tuple[str, ...],
 ) -> float:
+    """计算两个区域的重叠度（Jaccard 相似度）。
+
+    Args:
+        left_fragment_ids: 左侧区域片段 ID 列表。
+        right_fragment_ids: 右侧区域片段 ID 列表。
+
+    Returns:
+        重叠度（0.0–1.0）。
+    """
     left = set(left_fragment_ids)
     right = set(right_fragment_ids)
     return len(left & right) / max(1, len(left | right))
@@ -434,6 +614,17 @@ def _should_form_knot(
     region: NarrativeRegion,
     formation: RelationFormation | None,
 ) -> bool:
+    """判断是否应形成记忆结。
+
+    当张力超过阈值时形成记忆结。阈值根据边界事件和主导通道调整。
+
+    Args:
+        region: 叙事区域。
+        formation: 关系形成记录。
+
+    Returns:
+        是否形成记忆结。
+    """
     threshold = KNOT_BASE_THRESHOLD
     if formation is not None and formation.boundary_events > formation.repair_events:
         threshold -= KNOT_BOUNDARY_DISCOUNT
@@ -453,6 +644,19 @@ def _update_thread(
     coherence: float,
     now_ts: float,
 ) -> Thread:
+    """更新线程。
+
+    Args:
+        existing: 现有线程。
+        cluster: 片段簇。
+        dominant_channels: 主导通道。
+        tension: 张力。
+        coherence: 连贯性。
+        now_ts: 当前时间戳。
+
+    Returns:
+        更新后的线程。
+    """
     return Thread(
         thread_id=existing.thread_id,
         relation_id=existing.relation_id,
@@ -473,6 +677,19 @@ def _build_thread(
     coherence: float,
     now_ts: float,
 ) -> Thread:
+    """构建新线程。
+
+    Args:
+        relation_id: 关系 ID。
+        cluster: 片段簇。
+        dominant_channels: 主导通道。
+        tension: 张力。
+        coherence: 连贯性。
+        now_ts: 当前时间戳。
+
+    Returns:
+        新线程。
+    """
     return Thread(
         thread_id=f"thread_{uuid4().hex[:12]}",
         relation_id=relation_id,
@@ -492,6 +709,18 @@ def _update_knot(
     intensity: float,
     now_ts: float,
 ) -> Knot:
+    """更新记忆结。
+
+    Args:
+        existing: 现有记忆结。
+        cluster: 片段簇。
+        dominant_channels: 主导通道。
+        intensity: 强度。
+        now_ts: 当前时间戳。
+
+    Returns:
+        更新后的记忆结。
+    """
     return Knot(
         knot_id=existing.knot_id,
         relation_id=existing.relation_id,
@@ -511,6 +740,18 @@ def _build_knot(
     intensity: float,
     now_ts: float,
 ) -> Knot:
+    """构建新记忆结。
+
+    Args:
+        relation_id: 关系 ID。
+        cluster: 片段簇。
+        dominant_channels: 主导通道。
+        intensity: 强度。
+        now_ts: 当前时间戳。
+
+    Returns:
+        新记忆结。
+    """
     return Knot(
         knot_id=f"knot_{uuid4().hex[:12]}",
         relation_id=relation_id,
