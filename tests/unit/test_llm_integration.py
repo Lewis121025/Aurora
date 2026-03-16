@@ -6,24 +6,15 @@ import pytest
 
 from aurora.expression.cognition import LLMCallError, _build_messages, run_cognition
 from aurora.expression.context import ExpressionContext
-from aurora.relation.decision import RelationDecisionContext
 from aurora.runtime.contracts import TraceChannel
 from aurora.runtime.engine import AuroraEngine
 
 from tests.conftest import ContextAwareLLM, StubLLM
 
 
-def _ctx() -> RelationDecisionContext:
-    return RelationDecisionContext(
-        boundary_events=0, repair_events=0, resonance_events=1,
-        thread_count=0, knot_count=0,
-    )
-
-
 def test_cognition_returns_valid_result_from_stub() -> None:
     context = ExpressionContext(
         input_text="hello",
-        relation_context=_ctx(),
         dominant_channels=(TraceChannel.WARMTH,),
         has_knots=False,
     )
@@ -38,7 +29,6 @@ def test_cognition_returns_valid_result_from_stub() -> None:
 def test_context_aware_llm_maps_boundary_input() -> None:
     context = ExpressionContext(
         input_text="不要继续，停",
-        relation_context=_ctx(),
         dominant_channels=(),
         has_knots=False,
     )
@@ -56,7 +46,6 @@ class _FailingLLM:
 def test_llm_provider_failure_raises_typed_error() -> None:
     context = ExpressionContext(
         input_text="hello",
-        relation_context=_ctx(),
         dominant_channels=(),
         has_knots=False,
     )

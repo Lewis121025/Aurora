@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import time
+from dataclasses import dataclass
 
+from aurora.being.metabolic_state import MetabolicState
+from aurora.being.orientation import Orientation
 from aurora.llm.config import load_llm_config
-from aurora.llm.openai_compat import create_provider
+from aurora.llm.openai_compat import OpenAICompatProvider
 from aurora.llm.provider import LLMProvider
 from aurora.memory.store import MemoryStore
 from aurora.persistence.store import SQLitePersistence
@@ -11,8 +14,6 @@ from aurora.phases.awake import run_awake
 from aurora.phases.doze import run_doze
 from aurora.phases.sleep import run_sleep
 from aurora.relation.store import RelationStore
-from aurora.runtime.bootstrap import initial_runtime_state
-from aurora.runtime.clock import SystemClock
 from aurora.runtime.contracts import AuroraMove, Phase
 from aurora.runtime.projections import (
     HealthSummary,
@@ -37,22 +38,28 @@ class PhaseOutput:
     transition_id: str
 
 
-@dataclass(slots=True)
 class AuroraEngine:
-    memory_store: MemoryStore
-    relation_store: RelationStore
-    state: RuntimeState
-    persistence: SQLitePersistence
-    clock: SystemClock = field(default_factory=SystemClock)
-    llm: LLMProvider = field(default=None)  # type: ignore[assignment]
+    __slots__ = ("memory_store", "relation_store", "state", "persistence", "llm")
+
+    def __init__(
+        self,
+        memory_store: MemoryStore,
+        relation_store: RelationStore,
+        state: RuntimeState,
+        persistence: SQLitePersistence,
+        llm: LLMProvider,
+    ) -> None:
+        self.memory_store = memory_store
+        self.relation_store = relation_store
+        self.state = state
+        self.persistence = persistence
+        self.llm = llm
 
     @classmethod
     def create(cls, data_dir: str | None = None, llm: LLMProvider | None = None) -> "AuroraEngine":
-        clock = SystemClock()
         persistence = SQLitePersistence(data_dir=data_dir)
-        memory_store, relation_store, state = persistence.load_runtime(
-            initial=initial_runtime_state()
-        )
+        initial = RuntimeState(orientation=Orientation(), metabolic=MetabolicState())
+        memory_store, relation_store, state = persistence.load_runtime(initial=initial)
         if llm is None:
             llm_config = load_llm_config()
             if llm_config is None:
@@ -60,11 +67,11 @@ class AuroraEngine:
                     "Aurora requires an LLM provider. "
                     "Set AURORA_LLM_BASE_URL, AURORA_LLM_API_KEY, and AURORA_LLM_MODEL."
                 )
-            llm = create_provider(llm_config)
-        return cls(memory_store, relation_store, state, persistence, clock, llm)
+            llm = OpenAICompatProvider(llm_config)
+        return cls(memory_store, relation_store, state, persistence, llm)
 
     def handle_turn(self, session_id: str, text: str) -> EngineOutput:
-        now_ts = self.clock.now()
+        now_ts = time.time()
         relation_id = f"rel:{session_id}"
         outcome = run_awake(
             relation_id=relation_id,
@@ -78,7 +85,7 @@ class AuroraEngine:
             llm=self.llm,
         )
         if outcome.transition is not None:
-            self.state.transitions.append(outcome.transition)
+            self.state.append_transition(outcome.transition)
         self.persistence.persist_awake(
             outcome=outcome,
             state=self.state,
@@ -96,9 +103,9 @@ class AuroraEngine:
         outcome = run_doze(
             metabolic=self.state.metabolic,
             memory_store=self.memory_store,
-            now_ts=self.clock.now(),
+            now_ts=time.time(),
         )
-        self.state.transitions.append(outcome.transition)
+        self.state.append_transition(outcome.transition)
         self.persistence.persist_phase(
             outcome=outcome,
             state=self.state,
@@ -116,9 +123,9 @@ class AuroraEngine:
             orientation=self.state.orientation,
             memory_store=self.memory_store,
             relation_store=self.relation_store,
-            now_ts=self.clock.now(),
+            now_ts=time.time(),
         )
-        self.state.transitions.append(outcome.transition)
+        self.state.append_transition(outcome.transition)
         self.persistence.persist_phase(
             outcome=outcome,
             state=self.state,

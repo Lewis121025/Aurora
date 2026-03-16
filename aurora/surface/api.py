@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+import os
+
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from aurora.runtime.engine import AuroraEngine
 from aurora.runtime.projections import StateSummary
@@ -12,10 +15,21 @@ from aurora.surface.schemas import (
     TurnResponse,
 )
 
+_OPEN_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
+
 
 def build_app(engine: AuroraEngine) -> FastAPI:
     app = FastAPI(title="Aurora Surface")
     runtime = engine
+    api_key = os.environ.get("AURORA_API_KEY")
+
+    @app.middleware("http")
+    async def _auth(request: Request, call_next):  # type: ignore[no-untyped-def]
+        if api_key and request.url.path not in _OPEN_PATHS:
+            provided = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+            if provided != api_key:
+                return JSONResponse(status_code=401, content={"detail": "unauthorized"})
+        return await call_next(request)
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:

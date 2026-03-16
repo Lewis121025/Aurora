@@ -72,3 +72,14 @@ def apply_migrations(connection: sqlite3.Connection) -> None:
             "active_relation_ids TEXT NOT NULL, active_knot_ids TEXT NOT NULL, "
             "pending_sleep_relation_ids TEXT NOT NULL, last_transition_at REAL NOT NULL)"
         )
+
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_fragments_relation ON fragments(relation_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_traces_fragment ON traces(fragment_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_traces_relation ON traces(relation_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_associations_src ON associations(src_fragment_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_associations_dst ON associations(dst_fragment_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_threads_relation ON threads(relation_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_knots_relation ON knots(relation_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_moments_relation ON relation_moments(relation_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_turns_relation ON turn_events(relation_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_phase_events_created ON phase_events(created_at)")

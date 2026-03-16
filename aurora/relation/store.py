@@ -5,18 +5,23 @@ from uuid import uuid4
 
 from aurora.relation.formation import RelationFormation
 from aurora.relation.moment import RelationMoment
-from aurora.relation.projectors import RelationProjection, project_relation
-from aurora.runtime.contracts import AuroraMove, TraceChannel, unique_channels
+from aurora.runtime.contracts import AuroraMove, TraceChannel
+
+
+MOMENT_CAP = 128
 
 
 class RelationStore:
     def __init__(self) -> None:
         self.formations: dict[str, RelationFormation] = {}
         self.moments: dict[str, list[RelationMoment]] = defaultdict(list)
+        self._dirty_formations: set[str] = set()
+        self._dirty_moment_relations: set[str] = set()
 
     def formation_for(self, relation_id: str) -> RelationFormation:
         if relation_id not in self.formations:
             self.formations[relation_id] = RelationFormation(relation_id=relation_id)
+            self._dirty_formations.add(relation_id)
         return self.formations[relation_id]
 
     def record_exchange(
@@ -29,7 +34,7 @@ class RelationStore:
         summary: str,
         now_ts: float,
     ) -> RelationMoment:
-        normalized_channels = unique_channels(user_channels)
+        normalized_channels = tuple(sorted(set(user_channels), key=lambda c: c.value))
         boundary_event = TraceChannel.BOUNDARY in normalized_channels or aurora_move == "boundary"
         repair_event = TraceChannel.REPAIR in normalized_channels or aurora_move == "repair"
         moment = RelationMoment(
@@ -44,8 +49,13 @@ class RelationStore:
             summary=summary,
             created_at=now_ts,
         )
-        self.moments[relation_id].append(moment)
+        bucket = self.moments[relation_id]
+        bucket.append(moment)
+        if len(bucket) > MOMENT_CAP:
+            del bucket[: len(bucket) - MOMENT_CAP]
         self.formation_for(relation_id).register_moment(moment)
+        self._dirty_formations.add(relation_id)
+        self._dirty_moment_relations.add(relation_id)
         return moment
 
     def absorb_sleep(
@@ -60,12 +70,14 @@ class RelationStore:
             knot_ids=knot_ids,
             now_ts=now_ts,
         )
-
-    def summarize_relation(self, relation_id: str) -> RelationProjection:
-        return project_relation(self.formation_for(relation_id))
+        self._dirty_formations.add(relation_id)
 
     def relation_count(self) -> int:
         return len(self.formations)
 
     def moment_count(self) -> int:
         return sum(len(items) for items in self.moments.values())
+
+    def clear_dirty(self) -> None:
+        self._dirty_formations.clear()
+        self._dirty_moment_relations.clear()

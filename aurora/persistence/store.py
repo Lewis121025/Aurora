@@ -31,6 +31,7 @@ class SQLitePersistence:
         self.db_path = base_dir / db_name
         self._connection = sqlite3.connect(self.db_path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
+        self._connection.execute("PRAGMA journal_mode=WAL")
         self._lock = threading.Lock()
         apply_migrations(self._connection)
         self._ensure_schema()
@@ -313,7 +314,8 @@ class SQLitePersistence:
         memory_store: MemoryStore,
         relation_store: RelationStore,
     ) -> None:
-        for fragment in memory_store.fragments.values():
+        for fid in memory_store._dirty_fragments:
+            fragment = memory_store.fragments[fid]
             self._connection.execute(
                 "INSERT OR REPLACE INTO fragments(fragment_id, relation_id, turn_id, surface, tags, vividness, salience, "
                 "unresolvedness, thread_ids, knot_ids, created_at, last_touched_at, activation_count) "
@@ -335,7 +337,8 @@ class SQLitePersistence:
                 ),
             )
 
-        for trace in memory_store.traces.values():
+        for tid in memory_store._dirty_traces:
+            trace = memory_store.traces[tid]
             self._connection.execute(
                 "INSERT OR REPLACE INTO traces(trace_id, relation_id, fragment_id, channel, intensity, carry, created_at, last_touched_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
@@ -351,7 +354,8 @@ class SQLitePersistence:
                 ),
             )
 
-        for association in memory_store.associations.values():
+        for eid in memory_store._dirty_associations:
+            association = memory_store.associations[eid]
             self._connection.execute(
                 "INSERT OR REPLACE INTO associations(edge_id, src_fragment_id, dst_fragment_id, kind, weight, evidence, created_at, last_touched_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
@@ -367,7 +371,8 @@ class SQLitePersistence:
                 ),
             )
 
-        for thread in memory_store.threads.values():
+        for thid in memory_store._dirty_threads:
+            thread = memory_store.threads[thid]
             self._connection.execute(
                 "INSERT OR REPLACE INTO threads(thread_id, relation_id, fragment_ids, dominant_channels, tension, coherence, created_at, last_rewoven_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
@@ -383,7 +388,8 @@ class SQLitePersistence:
                 ),
             )
 
-        for knot in memory_store.knots.values():
+        for kid in memory_store._dirty_knots:
+            knot = memory_store.knots[kid]
             self._connection.execute(
                 "INSERT OR REPLACE INTO knots(knot_id, relation_id, fragment_ids, dominant_channels, intensity, resolved, created_at, last_rewoven_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?, ?)",
@@ -399,8 +405,8 @@ class SQLitePersistence:
                 ),
             )
 
-        for moments in relation_store.moments.values():
-            for moment in moments:
+        for rel_id in relation_store._dirty_moment_relations:
+            for moment in relation_store.moments.get(rel_id, ()):
                 self._connection.execute(
                     "INSERT OR REPLACE INTO relation_moments(moment_id, relation_id, user_turn_id, aurora_turn_id, user_channels, aurora_move, boundary_event, repair_event, summary, created_at) "
                     "VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -418,7 +424,8 @@ class SQLitePersistence:
                     ),
                 )
 
-        for formation in relation_store.formations.values():
+        for rel_id in relation_store._dirty_formations:
+            formation = relation_store.formations[rel_id]
             self._connection.execute(
                 "INSERT OR REPLACE INTO relation_formations(relation_id, thread_ids, knot_ids, boundary_events, repair_events, resonance_events, last_contact_at) "
                 "VALUES(?, ?, ?, ?, ?, ?, ?)",
@@ -432,6 +439,20 @@ class SQLitePersistence:
                     formation.last_contact_at,
                 ),
             )
+
+        for fid in memory_store._deleted_fragments:
+            self._connection.execute("DELETE FROM fragments WHERE fragment_id = ?", (fid,))
+        for tid in memory_store._deleted_traces:
+            self._connection.execute("DELETE FROM traces WHERE trace_id = ?", (tid,))
+        for eid in memory_store._deleted_associations:
+            self._connection.execute("DELETE FROM associations WHERE edge_id = ?", (eid,))
+        for thid in memory_store._deleted_threads:
+            self._connection.execute("DELETE FROM threads WHERE thread_id = ?", (thid,))
+        for kid in memory_store._deleted_knots:
+            self._connection.execute("DELETE FROM knots WHERE knot_id = ?", (kid,))
+
+        memory_store.clear_dirty()
+        relation_store.clear_dirty()
 
         orientation = state.orientation
         metabolic = state.metabolic

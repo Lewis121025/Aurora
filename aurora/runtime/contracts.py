@@ -63,7 +63,3 @@ class PhaseTransition:
 
 def clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, value))
-
-
-def unique_channels(channels: tuple[TraceChannel, ...]) -> tuple[TraceChannel, ...]:
-    return tuple(sorted(set(channels), key=lambda item: item.value))

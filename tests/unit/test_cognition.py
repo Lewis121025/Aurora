@@ -13,7 +13,6 @@ from aurora.expression.cognition import (
     run_cognition,
 )
 from aurora.expression.context import ExpressionContext
-from aurora.relation.decision import RelationDecisionContext
 from aurora.runtime.contracts import AssocKind, TraceChannel
 
 from tests.conftest import ContextAwareLLM
@@ -22,18 +21,9 @@ from tests.conftest import ContextAwareLLM
 def _ctx(
     *,
     text: str = "hello",
-    resonance: int = 0,
-    boundary: int = 0,
 ) -> ExpressionContext:
     return ExpressionContext(
         input_text=text,
-        relation_context=RelationDecisionContext(
-            boundary_events=boundary,
-            repair_events=0,
-            resonance_events=resonance,
-            thread_count=0,
-            knot_count=0,
-        ),
         dominant_channels=(),
         has_knots=False,
     )
@@ -124,19 +114,13 @@ def test_build_messages_minimal() -> None:
 
 
 def test_context_recalled_surfaces_influence_llm_decision() -> None:
-    base = RelationDecisionContext(
-        boundary_events=0, repair_events=0, resonance_events=0,
-        thread_count=0, knot_count=0,
-    )
     ctx_without = ExpressionContext(
         input_text="hello",
-        relation_context=base,
         dominant_channels=(),
         has_knots=False,
     )
     ctx_with_recall = ExpressionContext(
         input_text="hello",
-        relation_context=base,
         dominant_channels=(),
         has_knots=False,
         recalled_surfaces=("a past conversation",),
@@ -149,19 +133,13 @@ def test_context_recalled_surfaces_influence_llm_decision() -> None:
 
 
 def test_context_orientation_risk_influences_llm_decision() -> None:
-    base = RelationDecisionContext(
-        boundary_events=0, repair_events=0, resonance_events=0,
-        thread_count=0, knot_count=0,
-    )
     ctx_no_risk = ExpressionContext(
         input_text="hello",
-        relation_context=base,
         dominant_channels=(),
         has_knots=False,
     )
     ctx_with_risk = ExpressionContext(
         input_text="hello",
-        relation_context=base,
         dominant_channels=(),
         has_knots=False,
         orientation_snapshot={
@@ -179,17 +157,15 @@ def test_context_orientation_risk_influences_llm_decision() -> None:
 def test_build_messages_includes_context() -> None:
     ctx = ExpressionContext(
         input_text="test",
-        relation_context=RelationDecisionContext(
-            boundary_events=2,
-            repair_events=1,
-            resonance_events=3,
-            thread_count=1,
-            knot_count=0,
-        ),
         dominant_channels=(TraceChannel.WARMTH, TraceChannel.HURT),
         has_knots=True,
         recalled_surfaces=("memory one", "memory two"),
         recent_summaries=("exchange summary",),
+        orientation_snapshot={
+            "relation": {"closeness": {"count": 2, "sources": ("m1", "m2")}, "boundary": {"count": 1, "sources": ("m3",)}},
+            "world": {},
+            "self": {},
+        },
     )
     messages = _build_messages(ctx)
     context_parts = [m["content"] for m in messages if m["role"] == "system"]
@@ -198,4 +174,5 @@ def test_build_messages_includes_context() -> None:
     assert "exchange summary" in joined
     assert "warmth" in joined
     assert "Unresolved tension knots" in joined
-    assert "3 resonance" in joined
+    assert "Relation sense" in joined
+    assert "closeness" in joined

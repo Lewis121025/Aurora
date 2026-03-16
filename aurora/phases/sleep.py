@@ -3,6 +3,7 @@ from __future__ import annotations
 from aurora.being.metabolic_state import MetabolicState
 from aurora.being.orientation import Orientation
 from aurora.memory.reweave_engine import reweave
+from aurora.memory.sediment import sediment
 from aurora.memory.store import MemoryStore
 from aurora.phases.outcomes import PhaseOutcome
 from aurora.phases.transitions import phase_transition
@@ -27,13 +28,15 @@ def run_sleep(
         pending_relations=metabolic.pending_sleep_relation_ids or None,
     )
 
+    sediment(memory_store, now_ts)
+
     dominant: set[TraceChannel] = set()
     for thread_id in mutation.created_thread_ids:
-        thread = memory_store.threads[thread_id]
-        dominant.update(thread.dominant_channels)
+        if thread_id in memory_store.threads:
+            dominant.update(memory_store.threads[thread_id].dominant_channels)
     for knot_id in mutation.created_knot_ids:
-        knot = memory_store.knots[knot_id]
-        dominant.update(knot.dominant_channels)
+        if knot_id in memory_store.knots:
+            dominant.update(memory_store.knots[knot_id].dominant_channels)
 
     orientation.absorb_sleep(
         thread_ids=mutation.created_thread_ids,

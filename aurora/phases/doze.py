@@ -16,7 +16,7 @@ def run_doze(metabolic: MetabolicState, memory_store: MemoryStore, now_ts: float
     )
     if relation_ids:
         hover_for_doze(memory_store, relation_ids=relation_ids, now_ts=now_ts)
-    decay_for_doze(memory_store, now_ts)
+    decay_for_doze(memory_store, now_ts, relation_ids=relation_ids)
     metabolic.bump_sleep_need(0.10)
     return PhaseOutcome(
         phase=Phase.DOZE,

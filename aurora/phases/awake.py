@@ -13,7 +13,6 @@ from aurora.memory.recall import build_activation_channels, recent_recall
 from aurora.memory.store import MemoryStore
 from aurora.memory.trace import Trace
 from aurora.phases.transitions import phase_transition
-from aurora.relation.decision import build_relation_decision_context
 from aurora.relation.moment import RelationMoment
 from aurora.relation.store import RelationStore
 from aurora.runtime.contracts import (
@@ -23,6 +22,7 @@ from aurora.runtime.contracts import (
     Speaker,
     TraceChannel,
     Turn,
+    clamp,
 )
 
 SURFACE_LIMIT = 180
@@ -32,12 +32,46 @@ USER_BASE_SALIENCE = 0.52
 AURORA_VIVIDNESS = 0.42
 AURORA_SALIENCE = 0.44
 RECALL_TOUCH_DELTA = 0.03
-ASSOCIATION_WEIGHT = 0.72
 SLEEP_BUMP_BASE = 0.08
 SLEEP_BUMP_RECALL_FACTOR = 0.03
 SLEEP_BUMP_BOUNDARY_BONUS = 0.04
 SLEEP_BUMP_BOUNDARY_MOVE_BONUS = 0.03
 SUMMARY_TRUNCATE = 70
+
+_MOVE_ASSOCIATION_WEIGHT: dict[str, float] = {
+    "repair": 0.82,
+    "approach": 0.72,
+    "witness": 0.68,
+    "withhold": 0.52,
+    "boundary": 0.44,
+    "silence": 0.36,
+}
+
+_MOVE_INTENSITY_SCALE: dict[str, float] = {
+    "approach": 1.0,
+    "repair": 1.0,
+    "witness": 0.85,
+    "withhold": 0.6,
+    "boundary": 0.7,
+    "silence": 0.45,
+}
+
+_MOVE_CARRY_SCALE: dict[str, float] = {
+    "approach": 1.1,
+    "repair": 1.2,
+    "witness": 1.0,
+    "withhold": 0.7,
+    "boundary": 0.8,
+    "silence": 0.5,
+}
+
+_MOVE_CHANNEL_BOOST: dict[str, TraceChannel] = {
+    "approach": TraceChannel.WARMTH,
+    "boundary": TraceChannel.BOUNDARY,
+    "repair": TraceChannel.REPAIR,
+    "withhold": TraceChannel.DISTANCE,
+    "witness": TraceChannel.RECOGNITION,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,14 +103,12 @@ def run_awake(
     previous_phase = metabolic.phase
     metabolic.enter_phase(Phase.AWAKE, now_ts)
     metabolic.set_active_relation(relation_id)
-    prior_recalled = recent_recall(memory_store, relation_id=relation_id, limit=8)
+    prior_recalled = recent_recall(memory_store, relation_id=relation_id, limit=8, now_ts=now_ts)
     prior_channels = build_activation_channels(memory_store, prior_recalled)
-    relation_context = build_relation_decision_context(relation_store.formation_for(relation_id))
     recent_moments = relation_store.moments.get(relation_id, [])
 
     context = ExpressionContext(
         input_text=text,
-        relation_context=relation_context,
         dominant_channels=prior_channels,
         has_knots=bool(memory_store.knots_for_relation(relation_id)),
         recalled_surfaces=tuple(f.surface for f in prior_recalled[:4]),
@@ -136,22 +168,28 @@ def run_awake(
         unresolvedness=cognition.fragment_unresolvedness,
         now_ts=now_ts,
     )
+    move_str = cognition.move
+    intensity_scale = _MOVE_INTENSITY_SCALE.get(move_str, 0.85)
+    carry_scale = _MOVE_CARRY_SCALE.get(move_str, 1.0)
+    boosted_channel = _MOVE_CHANNEL_BOOST.get(move_str)
     aurora_traces = tuple(
         memory_store.create_trace(
             relation_id=relation_id,
             fragment_id=aurora_fragment.fragment_id,
             channel=channel,
-            intensity=intensity,
+            intensity=clamp(intensity * intensity_scale * (1.15 if channel is boosted_channel else 1.0)),
             now_ts=now_ts,
+            carry=clamp(0.35 * carry_scale + intensity * 0.5 * carry_scale),
         )
         for channel, intensity in cognition.touch_channels
     )
 
+    assoc_weight = _MOVE_ASSOCIATION_WEIGHT.get(move_str, 0.68)
     memory_store.link_fragments(
         src_fragment_id=user_fragment.fragment_id,
         dst_fragment_id=aurora_fragment.fragment_id,
         kind=cognition.association_kind,
-        weight=ASSOCIATION_WEIGHT,
+        weight=assoc_weight,
         evidence=(user_turn.turn_id, aurora_turn.turn_id),
         now_ts=now_ts,
     )

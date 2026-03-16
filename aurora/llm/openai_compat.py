@@ -33,7 +33,3 @@ class OpenAICompatProvider:
         if not choices:
             return ""
         return str(choices[0].get("message", {}).get("content", ""))
-
-
-def create_provider(config: LLMConfig) -> OpenAICompatProvider:
-    return OpenAICompatProvider(config)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from itertools import combinations
 from typing import TYPE_CHECKING, Iterable
 from uuid import uuid4
@@ -23,13 +24,12 @@ if TYPE_CHECKING:
     from aurora.memory.store import MemoryStore
     from aurora.relation.formation import RelationFormation
 
-# Candidate selection weights
-CANDIDATE_SALIENCE_WEIGHT = 0.36
-CANDIDATE_UNRESOLVEDNESS_WEIGHT = 0.28
-CANDIDATE_ACTIVATION_WEIGHT = 0.22
-CANDIDATE_STRUCTURAL_WEIGHT = 0.08
-CANDIDATE_THREAD_WEIGHT = 0.03
-CANDIDATE_KNOT_WEIGHT = 0.03
+CANDIDATE_SALIENCE_WEIGHT = 0.18
+CANDIDATE_UNRESOLVEDNESS_WEIGHT = 0.34
+CANDIDATE_ACTIVATION_WEIGHT = 0.10
+CANDIDATE_STRUCTURAL_WEIGHT = 0.22
+CANDIDATE_THREAD_WEIGHT = 0.06
+CANDIDATE_KNOT_WEIGHT = 0.10
 CANDIDATE_ACTIVATION_CAP = 5.0
 
 # Region seed priority weights
@@ -142,13 +142,13 @@ def reweave(
 
             for fragment in cluster:
                 softened_fragment_ids.add(fragment.fragment_id)
-                store.fragments[fragment.fragment_id] = store.fragments[
+                store.set_fragment(fragment.fragment_id, store.fragments[
                     fragment.fragment_id
                 ].touched(
                     at=now_ts,
                     delta_salience=SOFTEN_SALIENCE_BASE + SOFTEN_SALIENCE_SUPPORT_FACTOR * region.support,
                     delta_unresolved=-(SOFTEN_UNRESOLVED_BASE + SOFTEN_UNRESOLVED_COHERENCE_FACTOR * region.coherence),
-                )
+                ))
 
             edge_kind = AssocKind.KNOT if knot is not None else AssocKind.THREAD
             evidence_token = knot.knot_id if knot is not None else thread.thread_id
@@ -200,10 +200,10 @@ def _select_candidates(
         key=lambda item: (
             CANDIDATE_SALIENCE_WEIGHT * item.salience
             + CANDIDATE_UNRESOLVEDNESS_WEIGHT * item.unresolvedness
-            + CANDIDATE_ACTIVATION_WEIGHT * min(item.activation_count / CANDIDATE_ACTIVATION_CAP, 1.0)
+            + CANDIDATE_ACTIVATION_WEIGHT * min(math.log1p(item.activation_count) / math.log1p(CANDIDATE_ACTIVATION_CAP), 1.0)
             + CANDIDATE_STRUCTURAL_WEIGHT * structural_pressure(store, item)
-            + CANDIDATE_THREAD_WEIGHT * min(len(item.thread_ids), 2)
-            + CANDIDATE_KNOT_WEIGHT * min(len(item.knot_ids), 2)
+            + CANDIDATE_THREAD_WEIGHT * min(math.log1p(len(item.thread_ids)), 1.0)
+            + CANDIDATE_KNOT_WEIGHT * min(math.log1p(len(item.knot_ids)), 1.0)
         ),
         reverse=True,
     )

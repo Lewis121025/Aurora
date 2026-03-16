@@ -114,13 +114,15 @@ def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
                 parts.append(f"Self sense: {', '.join(active_self)}")
     if context.dominant_channels:
         parts.append(f"Active channels: {', '.join(ch.value for ch in context.dominant_channels[:4])}")
-    rel = context.relation_context
-    if rel.boundary_events + rel.repair_events + rel.resonance_events > 0:
-        parts.append(
-            f"Relation: {rel.resonance_events} resonance, "
-            f"{rel.boundary_events} boundary, {rel.repair_events} repair, "
-            f"{rel.thread_count} threads, {rel.knot_count} knots"
-        )
+    if context.orientation_snapshot:
+        relation_ev = context.orientation_snapshot.get("relation")
+        if isinstance(relation_ev, dict):
+            active_rel = [
+                k for k, v in relation_ev.items()
+                if isinstance(v, dict) and v.get("count", 0) > 0
+            ]
+            if active_rel:
+                parts.append(f"Relation sense: {', '.join(active_rel)}")
     if context.has_knots:
         parts.append("Unresolved tension knots are present.")
 

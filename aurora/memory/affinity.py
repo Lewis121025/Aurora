@@ -97,19 +97,6 @@ def region_edge_density(store: MemoryStore, fragment_ids: tuple[str, ...]) -> fl
     total = 0
     for left_id, right_id in combinations(fragment_ids, 2):
         total += 1
-        if _existing_edge_id(store, left_id, right_id) is not None:
+        if store._existing_edge_id(left_id, right_id) is not None:
             linked += 1
     return linked / total if total else 0.0
-
-
-def _existing_edge_id(
-    store: MemoryStore,
-    left_fragment_id: str,
-    right_fragment_id: str,
-) -> str | None:
-    shared_edge_ids = store.fragment_edges.get(
-        left_fragment_id, set()
-    ) & store.fragment_edges.get(right_fragment_id, set())
-    for edge_id in shared_edge_ids:
-        return edge_id
-    return None
