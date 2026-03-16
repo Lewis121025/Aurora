@@ -26,6 +26,7 @@ from aurora.memory.affinity import (
 from aurora.memory.fragment import Fragment
 from aurora.memory.knot import Knot
 from aurora.memory.reweave import NarrativeRegion, SleepMutation
+from aurora.memory.semantic import SemanticScorer
 from aurora.memory.thread import Thread
 from aurora.runtime.contracts import AssocKind, TraceChannel, clamp
 
@@ -77,6 +78,8 @@ ASSOC_AFFINITY_WEIGHT = 0.24            # 亲和度权重
 ASSOC_COHERENCE_WEIGHT = 0.16           # 连贯性权重
 ASSOC_SUPPORT_WEIGHT = 0.12             # 支持度权重
 
+SEMANTIC_AFFINITY_WEIGHT = 0.18         # 语义亲和度权重（LLM 可用时生效）
+
 # ========== 片段软化参数 ==========
 SOFTEN_SALIENCE_BASE = 0.05             # 显著性基础增量
 SOFTEN_SALIENCE_SUPPORT_FACTOR = 0.03   # 支持度因子
@@ -89,6 +92,7 @@ def reweave(
     relation_formations: dict[str, RelationFormation],
     now_ts: float,
     pending_relations: tuple[str, ...] | None = None,
+    semantic_scorer: SemanticScorer | None = None,
 ) -> SleepMutation:
     """执行记忆重织过程。
 
@@ -121,7 +125,9 @@ def reweave(
     for relation_id in relation_ids:
         formation = relation_formations.get(relation_id)
         candidates = _select_candidates(store, relation_id)
-        regions = _build_regions(store, relation_id, candidates, formation)
+        if semantic_scorer is not None:
+            semantic_scorer.score_pairs(list(candidates))
+        regions = _build_regions(store, relation_id, candidates, formation, semantic_scorer)
         if not regions:
             continue
 
@@ -267,6 +273,7 @@ def _build_regions(
     relation_id: str,
     candidates: Iterable[Fragment],
     formation: RelationFormation | None,
+    semantic_scorer: SemanticScorer | None = None,
 ) -> tuple[NarrativeRegion, ...]:
     """构建叙事区域。
 
@@ -290,7 +297,7 @@ def _build_regions(
 
     # 尝试前 8 个种子
     for seed in ordered[:8]:
-        fragment_ids = _expand_region(store, seed, ordered, formation)
+        fragment_ids = _expand_region(store, seed, ordered, formation, semantic_scorer)
         if len(fragment_ids) < 2:
             continue
         region = _materialize_region(store, relation_id, seed.fragment_id, fragment_ids, formation)
@@ -345,6 +352,7 @@ def _expand_region(
     seed: Fragment,
     candidates: Iterable[Fragment],
     formation: RelationFormation | None,
+    semantic_scorer: SemanticScorer | None = None,
 ) -> tuple[str, ...]:
     """扩展区域。
 
@@ -376,7 +384,7 @@ def _expand_region(
     for fragment in candidates:
         if fragment.fragment_id in region_ids:
             continue
-        support = _region_affinity(store, seed, fragment, formation)
+        support = _region_affinity(store, seed, fragment, formation, semantic_scorer)
         if support >= REGION_AFFINITY_THRESHOLD:
             scored.append((support, fragment.fragment_id))
     scored.sort(reverse=True)
@@ -425,6 +433,7 @@ def _region_affinity(
     seed: Fragment,
     fragment: Fragment,
     formation: RelationFormation | None,
+    semantic_scorer: SemanticScorer | None = None,
 ) -> float:
     """计算区域亲和度。
 
@@ -450,12 +459,18 @@ def _region_affinity(
         or set(fragment.knot_ids) & formation.knot_ids
     ):
         formation_overlap = 0.08
+    semantic_bonus = 0.0
+    if semantic_scorer is not None:
+        semantic_bonus = SEMANTIC_AFFINITY_WEIGHT * semantic_scorer.get(
+            seed.fragment_id, fragment.fragment_id
+        )
     return (
         fragment_affinity(store, seed, fragment)
         + structural
         + thread_overlap
         + knot_overlap
         + formation_overlap
+        + semantic_bonus
     )
 
 

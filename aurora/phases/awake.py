@@ -19,6 +19,7 @@ from aurora.being.orientation import Orientation
 from aurora.expression.cognition import run_cognition
 from aurora.expression.context import ExpressionContext
 from aurora.llm.provider import LLMProvider
+from aurora.relation.decision import compute_bias
 from aurora.memory.fragment import Fragment
 from aurora.memory.recall import build_activation_channels, recent_recall
 from aurora.memory.store import MemoryStore
@@ -169,6 +170,9 @@ def run_awake(
     recent_moments = relation_store.moments.get(relation_id, [])
 
     # 构建认知上下文
+    formation = relation_store.formation_for(relation_id)
+    bias = compute_bias(formation, now_ts)
+
     context = ExpressionContext(
         input_text=text,
         dominant_channels=prior_channels,
@@ -176,6 +180,7 @@ def run_awake(
         recalled_surfaces=tuple(f.surface for f in prior_recalled[:4]),
         recent_summaries=tuple(m.summary for m in recent_moments[-3:]),
         orientation_snapshot=orientation.snapshot(),
+        relation_hint=bias.hint,
     )
 
     # 执行认知

@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from aurora.being.metabolic_state import MetabolicState
 from aurora.being.orientation import Orientation
+from aurora.llm.provider import LLMProvider
 from aurora.memory.reweave_engine import reweave
 from aurora.memory.sediment import sediment
+from aurora.memory.semantic import SemanticScorer
 from aurora.memory.store import MemoryStore
 from aurora.phases.outcomes import PhaseOutcome
 from aurora.phases.transitions import phase_transition
@@ -26,6 +28,7 @@ def run_sleep(
     memory_store: MemoryStore,
     relation_store: RelationStore,
     now_ts: float,
+    llm: LLMProvider | None = None,
 ) -> PhaseOutcome:
     """执行 sleep 相位。
 
@@ -48,11 +51,13 @@ def run_sleep(
     metabolic.enter_phase(Phase.SLEEP, now_ts)
 
     # 执行记忆重织
+    scorer = SemanticScorer(llm) if llm is not None else None
     mutation = reweave(
         store=memory_store,
         relation_formations=relation_store.formations,
         now_ts=now_ts,
         pending_relations=metabolic.pending_sleep_relation_ids or None,
+        semantic_scorer=scorer,
     )
 
     # 执行沉积清理
@@ -72,6 +77,26 @@ def run_sleep(
         thread_ids=mutation.created_thread_ids,
         knot_ids=mutation.created_knot_ids,
         dominant_channels=tuple(sorted(dominant, key=lambda item: item.value)),
+        now_ts=now_ts,
+    )
+
+    # 从拓扑精细推导证据
+    topology_threads = tuple(
+        memory_store.threads[tid] for tid in mutation.created_thread_ids
+        if tid in memory_store.threads
+    )
+    topology_knots = tuple(
+        memory_store.knots[kid] for kid in mutation.created_knot_ids
+        if kid in memory_store.knots
+    )
+    topology_formations = tuple(
+        relation_store.formations[rid] for rid in mutation.affected_relation_ids
+        if rid in relation_store.formations
+    )
+    orientation.absorb_topology(
+        threads=topology_threads,
+        knots=topology_knots,
+        formations=topology_formations,
         now_ts=now_ts,
     )
 

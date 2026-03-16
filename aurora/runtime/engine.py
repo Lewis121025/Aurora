@@ -221,6 +221,7 @@ class AuroraEngine:
             memory_store=self.memory_store,
             relation_store=self.relation_store,
             now_ts=time.time(),
+            llm=self.llm,
         )
         self.state.append_transition(outcome.transition)
         self.persistence.persist_phase(

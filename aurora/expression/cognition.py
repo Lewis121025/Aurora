@@ -190,6 +190,9 @@ def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
     if context.has_knots:
         parts.append("Unresolved tension knots are present.")
 
+    if context.relation_hint:
+        parts.append(context.relation_hint)
+
     messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
     if parts:
         messages.append({"role": "system", "content": "\n".join(parts)})

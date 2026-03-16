@@ -49,3 +49,6 @@ class ExpressionContext:
 
     orientation_snapshot: dict[str, Any] | None = None
     """本体定向快照，包含自我/世界/关系三个维度的证据统计。"""
+
+    relation_hint: str = ""
+    """关系偏置提示，由 relation/decision 派生，注入认知上下文。"""

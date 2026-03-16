@@ -1,6 +1,7 @@
 """数据库迁移模块。
 
 定义 SQLite 数据库 schema，创建所有必需的表和索引：
+- schema_version: schema 版本号（单行）
 - turn_events: 转换事件日志
 - phase_events: 相位转换日志
 - fragments: 记忆片段
@@ -17,6 +18,34 @@ from __future__ import annotations
 
 import sqlite3
 
+SCHEMA_VERSION = 2
+
+
+def current_schema_version(connection: sqlite3.Connection) -> int | None:
+    """读取数据库中的 schema 版本号。
+
+    Returns:
+        版本号，表不存在或无记录时返回 None。
+    """
+    try:
+        row = connection.execute(
+            "SELECT version FROM schema_version WHERE id = 1"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return None
+    return int(row[0]) if row is not None else None
+
+
+def _migrate_to_current(connection: sqlite3.Connection) -> None:
+    """执行增量迁移。
+
+    当数据库中版本低于 SCHEMA_VERSION 时，按版本号顺序执行迁移。
+    """
+    existing = current_schema_version(connection)
+    if existing is None or existing >= SCHEMA_VERSION:
+        return
+    # v1 -> v2: 无结构变更，仅版本号提升（首次引入版本管理）
+
 
 def apply_migrations(connection: sqlite3.Connection) -> None:
     """应用数据库迁移。
@@ -28,6 +57,13 @@ def apply_migrations(connection: sqlite3.Connection) -> None:
         connection: SQLite 数据库连接。
     """
     with connection:
+        # schema 版本管理
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS schema_version("
+            "id INTEGER PRIMARY KEY CHECK(id = 1), version INTEGER NOT NULL)"
+        )
+        _migrate_to_current(connection)
+
         # 转换事件表：记录用户和 Aurora 的交互
         connection.execute(
             "CREATE TABLE IF NOT EXISTS turn_events("
@@ -128,3 +164,10 @@ def apply_migrations(connection: sqlite3.Connection) -> None:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_moments_relation ON relation_moments(relation_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_turns_relation ON turn_events(relation_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_phase_events_created ON phase_events(created_at)")
+
+        # 写入当前版本
+        connection.execute(
+            "INSERT INTO schema_version(id, version) VALUES(1, ?) "
+            "ON CONFLICT(id) DO UPDATE SET version = excluded.version",
+            (SCHEMA_VERSION,),
+        )

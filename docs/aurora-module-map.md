@@ -75,6 +75,8 @@ Current files:
 - `reweave_engine.py`
 - `affinity.py`
 - `tags.py`
+- `sediment.py`
+- `semantic.py`
 
 Purpose:
 
@@ -97,6 +99,8 @@ Current canonical objects:
 - `reweave_engine.py`: sleep reweave orchestration, region building, thread/knot formation
 - `affinity.py`: fragment affinity, overlap, and structural pressure calculations
 - `tags.py`: text tag extraction
+- `sediment.py`: memory sediment cleanup (remove stale low-salience fragments)
+- `semantic.py`: LLM-assisted semantic affinity scoring for sleep reweave
 
 Must not become:
 
@@ -117,16 +121,24 @@ Current files:
 Purpose:
 
 - preserve relation history as lived moments and durable formations
+- project non-canonical trust/distance/warmth values from formation history
+- provide relation-level behavioral bias signals for cognition
 
 Current canonical objects:
 
 - `RelationMoment`
 - `RelationFormation`
 
+Projection objects (non-canonical):
+
+- `RelationProjection` (trust, distance, warmth)
+- `RelationBias` (approach/caution weights, repair urgency, hint text)
+
 Important boundary:
 
 - relation summaries may be projected from formations
 - projected trust or distance values are not canonical ontology writes
+- bias signals inform LLM cognition context but do not override it
 
 Must not become:
 
@@ -159,7 +171,6 @@ Current responsibilities:
 Known debt:
 
 - doze resonance is still heuristic compared with the intended hovering semantics
-- sleep reweave is structural and heuristic; LLM-assisted semantic clustering is the next step
 
 ## `aurora/runtime/`
 
@@ -167,8 +178,6 @@ Current files:
 
 - `contracts.py`
 - `state.py`
-- `bootstrap.py`
-- `clock.py`
 - `engine.py`
 - `projections.py`
 
@@ -180,9 +189,7 @@ Current responsibilities:
 
 - `contracts.py`: shared enums and small transport-like core objects
 - `state.py`: runtime container for `orientation`, `metabolic`, and `transitions`
-- `bootstrap.py`: initialize clean runtime state
-- `clock.py`: current time source
-- `engine.py`: orchestration for turn, doze, sleep, and projections
+- `engine.py`: orchestration for turn, doze, sleep, and projections; bootstrap is inlined in `AuroraEngine.create()`
 - `projections.py`: health and state summary projections for surface endpoints
 
 Must not become:
@@ -203,6 +210,7 @@ Purpose:
 
 Current tables:
 
+- `schema_version`
 - `turn_events`
 - `phase_events`
 - `fragments`
@@ -221,10 +229,7 @@ Important boundary:
 - persistence must not redefine ontology upward from database convenience
 
 Persistence uses UPSERT (INSERT OR REPLACE) for graph tables and ON CONFLICT for singletons.
-
-Known debt:
-
-- explicit schema versioning is not yet present
+Schema versioning is managed via `schema_version` table with incremental migration support.
 
 ## `aurora/surface/`
 
@@ -282,7 +287,7 @@ Current files:
 Current role:
 
 - `cognition.py`: unified LLM cognitive act — a single LLM call produces touch channels, relational move, and response text together, because a being experiences, decides, and speaks as one act
-- `context.py`: read-only expression context carrying recalled surfaces, moment summaries, and orientation snapshot
+- `context.py`: read-only expression context carrying recalled surfaces, moment summaries, orientation snapshot, and relation bias hint
 
 Hard rule:
 
@@ -304,7 +309,8 @@ Current role:
 Future role:
 
 - add projection-boundary checks
-- add richer scenario fixtures
+
+Scenario-level lifecycle fixtures are now present in `tests/unit/test_scenario_lifecycle.py`.
 
 Hard rule:
 
@@ -382,6 +388,8 @@ Meaning:
 
 ## Next Refinement Order
 
-1. deepen sleep geometry with LLM-assisted semantic clustering
-2. refine orientation derivation from thread/knot/formation topology
-3. expand evaluation with richer scenario fixtures and projection-boundary checks
+1. ~~deepen sleep geometry with LLM-assisted semantic clustering~~ — done (`memory/semantic.py`)
+2. ~~refine orientation derivation from thread/knot/formation topology~~ — done (`Orientation.absorb_topology`)
+3. ~~expand evaluation with richer scenario fixtures~~ — done (`test_scenario_lifecycle.py`)
+4. add projection-boundary checks to evaluation
+5. explore LLM-assisted doze resonance beyond current heuristic hover

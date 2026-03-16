@@ -5,9 +5,16 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field  # noqa: F811
+
+from typing import TYPE_CHECKING
 
 from aurora.runtime.contracts import AuroraMove, TraceChannel
+
+if TYPE_CHECKING:
+    from aurora.memory.knot import Knot
+    from aurora.memory.thread import Thread
+    from aurora.relation.formation import RelationFormation
 
 
 EvidenceMap = dict[str, tuple[str, ...]]
@@ -208,6 +215,61 @@ class Orientation:
             _append_sources(self.relation_evidence, "repair", dominant_sources)
         if TraceChannel.BOUNDARY in channels:
             _append_sources(self.relation_evidence, "boundary", dominant_sources)
+        self.last_updated_at = now_ts
+
+    def absorb_topology(
+        self,
+        threads: tuple[Thread, ...],
+        knots: tuple[Knot, ...],
+        formations: tuple[RelationFormation, ...],
+        now_ts: float,
+    ) -> None:
+        """从 thread/knot/formation 拓扑精细推导证据。
+
+        高连贯性线程 -> stability + recognition
+        高张力线程 -> fragility + risk
+        未解决记忆结 -> fragility + risk
+        已解决记忆结 -> agency + stability
+        修复超过边界的 formation -> repair + closeness
+        边界超过修复的 formation -> boundary + distance
+
+        Args:
+            threads: 线程列表。
+            knots: 记忆结列表。
+            formations: 关系形成记录列表。
+            now_ts: 当前时间戳。
+        """
+        for thread in threads:
+            sources = (thread.thread_id,)
+            if thread.coherence >= 0.5:
+                _append_sources(self.world_evidence, "stability", sources)
+                _append_sources(self.self_evidence, "recognition", sources)
+            if thread.tension >= 0.5:
+                _append_sources(self.self_evidence, "fragility", sources)
+                _append_sources(self.world_evidence, "risk", sources)
+            if thread.coherence >= 0.3:
+                _append_sources(self.self_evidence, "openness", sources)
+
+        for knot in knots:
+            sources = (knot.knot_id,)
+            if knot.resolved:
+                _append_sources(self.self_evidence, "agency", sources)
+                _append_sources(self.world_evidence, "stability", sources)
+            else:
+                _append_sources(self.self_evidence, "fragility", sources)
+                _append_sources(self.world_evidence, "risk", sources)
+
+        for formation in formations:
+            sources = (formation.relation_id,)
+            if formation.repair_events > formation.boundary_events:
+                _append_sources(self.relation_evidence, "repair", sources)
+                _append_sources(self.relation_evidence, "closeness", sources)
+            elif formation.boundary_events > formation.repair_events:
+                _append_sources(self.relation_evidence, "boundary", sources)
+                _append_sources(self.relation_evidence, "distance", sources)
+            if formation.resonance_events >= 3:
+                _append_sources(self.world_evidence, "welcome", sources)
+
         self.last_updated_at = now_ts
 
     def snapshot(
