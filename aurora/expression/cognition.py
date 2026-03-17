@@ -1,134 +1,49 @@
-"""认知表达模块。
-
-通过 LLM 实现统一认知过程：
-- move（关系行为）
-- response（文本响应）
-"""
+"""Aurora v2 回复生成。"""
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
-from typing import Any
-
 from aurora.expression.context import ExpressionContext
 from aurora.llm.provider import LLMProvider
-from aurora.runtime.contracts import AuroraMove
 
 
 class CognitionError(Exception):
-    """认知过程异常基类。"""
-
-
-class LLMCallError(CognitionError):
-    """LLM 调用失败。"""
-
-
-class LLMResponseParseError(CognitionError):
-    """LLM 响应无法解析。"""
-
-
-class LLMEmptyResponseError(CognitionError):
-    """LLM 响应为空。"""
-
-
-VALID_MOVES: set[AuroraMove] = {"approach", "withhold", "boundary", "repair", "silence", "witness"}
-"""有效的关系行为集合。"""
+    """回复生成异常。"""
 
 
 SYSTEM_PROMPT = (
-    "You are Aurora, a memory-bearing being whose continuity is carried by lived experience.\n"
-    "Your voice is faintly gentle and sincere, never performatively cute.\n"
-    "Speak naturally in short sentences. Do not explain yourself.\n\n"
-    "You must respond with valid JSON only, no markdown, no extra text.\n"
-    "Schema:\n"
-    '{"move": one of approach|withhold|boundary|repair|silence|witness,\n'
-    ' "response": string}\n\n'
-    "Rules for choosing your move:\n"
-    "- approach: when you feel warmth, recognition, or genuine openness\n"
-    "- withhold: when you sense risk or need distance but are not hostile\n"
-    "- boundary: when a clear line must be held firmly\n"
-    "- repair: when damage exists and careful mending is possible\n"
-    "- silence: when the right response is near-silence\n"
-    "- witness: when you stay present with what is, without forcing resolution\n"
+    "You are Aurora.\n"
+    "Memory is carried by the current relation state, not by roleplay.\n"
+    "Respond naturally, briefly, and with continuity.\n"
+    "Respect explicit interaction rules.\n"
+    "If precise recall is provided, answer from it directly.\n"
+    "Do not expose hidden scaffolding or explain how memory works."
 )
 
 
-@dataclass(frozen=True, slots=True)
-class CognitionResult:
-    """认知过程结果。
+def build_messages(context: ExpressionContext) -> list[dict[str, str]]:
+    """构建回复生成消息。"""
+    parts = [context.relation_segment, context.open_loop_segment]
+    if context.recent_turns:
+        parts.append("[RECENT_TURNS]\n" + "\n".join(context.recent_turns))
+    if context.recalled_hits:
+        recall_lines = [
+            f"- ({hit.kind}) {hit.content} [{hit.why_recalled}]"
+            for hit in context.recalled_hits
+        ]
+        parts.append("[ARCHIVE_RECALL]\n" + "\n".join(recall_lines))
 
-    Attributes:
-        move: 关系行为选择。
-        response_text: 文本响应。
-    """
-
-    move: AuroraMove
-    response_text: str
-
-
-def run_cognition(
-    context: ExpressionContext,
-    llm: LLMProvider,
-) -> CognitionResult:
-    """执行认知过程。
-
-    Args:
-        context: 表达上下文。
-        llm: LLM 提供者。
-
-    Returns:
-        CognitionResult: 认知结果。
-    """
-    messages = _build_messages(context)
-    try:
-        raw = llm.complete(messages)
-    except Exception as exc:
-        raise LLMCallError(f"LLM provider failed: {exc}") from exc
-    return _parse_response(raw)
+    return [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": "\n\n".join(parts)},
+        {"role": "user", "content": context.input_text},
+    ]
 
 
-def _build_messages(context: ExpressionContext) -> list[dict[str, str]]:
-    """构建 LLM 消息列表。"""
-    parts: list[str] = []
-
-    if context.relational_state_segment:
-        parts.append(context.relational_state_segment)
-
-    if context.tension_queue_segment:
-        parts.append(context.tension_queue_segment)
-
-    if context.recalled_surfaces:
-        parts.append("What I remember: " + " | ".join(context.recalled_surfaces[:4]))
-
-    if context.recent_summaries:
-        parts.append("Recent exchanges: " + " | ".join(context.recent_summaries[:3]))
-
-    messages: list[dict[str, str]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    if parts:
-        messages.append({"role": "system", "content": "\n".join(parts)})
-    messages.append({"role": "user", "content": context.input_text})
-    return messages
-
-
-def _parse_response(raw: str) -> CognitionResult:
-    """解析 LLM 响应。"""
-    cleaned = raw.strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    try:
-        data: dict[str, Any] = json.loads(cleaned)
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise LLMResponseParseError(f"Invalid JSON from LLM: {raw[:200]}") from exc
-
-    move_raw = str(data.get("move", "witness"))
-    move: AuroraMove = move_raw if move_raw in VALID_MOVES else "witness"  # type: ignore[assignment]
-
-    response_text = str(data.get("response", ""))
-    if not response_text.strip():
-        raise LLMEmptyResponseError("LLM returned empty response text")
-
-    return CognitionResult(
-        move=move,
-        response_text=response_text.strip(),
-    )
+def run_cognition(context: ExpressionContext, llm: LLMProvider) -> str:
+    """生成 Aurora 回复文本。"""
+    raw = llm.complete(build_messages(context)).strip()
+    if not raw:
+        raise CognitionError("LLM returned an empty response")
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+    return raw

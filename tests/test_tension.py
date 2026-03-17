@@ -1,49 +1,58 @@
-"""张力队列测试。"""
+from __future__ import annotations
 
-import pytest
+import json
 
-from aurora.relation.tension import TensionQueue, TensionItem
+from tests.conftest import KernelFactory, ScriptedLLM
 
 
-class TestTensionQueue:
-    def test_empty_queue(self):
-        queue = TensionQueue()
-        assert len(queue) == 0
+def test_open_loop_is_retained_until_resolved(kernel_factory: KernelFactory) -> None:
+    llm = ScriptedLLM(
+        compiler_outputs=(
+            json.dumps(
+                {
+                    "ops": [
+                        {
+                            "type": "open_loop",
+                            "payload": {
+                                "loop_type": "commitment",
+                                "summary": "提醒用户补上部署文档",
+                                "urgency": 0.9,
+                            },
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            json.dumps(
+                {
+                    "ops": [
+                        {
+                            "type": "resolve_loop",
+                            "payload": {
+                                "loop_type": "commitment",
+                                "summary": "提醒用户补上部署文档",
+                            },
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+    kernel = kernel_factory(llm=llm)
 
-    def test_push_and_peek(self):
-        queue = TensionQueue()
-        queue.push("话题1", 0.8, 24.0, "提示1", 1000.0)
+    kernel.turn("session-e", "之后提醒我补上部署文档。", now_ts=10.0)
+    kernel.compile_pending("session-e", now_ts=11.0)
+    first = kernel.snapshot("session-e")
 
-        item = queue.peek(1000.0)
-        assert item is not None
-        assert item.topic == "话题1"
-        assert item.urgency == 0.8
+    loop = next(item for item in first.open_loops if item.loop_type == "commitment")
+    follow_up = kernel.turn("session-e", "继续刚才那个承诺。", now_ts=12.0)
+    assert "提醒用户补上部署文档" in follow_up.response_text
 
-    def test_pop_returns_highest_urgency(self):
-        queue = TensionQueue()
-        queue.push("低优先级", 0.3, 24.0, "提示", 1000.0)
-        queue.push("高优先级", 0.9, 24.0, "提示", 1000.0)
+    kernel.turn("session-e", "这个承诺已经完成了。", now_ts=20.0)
+    kernel.compile_pending("session-e", now_ts=21.0)
+    second = kernel.snapshot("session-e")
 
-        item = queue.pop(1000.0)
-        assert item.topic == "高优先级"
-
-    def test_decay_over_time(self):
-        queue = TensionQueue()
-        queue.push("话题", 1.0, 1.0, "提示", 0.0)
-
-        item = queue.peek(3600.0)
-        assert item.current_urgency(3600.0) < 1.0
-        assert item.current_urgency(3600.0) > 0.4
-
-    def test_to_prompt_segment_empty(self):
-        queue = TensionQueue()
-        segment = queue.to_prompt_segment(1000.0)
-        assert "无悬案" in segment
-
-    def test_to_prompt_segment_with_items(self):
-        queue = TensionQueue()
-        queue.push("话题1", 0.8, 24.0, "提示1", 1000.0)
-
-        segment = queue.to_prompt_segment(1000.0)
-        assert "话题1" in segment
-        assert "提示1" in segment
+    resolved = next(item for item in second.open_loops if item.loop_id == loop.loop_id)
+    assert resolved.status == "resolved"
+    assert resolved.updated_at == 21.0

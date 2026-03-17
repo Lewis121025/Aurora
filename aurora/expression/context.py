@@ -1,32 +1,18 @@
-"""表达上下文模块。
-
-定义 LLM 认知过程的输入上下文结构：
-- 用户输入文本
-- 关系状态（RelationalState）
-- 张力队列（TensionQueue）
-"""
+"""热路径表达上下文。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from aurora.runtime.contracts import RecallHit
+
 
 @dataclass(frozen=True, slots=True)
 class ExpressionContext:
-    """LLM 认知表达上下文。
-
-    封装单次认知调用所需的全部上下文信息。
-
-    Attributes:
-        input_text: 用户输入文本。
-        recalled_surfaces: 冷事实 + 会话记忆的表面描述。
-        recent_summaries: 最近交互摘要。
-        relational_state_segment: 关系状态投影（全量挂载）。
-        tension_queue_segment: 张力队列投影。
-    """
+    """单次回复生成所需的上下文。"""
 
     input_text: str
-    recalled_surfaces: tuple[str, ...] = ()
-    recent_summaries: tuple[str, ...] = ()
-    relational_state_segment: str = ""
-    tension_queue_segment: str = ""
+    relation_segment: str
+    open_loop_segment: str
+    recent_turns: tuple[str, ...] = ()
+    recalled_hits: tuple[RecallHit, ...] = ()

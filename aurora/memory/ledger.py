@@ -1,164 +1,133 @@
-"""冷事实账本模块。
-
-实现客观账本（ObjectiveLedger）：
-- 原子事实存储
-- 384维向量相似度查询（MiniLM）
-- 时间衰减权重
-"""
+"""Aurora v2 archive recall。"""
 
 from __future__ import annotations
 
-import os
-import sqlite3
-from dataclasses import dataclass
+import hashlib
+import re
 
 import numpy as np
 
-
-@dataclass(frozen=True, slots=True)
-class AtomicFact:
-    """原子事实。
-
-    Attributes:
-        fact_id: 事实 ID。
-        content: 事实内容。
-        document_date: 记录时间戳。
-        event_date: 事件时间戳。
-        relation_id: 关系 ID。
-    """
-
-    fact_id: str
-    content: str
-    document_date: float
-    event_date: float
-    relation_id: str
-
+from aurora.memory.store import SQLiteMemoryStore
+from aurora.runtime.contracts import RecallHit, RecallResult
 
 EMBEDDING_DIM = 384
-"""向量维度（MiniLM）。"""
+_TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+")
+_CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
 
 
-class ObjectiveLedger:
-    """客观账本。
+def _tokenize(text: str) -> tuple[str, ...]:
+    tokens: list[str] = []
+    for chunk in _TOKEN_PATTERN.findall(text.lower()):
+        if _CJK_PATTERN.search(chunk):
+            tokens.extend(char for char in chunk if _CJK_PATTERN.match(char))
+            continue
+        tokens.append(chunk)
+    return tuple(tokens)
 
-    SQLite + 内存向量存储，管理原子事实的持久化和检索。
 
-    Attributes:
-        conn: SQLite 连接。
-        _embeddings: 内存向量缓存。
-    """
+class HashEmbeddingEncoder:
+    """无需外部依赖的稳定哈希向量编码器。"""
 
-    def __init__(self, db_path: str | None = None) -> None:
-        if db_path is None:
-            db_path = ".aurora/ledger.db"
-        os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
+    def __init__(self, dim: int = EMBEDDING_DIM) -> None:
+        self.dim = dim
 
-        self.conn = sqlite3.connect(db_path, check_same_thread=False)
-        self._embeddings: dict[str, np.ndarray] = {}
-        self._init_schema()
+    def encode(self, text: str) -> np.ndarray:
+        vector = np.zeros(self.dim, dtype=np.float32)
+        for token in _tokenize(text):
+            digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+            index = int.from_bytes(digest[:4], "big") % self.dim
+            sign = 1.0 if digest[4] % 2 == 0 else -1.0
+            vector[index] += sign
+        norm = float(np.linalg.norm(vector))
+        if norm == 0.0:
+            return vector
+        return vector / norm
 
-    def _init_schema(self) -> None:
-        """初始化数据库 schema。"""
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS facts (
-                fact_id TEXT PRIMARY KEY,
-                content TEXT NOT NULL,
-                document_date REAL NOT NULL,
-                event_date REAL NOT NULL,
-                relation_id TEXT NOT NULL,
-                embedding BLOB
-            )
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_relation ON facts(relation_id)
-        """)
-        self.conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_event_date ON facts(event_date)
-        """)
-        self.conn.commit()
 
-    def add_fact(
-        self,
-        fact_id: str,
-        content: str,
-        document_date: float,
-        event_date: float,
-        relation_id: str,
-        embedding: np.ndarray | None = None,
-    ) -> None:
-        """添加原子事实。
+class Archive:
+    """事实与 transcript 的混合检索层。"""
 
-        Args:
-            fact_id: 事实 ID。
-            content: 事实内容。
-            document_date: 记录时间戳。
-            event_date: 事件时间戳。
-            relation_id: 关系 ID。
-            embedding: 向量嵌入（可选）。
-        """
-        emb_bytes = embedding.tobytes() if embedding is not None else None
-        self.conn.execute(
-            "INSERT OR REPLACE INTO facts (fact_id, content, document_date, event_date, relation_id, embedding) VALUES (?, ?, ?, ?, ?, ?)",
-            (fact_id, content, document_date, event_date, relation_id, emb_bytes),
-        )
-        self.conn.commit()
-        if embedding is not None:
-            self._embeddings[fact_id] = embedding
+    def __init__(self, store: SQLiteMemoryStore, encoder: HashEmbeddingEncoder | None = None) -> None:
+        self.store = store
+        self.encoder = encoder or HashEmbeddingEncoder()
 
-    def query_by_similarity(
-        self,
-        query_embedding: np.ndarray,
-        relation_id: str | None = None,
-        top_k: int = 5,
-    ) -> list[AtomicFact]:
-        """按向量相似度查询。
+    def recall(self, relation_id: str, query: str, limit: int = 5) -> RecallResult:
+        if limit <= 0:
+            return RecallResult(relation_id=relation_id, query=query, hits=())
+        query_vector = self.encoder.encode(query)
+        query_tokens = set(_tokenize(query))
+        hits: list[RecallHit] = []
 
-        Args:
-            query_embedding: 查询向量。
-            relation_id: 关系 ID 过滤（可选）。
-            top_k: 返回数量。
-
-        Returns:
-            原子事实列表（按相似度降序）。
-        """
-        if relation_id:
-            rows = self.conn.execute(
-                "SELECT fact_id, content, document_date, event_date, relation_id, embedding FROM facts WHERE relation_id = ?",
-                (relation_id,),
-            ).fetchall()
-        else:
-            rows = self.conn.execute(
-                "SELECT fact_id, content, document_date, event_date, relation_id, embedding FROM facts",
-            ).fetchall()
-
-        results: list[tuple[float, AtomicFact]] = []
-        for row in rows:
-            fact_id, content, doc_date, evt_date, rel_id, emb_bytes = row
-            if emb_bytes is None:
+        for fact, embedding in self.store.fact_embeddings(relation_id):
+            if fact.status not in {"active", "disputed"}:
                 continue
-            emb = np.frombuffer(emb_bytes, dtype=np.float32)
-            emb = emb / np.linalg.norm(emb)
-            sim = float(np.dot(query_embedding, emb))
-            results.append((sim, AtomicFact(fact_id, content, doc_date, evt_date, rel_id)))
+            score, why = self._hybrid_score(query_tokens, query_vector, fact.content, embedding)
+            if score <= 0.0:
+                continue
+            hits.append(
+                RecallHit(
+                    item_id=fact.fact_id,
+                    kind="fact",
+                    content=fact.content,
+                    score=score + 0.05,
+                    why_recalled=why,
+                    evidence_refs=fact.evidence_refs or (fact.fact_id,),
+                )
+            )
 
-        results.sort(key=lambda x: x[0], reverse=True)
-        return [fact for _, fact in results[:top_k]]
+        for event in self.store.event_rows_for_recall(relation_id):
+            event_vector = self.encoder.encode(event.text)
+            score, why = self._hybrid_score(query_tokens, query_vector, event.text, event_vector)
+            if score <= 0.0:
+                continue
+            hits.append(
+                RecallHit(
+                    item_id=event.event_id,
+                    kind="event",
+                    content=event.text,
+                    score=score,
+                    why_recalled=why,
+                    evidence_refs=(event.event_id,),
+                )
+            )
 
-    def facts_for_relation(self, relation_id: str) -> list[AtomicFact]:
-        """获取关系的所有事实。
+        ordered = sorted(hits, key=lambda item: item.score, reverse=True)
+        deduped: list[RecallHit] = []
+        seen: set[str] = set()
+        for hit in ordered:
+            if hit.content in seen:
+                continue
+            seen.add(hit.content)
+            deduped.append(hit)
+            if len(deduped) >= limit:
+                break
 
-        Args:
-            relation_id: 关系 ID。
+        return RecallResult(relation_id=relation_id, query=query, hits=tuple(deduped))
 
-        Returns:
-            原子事实列表。
-        """
-        rows = self.conn.execute(
-            "SELECT fact_id, content, document_date, event_date, relation_id FROM facts WHERE relation_id = ? ORDER BY event_date DESC",
-            (relation_id,),
-        ).fetchall()
-        return [AtomicFact(*row) for row in rows]
+    def _hybrid_score(
+        self,
+        query_tokens: set[str],
+        query_vector: np.ndarray,
+        content: str,
+        content_vector: np.ndarray,
+    ) -> tuple[float, str]:
+        content_tokens = set(_tokenize(content))
+        lexical = 0.0
+        if query_tokens and content_tokens:
+            lexical = len(query_tokens & content_tokens) / len(query_tokens | content_tokens)
 
-    def close(self) -> None:
-        """关闭连接。"""
-        self.conn.close()
+        vector_score = 0.0
+        if float(np.linalg.norm(content_vector)) > 0.0 and float(np.linalg.norm(query_vector)) > 0.0:
+            vector_score = float(np.dot(query_vector, content_vector))
+            vector_score = max(0.0, vector_score)
+
+        hybrid = lexical * 0.65 + vector_score * 0.35
+        if lexical > 0.0 and vector_score > 0.0:
+            why = "lexical+vector"
+        elif lexical > 0.0:
+            why = "lexical"
+        elif vector_score > 0.0:
+            why = "vector"
+        else:
+            why = "none"
+        return hybrid, why

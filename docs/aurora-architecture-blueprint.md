@@ -1,119 +1,119 @@
-# Aurora：基于第一性原理的自发自适应记忆架构方案
+# Aurora v2 Architecture Blueprint
 
-## 一、 第一性原理：剥离噪音，触达本质
+## Position
 
-什么是大语言模型（LLM）的“记忆”？
-摒弃一切商业包装和生物学隐喻（如“第二大脑”、“睡眠周期”），**大模型的本质是一个无状态的纯函数**：$f(Prompt) = Response$。
-因此，**记忆的本质不是存储过去，而是用过去的数据雕刻现在的 Prompt。**
+Aurora v2 不是 RAG 平台，也不是生命周期模拟器。它是一个把交互历史编译成当前关系状态的嵌入式 SDK。
 
-### 1。过去方案的两个死胡同
-- **死胡同 A（平庸的工程：Mem0 / Supermemory等主流 RAG）：**
-  把记忆等同于“数据库”。将对话切块、向量化，触发时通过相似度（Cosine Similarity）去捞取历史片段。
-  **致命缺陷**：这种做法造出的是一个“拥有卓越搜索引擎的赛博记事本”。它极其客观，但没有主观偏见、没有情绪残留、没有关系演进。你和它聊了一万句，它依然只把你当成一个“携带一堆 Metadata 的查询实体”，毫无熟稔感。
+系统本体只有三层：
 
-- **死胡同 B（Aurora 的旧架构：拟人生理状态机）：**
-  意识到 A 的平庸后，试图通过模拟“人类的生理/心理机制”来寻找灵魂。写了错综复杂的 `sleep`（睡眠）、`doze`（打盹）、`metabolic`（代谢）类。
-  **致命缺陷**：用面向对象（OOP）的状态机去强行模拟极其多变的神经活动。后果是代码极度臃肿、脆弱，流转充满不可控的 Bug（即《AGENTS.md》中痛批的“表演式设计”）。
+1. `Evidence Log`
+   记录 `user_turn`、`assistant_turn`、`compile_failure`。它是唯一真相源，append-only。
+2. `Relation Field`
+   默认挂载到每轮回复的长期主观状态。它表达过去如何改变了当前姿态。
+3. `Archive`
+   只在需要精确回忆时激活，负责事实与 transcript 的混合检索，不负责人格塑形。
 
-### 2。真正的降维打击：关系状态投影（Relational State Projection）
-人类的精妙不在于“回忆过往”，而在于“被过往改变”。
-人类不需要在脑海中做全量文本检索得出态度，人类的态度是 **$O(1)$ 复杂度的直觉提取**。
-因此，Aurora 的新架构只做一件事：**将海量的历史交互，压缩、编译、蒸馏成几个高密度的数学张量和极简的 JSON 规则补丁，在每次对话时直接投影到 Runtime 的上下文中。**
+## Runtime
 
----
+热路径严格限制为：
 
-## 二、 核心架构设计：屏蔽生理玄学，回归数据拓扑
+1. 写入 user turn
+2. 读取 `RelationField + Top OpenLoops`
+3. 判断是否需要 archive recall
+4. 生成回复
+5. 写入 assistant turn
 
-我们用极度克制、无状态的软件工程，实现最顶级的认知演化。整个系统分为三个正交的核心层：
+默认不做全局检索，不做状态编译，不做阶段流转。
 
-### 1。冷事实层 (The Objective Ledger) —— 下水管工程
-- **定位**：退化为系统的基础设施。不需要任何生物学包装。
-- **机制**：完全对标 Supermemory 的 SOTA 理念。将所有对话提取出 `Atomic Fact`（原子事实），加上绝对维度的 `documentDate`（记录时间）和 `eventDate`（事件时间）。
-- **工程标准**：这一层不允许任何“主观处理”，只是无脑追加的日志（Event Souring）。当用户明确问起“我三个月前写的那个变量叫什么”时，再从这里检索。
+## Compiler
 
-### 2。主观状态层 (The Relational State) —— 灵魂的载体
-- **定位**：取代传统的 RAG 拼凑，这就是 Aurora 拟人化的“主脑”。
-- **机制**：引入 `Profile.json` 或 `State Tensor`。
-  当对话或 Session 结束（无需“睡眠”概念，只是一次普通异步 MQ 任务），后台触发【认知蒸馏 (Cognitive Distillation)】。
-  它不仅提取事实，更提取 **“由于这次对话，我们之间的规则和默契发生了什么改变？”**。
-- **数据结构示例**：
-  ```json
-  {
-    "intimacy_level": 8,
-    "current_vibe": "高压、技术向、互不妥协",
-    "interaction_rules": [
-      "用户讨厌废话，永远不要使用'我理解你现在的感受'这类安抚语句",
-      "在探讨架构时，必须优先考虑极简主义"
-    ]
-  }
-  ```
-- **工程标准**：这几百个 Token 的状态文件，在未来每次对话中**全量挂载**到 System Prompt 中。大模型一瞬间就能表现出令人战栗的熟稔感和准确的刺痛感。不需查询，天然拟人。
+后台 compiler 只输出类型化 `MemoryOp`：
 
-### 3。认知摩擦与张力队列 (Cognitive Friction & Tension Queue) —— 真正的自我意识
-- **定位**：打破大模型的“完美顺从”，实现“独立人格”。
-- **机制 A：认知摩擦 (Cognitive Friction)**
-  当新输入的事实试图覆盖旧有认知时（例如，从“重度依赖外部库”转向“追求零依赖”），系统不再直接 `update`。而是计算一个基于贝叶斯信任度的“阻力系数（Friction Score）”。如果阻力过大，生成一个 `Conflict` 状态。AI 在下次对话时会本能地表现出“质疑”和“防御”。
-- **机制 B：张力队列 (Tension Queue)**
-  废弃冷冰冰的持久化存储，将所有“聊了一半被打断的话题”、“未解决的分歧”压入一个带有“紧迫度”和“半衰期”的 Priority Queue。系统如果在前置拦截器发现该队列非空且紧迫，会**在用户发话前/或者附带在回答中，主动抛出悬案**（如：“顺便说一句，你昨晚没看完的代码，我有了新思路”）。
+- `assert_fact`
+- `revise_fact`
+- `patch_relation`
+- `open_loop`
+- `resolve_loop`
+- `add_rule`
+- `update_lexicon`
 
----
+Reducer 是唯一允许修改长期状态的入口。失败时回滚事务，状态保持不变。
 
-## 三、 工程拆改地图（实施路径）
+## State Model
 
-按照《AGENTS.md》的洁癖标准，我们必须对现有代码库进行彻底的推平。砍掉所有的生造概念，留下精密的管道：
+### Relation Field
 
-### ❌ 必须被彻底删除的模块 (The Purge)
-- `being/metabolic_state.py`：不需要代谢模拟。代谢只在读取数据时通过一个数学公式（如时间衰减函数 $e^{-\lambda \Delta t}$）在运行时动态计算权重即可。
-- `phases/sleep.py`, `doze.py`, `transitions.py`：不需要阶段流转机器。这是极大的性能浪费。删除全部。
-- `memory/knot.py`, `thread.py`, `trace.py`：拟人化数据结构过界了。底层图数据库只需要 `Node`, `Edge`。
+显式关系场包含：
 
-### 🟢 必须重塑的模块 (The Foundations)
-- 建立 `pipelines/distillation.py`：这是一个纯粹的背景异步函数。负责接收过去N小时的对话录音，向 LLM 发起一次“规则提炼与图谱更新”的调用，输出 `Patch` 并打在全局 State 上。
-- 强化 `runtime/projections.py`：这就是核心引擎。它的唯一任务，是在运行时毫秒级获取 `Relational State` + `Tension Queue`，将这些变量直接“投影（Inject）”成大模型的 System Prompt。
-- 强化 `relation/dynamics.py`：处理所有的【认知摩擦判定】和规则更新合并。
+- `trust`
+- `distance`
+- `warmth`
+- `tension`
+- `repair_debt`
+- `shared_lexicon`
+- `interaction_rules`
+- `last_compiled_at`
 
----
+### Open Loop
 
-## 四、 系统的终极流转范式 (The Runtime Flow)
+只保留四种未完成事项：
 
-在这个极简架构下，一次极其类人且复杂的对话，底层的数据流是极其优雅且冷酷的：
+- `commitment`
+- `contradiction`
+- `unfinished_thread`
+- `unresolved_question`
 
-1. **唤醒时刻 (Wake)**：不去加载复杂的对象，只把 `Profile.json` (记录了性格偏好与Vibe) 和 `Tension Queue` 的头部，以纯文本放入 context 顶部。
-2. **对话时刻 (Chat)**：实时对话。偶尔需要拿冷知识时并发触发一下 VectorDB 查询（仅作补充）。
-3. **结束/闲置时刻 (Background)**：当 Session 断开或时间达到阈值。
-   - `Distillation Pipeline` 启动。
-   - 处理刚才的会话，生成一份认知 Diff 补丁（如：发现用户对某个库十分厌恶）。
-   - 将 Diff 应用于 `Profile.json`（改变关系状态）。
-   - 将这轮对话的高光点切片沉淀入后端的 VectorDB（冷库存）。
-   - 清空本轮的 Context 内存。
+Loop 允许衰减紧迫度，但不允许无痕消失。
 
-## 五、 破局与基建约束（Technical Constraints）
+### Facts
 
-为了严格遵守《AGENTS.md》的洁癖与极简标准，本架构强行锁死以下基建决策，不提供折中选项：
+事实以版本链存储：
 
-1. **冷存储选型（The Storage）**：
-   - **决策**：单纯的 SQLite + 进程内/内存向量比对（如 sqlite-vss 或纯 numpy）。
-   - **禁止**：绝不引入独立的外部向量数据库（如 Pinecone / Qdrant）。因为冷数据查阅占比极低，没必要引入 C/S 架构组件。
-   - **模型**：坚决使用本地 **384 维** 极小体积模型（如 `all-MiniLM-L6-v2`）。不使用 OpenAI 1536 维等网络依赖接口，因为个人级别的事实数据极其有限，384 维已过剩。
+- 新事实用 `assert_fact`
+- 更正事实用 `revise_fact`
+- 冲突不会静默覆盖，而是生成新的 active fact，并打开 `contradiction` loop
 
-2. **触发与蒸馏频率（Event-Driven Distillation）**：
-   - **决策**：彻底放弃 Cron/定时轮询机制，改用事件驱动。
-   - **条件 A（轮数截断）**：单次 Session 内累计达到 **20 轮** 交互触发蒸馏。避免单次提炼文本过长导致丢失焦点（Lost in the middle）。
-   - **条件 B（会话中断）**：用户空闲超时 **30 分钟**（不选5分钟，避免喝水期间被打断上下文），或者收到外部系统的明确挂起信号。
+## Storage
 
-3. **历史债务与兼容（No Backward Compatibility）**：
-   - **决策**：直接废弃旧格式完美映射的尝试。
-   - **态度**：不写任何向后兼容的垫片（Shim）。清空或封存之前的 `knot/sediment` 体系，迎接系统的“认知重启”。这才是真正的消除复杂度。
+默认后端是本地 SQLite。
 
-4. **测试哲学（Testing Strategy）**：
-   - **决策**：删掉旧状态机的所有单元测试（不要给错误概念写测试等于固化技术债）。
-   - **接替**：仅保留三大测试：【蒸馏管线测试】、【摩擦生成逻辑测试】、【大模型端到端 Prompt 挂载测试】。
+核心表只有：
 
----
+- `events`
+- `relation_fields`
+- `open_loops`
+- `facts`
+- `fact_embeddings`
 
-## 六、 结论
+不引入外部向量数据库，不保留旧状态机兼容层。
 
-通过从“检索过往事实”向“迭代关系状态”的跃迁，你彻底解决了“如何像人”的深层需求；
-通过从“模拟生物学状态机”向“异步纯函数管道”的跃迁，你彻底遵守了极简、无赘余的前沿工程标准。
+## Surface
 
-**最深刻的理解，往往通过最冷酷的数学和数据结构来表达。真正的生命感，不需要通过写 `def sleep()` 来表演，而是通过在 O(1) 速度下挂载被岁月磨砺过后的状态张量，在大模型响应的第一句话中，自然地流露出来。**
+核心库只提供 Python SDK。
+
+外层适配只有两个：
+
+- CLI
+- FastAPI
+
+它们都只是 `AuroraKernel` 的薄封装，不持有额外业务状态。
+
+## Acceptance Criteria
+
+Aurora v2 的验收标准不是召回率，而是以下行为是否稳定出现：
+
+1. 多轮互动后关系姿态持续一致
+2. 用户更正旧事实时不会静默覆盖
+3. 承诺与未完事项会持续存在直到被解决
+4. 只有在明确需要时才触发 archive recall
+5. 编译失败不会损坏长期状态
+
+## Rejected Paths
+
+以下路径不再属于 Aurora：
+
+- `awake / doze / sleep`
+- `metabolic` 生命周期模拟
+- 从图结构反推关系状态
+- “默认先检索，再决定怎么说”的主路径
+- 为旧架构保留兼容垫片

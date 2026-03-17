@@ -1,66 +1,56 @@
-"""关系状态模块。
-
-定义关系状态（RelationalState），即 Aurora 的"灵魂"：
-- intimacy_level: 亲密度
-- current_vibe: 当前氛围
-- interaction_rules: 交互规则
-"""
+"""Relation field helper。"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from aurora.runtime.contracts import RelationField, clamp
 
 
-@dataclass(slots=True)
-class RelationalState:
-    """关系状态。
+def apply_relation_patch(
+    field: RelationField,
+    *,
+    trust_delta: float = 0.0,
+    distance_delta: float = 0.0,
+    warmth_delta: float = 0.0,
+    tension_delta: float = 0.0,
+    repair_debt_delta: float = 0.0,
+    compiled_at: float | None = None,
+) -> None:
+    """对关系场应用确定性增量更新。"""
+    field.trust = clamp(field.trust + trust_delta)
+    field.distance = clamp(field.distance + distance_delta)
+    field.warmth = clamp(field.warmth + warmth_delta)
+    field.tension = clamp(field.tension + tension_delta)
+    field.repair_debt = clamp(field.repair_debt + repair_debt_delta)
+    if compiled_at is not None:
+        field.last_compiled_at = compiled_at
 
-    存储关系的核心状态，在每次对话时全量挂载到 System Prompt。
-    这就是 Aurora 拟人化的"主脑"。
 
-    Attributes:
-        intimacy_level: 亲密度（0-10）。
-        current_vibe: 当前氛围描述。
-        interaction_rules: 交互规则列表。
-        last_distilled_at: 最后蒸馏时间戳。
-    """
+def add_rule(field: RelationField, rule: str) -> None:
+    """追加交互规则。"""
+    normalized = rule.strip()
+    if normalized and normalized not in field.interaction_rules:
+        field.interaction_rules.append(normalized)
 
-    intimacy_level: int = 5
-    current_vibe: str = "中性"
-    interaction_rules: list[str] = field(default_factory=list)
-    last_distilled_at: float = 0.0
 
-    def to_prompt_segment(self) -> str:
-        """转换为 System Prompt 片段。
+def add_lexicon_items(field: RelationField, items: list[str]) -> None:
+    """追加共享词汇。"""
+    for item in items:
+        normalized = item.strip()
+        if normalized and normalized not in field.shared_lexicon:
+            field.shared_lexicon.append(normalized)
 
-        Returns:
-            格式化的状态字符串。
-        """
-        rules = "\n  ".join(f"- {r}" for r in self.interaction_rules) or "  （无特殊规则）"
-        return f"""[RELATIONAL_STATE]
-intimacy_level: {self.intimacy_level}
-current_vibe: "{self.current_vibe}"
-interaction_rules:
-  {rules}"""
 
-    def apply_patch(
-        self,
-        intimacy_delta: int | None = None,
-        vibe: str | None = None,
-        new_rules: list[str] | None = None,
-    ) -> None:
-        """应用状态补丁。
-
-        Args:
-            intimacy_delta: 亲密度变化。
-            vibe: 新氛围。
-            new_rules: 新规则列表（追加）。
-        """
-        if intimacy_delta is not None:
-            self.intimacy_level = max(0, min(10, self.intimacy_level + intimacy_delta))
-        if vibe is not None:
-            self.current_vibe = vibe
-        if new_rules:
-            for rule in new_rules:
-                if rule not in self.interaction_rules:
-                    self.interaction_rules.append(rule)
+def to_prompt_segment(field: RelationField) -> str:
+    """将关系场投影为运行时 prompt 片段。"""
+    rules = ", ".join(field.interaction_rules) if field.interaction_rules else "none"
+    lexicon = ", ".join(field.shared_lexicon) if field.shared_lexicon else "none"
+    return (
+        "[RELATION_FIELD]\n"
+        f"trust={field.trust:.2f}\n"
+        f"distance={field.distance:.2f}\n"
+        f"warmth={field.warmth:.2f}\n"
+        f"tension={field.tension:.2f}\n"
+        f"repair_debt={field.repair_debt:.2f}\n"
+        f"interaction_rules={rules}\n"
+        f"shared_lexicon={lexicon}"
+    )

@@ -1,49 +1,95 @@
-"""蒸馏管道测试。"""
+from __future__ import annotations
 
-import pytest
+import json
 
-from aurora.relation.state import RelationalState
+from tests.conftest import KernelFactory, ScriptedLLM
 
 
-class TestRelationalState:
-    def test_default_values(self):
-        state = RelationalState()
-        assert state.intimacy_level == 5
-        assert state.current_vibe == "中性"
-        assert state.interaction_rules == []
-        assert state.last_distilled_at == 0.0
+def test_relation_rules_persist_and_shape_future_turns(kernel_factory: KernelFactory) -> None:
+    llm = ScriptedLLM(
+        compiler_outputs=(
+            json.dumps(
+                {
+                    "ops": [
+                        {
+                            "type": "patch_relation",
+                            "payload": {
+                                "trust_delta": 0.18,
+                                "distance_delta": -0.12,
+                                "warmth_delta": 0.08,
+                            },
+                        },
+                        {
+                            "type": "add_rule",
+                            "payload": {
+                                "rule": "不要安抚式表达，直接一点。",
+                                "reason": "explicit_feedback",
+                            },
+                        },
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+        )
+    )
+    kernel = kernel_factory(llm=llm)
 
-    def test_to_prompt_segment(self):
-        state = RelationalState()
-        state.intimacy_level = 8
-        state.current_vibe = "高压"
-        state.interaction_rules = ["用户讨厌废话"]
+    first_turn = kernel.turn("session-a", "以后别用安抚式表达，直接一点。", now_ts=100.0)
+    assert first_turn.recall_used is False
 
-        segment = state.to_prompt_segment()
-        assert "intimacy_level: 8" in segment
-        assert 'current_vibe: "高压"' in segment
-        assert "用户讨厌废话" in segment
+    report = kernel.compile_pending("session-a", now_ts=101.0)
+    assert report.failures == ()
 
-    def test_apply_patch_intimacy(self):
-        state = RelationalState()
-        state.intimacy_level = 5
-        state.apply_patch(intimacy_delta=3)
-        assert state.intimacy_level == 8
+    initial = kernel.snapshot("session-a")
+    assert initial.field.trust > 0.35
+    assert initial.field.distance < 0.65
+    assert "不要安抚式表达，直接一点。" in initial.field.interaction_rules
 
-        state.apply_patch(intimacy_delta=-10)
-        assert state.intimacy_level == 0
+    kernel.close()
 
-    def test_apply_patch_vibe(self):
-        state = RelationalState()
-        state.apply_patch(vibe="轻松")
-        assert state.current_vibe == "轻松"
+    resumed = kernel_factory(llm=ScriptedLLM())
+    follow_up = resumed.turn("session-a", "继续，我们直接看问题。", now_ts=200.0)
+    assert "直接回答" in follow_up.response_text
 
-    def test_apply_patch_rules(self):
-        state = RelationalState()
-        state.apply_patch(new_rules=["规则1", "规则2"])
-        assert len(state.interaction_rules) == 2
+    restored = resumed.snapshot("session-a")
+    assert restored.field.interaction_rules == initial.field.interaction_rules
+    assert restored.field.trust == initial.field.trust
 
-        state.apply_patch(new_rules=["规则1", "规则3"])
-        assert len(state.interaction_rules) == 3
-        assert "规则1" in state.interaction_rules
-        assert "规则3" in state.interaction_rules
+
+def test_compile_failure_keeps_state_and_pending_events(kernel_factory: KernelFactory) -> None:
+    llm = ScriptedLLM(
+        compiler_outputs=(
+            json.dumps(
+                {
+                    "ops": [
+                        {
+                            "type": "add_rule",
+                            "payload": {
+                                "rule": "请直接指出问题。",
+                                "reason": "explicit_feedback",
+                            },
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+            "{bad json",
+        )
+    )
+    kernel = kernel_factory(llm=llm)
+
+    kernel.turn("session-b", "请记住：以后直接指出问题。", now_ts=10.0)
+    first_report = kernel.compile_pending("session-b", now_ts=11.0)
+    assert first_report.failures == ()
+
+    before = kernel.snapshot("session-b")
+    assert before.pending_compile_count == 0
+    assert before.field.interaction_rules == ["请直接指出问题。"]
+
+    kernel.turn("session-b", "再提醒你一次。", now_ts=12.0)
+    failed = kernel.compile_pending("session-b", now_ts=13.0)
+    assert failed.failures
+
+    after = kernel.snapshot("session-b")
+    assert after.field.interaction_rules == before.field.interaction_rules
+    assert after.pending_compile_count == 2

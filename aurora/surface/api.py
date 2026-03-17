@@ -1,26 +1,40 @@
-"""HTTP API 模块。
-
-基于 FastAPI 提供 Aurora 接口：
-- GET /health: 健康检查
-- POST /turn: 执行认知循环
-"""
+"""Aurora v2 FastAPI surface."""
 
 from __future__ import annotations
 
 import os
+from dataclasses import asdict
 from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
-from aurora.runtime.engine import AuroraEngine
+from aurora.runtime.engine import AuroraKernel
 
 _OPEN_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
 
 
-def build_app(engine: AuroraEngine) -> FastAPI:
-    """构建 FastAPI 应用。"""
-    app = FastAPI(title="Aurora")
+class TurnRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+    now_ts: float | None = None
+
+
+class CompileRequest(BaseModel):
+    session_id: str | None = None
+    now_ts: float | None = None
+
+
+class RecallRequest(BaseModel):
+    session_id: str = Field(min_length=1)
+    query: str = Field(min_length=1)
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+def build_app(engine: AuroraKernel) -> FastAPI:
+    """构建 Aurora v2 API。"""
+    app = FastAPI(title="Aurora", version="2.0")
     api_key = os.environ.get("AURORA_API_KEY")
 
     @app.middleware("http")
@@ -33,20 +47,27 @@ def build_app(engine: AuroraEngine) -> FastAPI:
 
     @app.get("/health")
     def health() -> dict[str, Any]:
-        return {"status": "ok", "relations": len(engine.relational_states)}
+        return {"status": "ok", "relations": engine.store.relation_count()}
 
     @app.post("/turn")
-    def turn(session_id: str, text: str) -> dict[str, Any]:
-        output = engine.handle_turn(session_id=session_id, text=text)
-        return {
-            "turn_id": output.turn_id,
-            "response_text": output.response_text,
-            "aurora_move": output.aurora_move,
-        }
+    def turn(payload: TurnRequest) -> dict[str, Any]:
+        return asdict(engine.turn(payload.session_id, payload.text, now_ts=payload.now_ts))
+
+    @app.post("/compile")
+    def compile_pending(payload: CompileRequest) -> dict[str, Any]:
+        return asdict(engine.compile_pending(session_id=payload.session_id, now_ts=payload.now_ts))
+
+    @app.get("/snapshot/{session_id}")
+    def snapshot(session_id: str) -> dict[str, Any]:
+        return asdict(engine.snapshot(session_id))
+
+    @app.post("/recall")
+    def recall(payload: RecallRequest) -> dict[str, Any]:
+        return asdict(engine.recall(payload.session_id, payload.query, limit=payload.limit))
 
     return app
 
 
 def create_app() -> FastAPI:
     """创建 FastAPI 应用实例。"""
-    return build_app(AuroraEngine.create())
+    return build_app(AuroraKernel.create())

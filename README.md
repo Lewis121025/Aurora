@@ -1,13 +1,12 @@
 # Aurora
 
-Aurora 是一个基于第一性原理的自发自适应记忆架构。核心思想：**记忆的本质不是存储过去，而是用过去的数据雕刻现在的 Prompt。**
+Aurora v2 是一个嵌入式记忆 SDK。它不把记忆当作默认检索层，而是把交互历史编译成一个可持久化、可调试的当前关系状态。
 
-系统通过三个正交层实现类人的记忆演化：
-1. **冷事实层 (ObjectiveLedger)** — 原子事实持久化（SQLite + 384d 向量），纯追加日志
-2. **主观状态层 (RelationalState)** — 关系状态 JSON，每次对话全量挂载到 System Prompt，O(1) 直觉投影
-3. **认知摩擦与张力队列 (TensionQueue)** — 未解决悬案的优先队列，半衰期衰减，打破 LLM 的完美顺从
+系统只有三层：
 
----
+1. `Evidence Log`：原始对话与编译失败事件的 append-only 证据流
+2. `Relation Field`：默认挂载的长期主观状态，表达过去如何改变了当前姿态
+3. `Archive`：按需激活的完整检索层，只负责精确回忆事实与证据
 
 ## 安装
 
@@ -25,96 +24,108 @@ AURORA_LLM_MODEL=gpt-4o-mini
 AURORA_LLM_API_KEY=your-api-key
 ```
 
-支持任意 OpenAI 兼容接口（阿里云百炼、DeepSeek 等）。**缺少上述环境变量 Aurora 无法启动。**
+Aurora 只依赖 OpenAI 兼容的 `complete(messages)` 接口。
 
----
+## Python SDK
 
-## 使用方式
+```python
+from aurora.runtime.engine import AuroraKernel
 
-### 命令行
+kernel = AuroraKernel.create()
+
+turn = kernel.turn("default", "以后别用安抚式表达，直接一点。")
+report = kernel.compile_pending("default")
+snapshot = kernel.snapshot("default")
+recall = kernel.recall("default", "我现在住在哪里？")
+
+kernel.close()
+```
+
+公开接口固定为：
+
+- `turn(session_id, text, now_ts=None) -> TurnOutput`
+- `compile_pending(session_id=None, now_ts=None) -> CompileReport`
+- `snapshot(session_id) -> RelationSnapshot`
+- `recall(session_id, query, limit=5) -> RecallResult`
+- `close() -> None`
+
+## CLI
 
 ```bash
-aurora turn "Hello Aurora"    # 执行一次认知循环
-aurora status                 # 查看引擎状态
+aurora turn "Hello Aurora"
+aurora compile --session-id default
+aurora snapshot --session-id default
+aurora recall "我现在住在哪里？" --session-id default
+aurora status
 ```
 
-### HTTP API
+## HTTP API
 
-| 端点      | 方法 | 说明     |
-|-----------|------|----------|
-| `/health` | GET  | 健康检查 |
-| `/turn`   | POST | 认知循环 |
+| Endpoint | Method | Body | 说明 |
+| --- | --- | --- | --- |
+| `/health` | `GET` | - | 健康检查 |
+| `/turn` | `POST` | `{"session_id": "...", "text": "...", "now_ts": 0}` | 执行一轮热路径 |
+| `/compile` | `POST` | `{"session_id": "...", "now_ts": 0}` | 编译 pending turns |
+| `/snapshot/{session_id}` | `GET` | - | 查看关系快照 |
+| `/recall` | `POST` | `{"session_id": "...", "query": "...", "limit": 5}` | 精确召回 archive |
 
-```json
-POST /turn
-{
-  "session_id": "default",
-  "text": "I learned something important today"
-}
-```
+## 运行模型
 
----
+热路径只做四件事：
 
-## 运行时流转
+1. 记录 user turn 到 evidence log
+2. 读取 `RelationField + Top OpenLoops`
+3. 必要时激活 archive recall
+4. 生成回复并记录 assistant turn
 
-1. **唤醒 (Wake)** — 挂载 RelationalState + TensionQueue 头部到 context，O(1) 投影
-2. **对话 (Chat)** — 实时交互，偶尔从 ObjectiveLedger 补充冷事实
-3. **蒸馏 (Background)** — 会话结束或达到 20 轮阈值时，LLM 分析对话，提取认知 Diff：
-   - 更新 RelationalState（亲密度 / 氛围 / 交互规则）
-   - 提取原子事实沉淀到 ObjectiveLedger
-   - 检测认知摩擦（事实矛盾）→ 生成 Tension 悬案
+后台 compiler 单独负责把 pending turns 编译为 `MemoryOp`，再由 reducer 应用到：
 
----
+- `RelationField`
+- `OpenLoop`
+- `FactRecord`
+
+冲突事实不会被静默覆盖，而是生成版本链并打开 `contradiction` loop。
 
 ## 质量保障
 
 ```bash
 uv run pytest -q
-uv run mypy aurora --show-error-codes --pretty
-uv run ruff check aurora
+uv run mypy aurora tests --show-error-codes --pretty
+uv run ruff check aurora tests
 ```
 
----
-
-## 项目目录
+## 项目结构
 
 ```text
 aurora/
-├── __main__.py              # 包入口：python -m aurora
-├── expression/              # 表达层
-│   ├── cognition.py         # 统一认知（move + response）
-│   └── context.py           # 认知上下文
-├── llm/                     # LLM 适配层
-│   ├── config.py            # 配置加载
-│   ├── openai_compat.py     # OpenAI 兼容客户端
-│   └── provider.py          # LLMProvider 协议
-├── memory/                  # 记忆系统
-│   ├── ledger.py            # 冷事实账本（SQLite + 向量）
-│   └── store.py             # 会话内记忆图（Node + Edge）
-├── phases/                  # 交互阶段
-│   └── awake.py             # awake 阶段
-├── pipelines/               # 处理管道
-│   └── distillation.py      # 认知蒸馏
-├── relation/                # 关系系统
-│   ├── state.py             # RelationalState（灵魂载体）
-│   └── tension.py           # TensionQueue（悬案队列）
-├── runtime/                 # 运行时核心
-│   ├── contracts.py         # 核心类型
-│   ├── engine.py            # AuroraEngine
-│   ├── projections.py       # 状态投影
-│   └── state.py             # 运行时状态
-└── surface/                 # 对外接口
-    ├── api.py               # HTTP API
-    └── cli.py               # CLI
+├── __main__.py
+├── expression/
+│   ├── cognition.py
+│   └── context.py
+├── llm/
+│   ├── config.py
+│   ├── openai_compat.py
+│   └── provider.py
+├── memory/
+│   ├── ledger.py
+│   └── store.py
+├── pipelines/
+│   └── distillation.py
+├── relation/
+│   ├── state.py
+│   └── tension.py
+├── runtime/
+│   ├── contracts.py
+│   ├── engine.py
+│   └── projections.py
+└── surface/
+    ├── api.py
+    └── cli.py
 ```
 
----
+## 文档
 
-## 架构文档
-
-[`docs/aurora-architecture-blueprint.md`](docs/aurora-architecture-blueprint.md) — 基于第一性原理的架构方案
-
----
+[`docs/aurora-architecture-blueprint.md`](docs/aurora-architecture-blueprint.md)
 
 ## 许可证
 
