@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import os
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -31,11 +32,11 @@ def build_app(engine: AuroraEngine) -> FastAPI:
         return await call_next(request)
 
     @app.get("/health")
-    def health() -> dict:
+    def health() -> dict[str, Any]:
         return {"status": "ok", "relations": len(engine.relational_states)}
 
     @app.post("/turn")
-    def turn(session_id: str, text: str) -> dict:
+    def turn(session_id: str, text: str) -> dict[str, Any]:
         output = engine.handle_turn(session_id=session_id, text=text)
         return {
             "turn_id": output.turn_id,

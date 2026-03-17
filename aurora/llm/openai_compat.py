@@ -50,7 +50,7 @@ class OpenAICompatProvider:
             "model": self._config.model,
             "messages": messages,
             "temperature": 0.7,
-            "max_tokens": 256,
+            "max_tokens": self._config.max_tokens,
         }).encode()
 
         request = urllib.request.Request(

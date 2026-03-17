@@ -27,6 +27,7 @@ class LLMConfig:
     model: str
     api_key: str
     timeout_s: float = 30.0
+    max_tokens: int = 1024
 
 
 DISTILL_THRESHOLD_TURNS = 20
@@ -65,4 +66,5 @@ def load_llm_config() -> LLMConfig | None:
         model=model or "gpt-4o-mini",
         api_key=api_key,
         timeout_s=float(os.environ.get("AURORA_LLM_TIMEOUT_S", "30.0")),
+        max_tokens=int(os.environ.get("AURORA_LLM_MAX_TOKENS", "1024")),
     )

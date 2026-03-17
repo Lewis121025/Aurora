@@ -122,7 +122,7 @@ def _parse_response(raw: str) -> CognitionResult:
         raise LLMResponseParseError(f"Invalid JSON from LLM: {raw[:200]}") from exc
 
     move_raw = str(data.get("move", "witness"))
-    move: AuroraMove = move_raw if move_raw in VALID_MOVES else "witness"
+    move: AuroraMove = move_raw if move_raw in VALID_MOVES else "witness"  # type: ignore[assignment]
 
     response_text = str(data.get("response", ""))
     if not response_text.strip():

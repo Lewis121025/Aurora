@@ -16,6 +16,7 @@ from uuid import uuid4
 from aurora.expression.cognition import run_cognition
 from aurora.expression.context import ExpressionContext
 from aurora.llm.provider import LLMProvider
+from aurora.memory.ledger import ObjectiveLedger
 from aurora.memory.store import MemoryStore
 from aurora.relation.state import RelationalState
 from aurora.relation.tension import TensionQueue
@@ -46,12 +47,15 @@ def run_awake(
     relational_state: RelationalState,
     tension_queue: TensionQueue,
     memory_store: MemoryStore,
+    ledger: ObjectiveLedger,
     now_ts: float,
     llm: LLMProvider,
 ) -> AwakeOutcome:
     """执行 awake 阶段。
 
     处理用户输入，执行认知过程，创建记忆节点。
+    主上下文：RelationalState + TensionQueue（O(1) 投影）。
+    冷事实：从 ObjectiveLedger 补充召回（仅作辅助）。
 
     Args:
         relation_id: 关系 ID。
@@ -60,6 +64,7 @@ def run_awake(
         relational_state: 关系状态。
         tension_queue: 张力队列。
         memory_store: 记忆存储。
+        ledger: 冷事实账本。
         now_ts: 当前时间戳。
         llm: LLM 提供者。
 
@@ -76,14 +81,16 @@ def run_awake(
     )
 
     prior_nodes = memory_store.nodes_for_relation(relation_id)
-    recent_surfaces = tuple(n.content for n in prior_nodes[-4:])
+    session_surfaces = tuple(n.content for n in prior_nodes[-4:])
+
+    cold_facts = ledger.facts_for_relation(relation_id)
+    cold_surfaces = tuple(f.content for f in cold_facts[-4:])
+
+    recent_surfaces = cold_surfaces + session_surfaces
 
     context = ExpressionContext(
         input_text=text,
-        dominant_channels=(),
-        has_knots=False,
         recalled_surfaces=recent_surfaces,
-        recent_summaries=(),
         relational_state_segment=relational_state.to_prompt_segment(),
         tension_queue_segment=tension_queue.to_prompt_segment(now_ts),
     )

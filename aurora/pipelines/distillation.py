@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from aurora.llm.provider import LLMProvider
-from aurora.memory.store import MemoryStore
+from aurora.memory.ledger import AtomicFact
 from aurora.relation.state import RelationalState
 from aurora.relation.tension import TensionQueue
 
@@ -35,32 +36,33 @@ class DistillationPatch:
     new_vibe: str | None = None
     new_rules: list[str] | None = None
     facts: list[str] | None = None
-    tensions: list[dict] | None = None
+    tensions: list[dict[str, Any]] | None = None
 
 
-DISTILLATION_SYSTEM_PROMPT = """You are Aurora's cognitive distillation system. Your task is to analyze a conversation session and extract meaningful updates to Aurora's understanding of the user.
+DISTILLATION_SYSTEM_PROMPT = """You are Aurora's cognitive distillation system. Analyze a conversation and extract meaningful updates.
 
-Analyze the conversation and output a JSON patch with the following schema:
+Output a JSON patch:
 {
-  "intimacy_delta": number|null,        // -1 to +1, how the relationship depth changed
-  "new_vibe": string|null,             // one word describing the current vibe if it shifted
-  "new_rules": string[]|null,          // extracted interaction rules/preferences
-  "facts": string[]|null,               // atomic facts to remember about the user
+  "intimacy_delta": number|null,        // -1 to +1
+  "new_vibe": string|null,             // one word if vibe shifted
+  "new_rules": string[]|null,          // interaction rules/preferences discovered
+  "facts": string[]|null,               // atomic facts about the user
   "tensions": [
     {
-      "topic": string,                  // what was left unresolved
-      "urgency": number,                // 0.0-1.0, how urgent
-      "prompt": string                  // what to say when raising this again
+      "topic": string,
+      "urgency": number,                // 0.0-1.0
+      "prompt": string
     }
   ]|null
 }
 
 Rules:
-- Only include fields that actually changed
-- intimacy_delta should be small (-1, 0, or +1) - don't exaggerate
-- facts should be atomic, memorable, specific (e.g., "用户喜欢深色主题" not "用户喜欢编程")
-- tensions should only be included if there was a genuine conflict, interruption, or unfinished business
-- new_rules should capture genuine preferences (e.g., "用户讨厌被安抚式回应")
+- Only include fields that actually changed.
+- intimacy_delta: small (-1, 0, or +1).
+- facts: atomic, specific, memorable. E.g. "用户喜欢深色主题" not "用户喜欢编程".
+- If a new fact CONTRADICTS a known fact listed below, output a tension with high urgency instead of silently overwriting. Aurora should express doubt or seek clarification, not blindly accept.
+- new_rules: genuine preferences. E.g. "用户讨厌被安抚式回应".
+- tensions: genuine conflicts, interruptions, unfinished business, or fact contradictions.
 """
 
 
@@ -68,19 +70,20 @@ def distill_session(
     conversation: list[tuple[str, str]],
     relation_id: str,
     current_state: RelationalState,
-    memory_store: MemoryStore,
+    existing_facts: list[AtomicFact],
     now_ts: float,
     llm: LLMProvider,
 ) -> DistillationPatch:
     """蒸馏会话。
 
-    通过 LLM 分析会话对话，提取规则更新和事实沉淀。
+    通过 LLM 分析会话，提取规则/事实/张力。
+    已知事实传入以供 LLM 检测矛盾（认知摩擦）。
 
     Args:
         conversation: 对话列表 [(user_text, aurora_response), ...]。
         relation_id: 关系 ID。
         current_state: 当前关系状态。
-        memory_store: 记忆存储。
+        existing_facts: 已知原子事实（来自 ObjectiveLedger）。
         now_ts: 当前时间戳。
         llm: LLM 提供者。
 
@@ -92,18 +95,29 @@ def distill_session(
 
     conversation_text = _format_conversation(conversation)
     profile_text = _format_profile(current_state)
+    facts_text = _format_existing_facts(existing_facts)
 
     messages = [
         {"role": "system", "content": DISTILLATION_SYSTEM_PROMPT},
         {"role": "system", "content": f"Current Profile:\n{profile_text}"},
-        {"role": "user", "content": f"Conversation to analyze:\n{conversation_text}"},
     ]
+    if facts_text:
+        messages.append({"role": "system", "content": f"Known facts:\n{facts_text}"})
+    messages.append({"role": "user", "content": f"Conversation to analyze:\n{conversation_text}"})
 
     try:
         raw = llm.complete(messages)
         return _parse_patch(raw)
     except Exception:
         return DistillationPatch()
+
+
+def _format_existing_facts(facts: list[AtomicFact]) -> str:
+    """格式化已知事实供 LLM 参考（认知摩擦检测）。"""
+    if not facts:
+        return ""
+    lines = [f"- {f.content}" for f in facts[-20:]]
+    return "\n".join(lines)
 
 
 def _format_conversation(conversation: list[tuple[str, str]]) -> str:
@@ -150,7 +164,7 @@ def _parse_patch(raw: str) -> DistillationPatch:
     )
 
 
-def _clamp_int(value) -> int | None:
+def _clamp_int(value: Any) -> int | None:
     """将值 clamp 到 [-1, 0, 1]。"""
     if value is None:
         return None

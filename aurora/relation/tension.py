@@ -40,7 +40,7 @@ class TensionItem:
             当前紧迫度。
         """
         hours_elapsed = (now_ts - self.created_at) / 3600
-        decay = 0.5 ** (hours_elapsed / self.halflife_hours)
+        decay: float = 0.5 ** (hours_elapsed / self.halflife_hours)
         return self.urgency * decay
 
 

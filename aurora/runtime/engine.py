@@ -3,7 +3,8 @@
 实现 Aurora 核心引擎（AuroraEngine）：
 - handle_turn: 处理用户输入
 - 会话轮数累积与蒸馏触发
-- 状态投影到 System Prompt
+- RelationalState + TensionQueue 投影到 System Prompt
+- 蒸馏产出的原子事实沉淀到 ObjectiveLedger
 """
 
 from __future__ import annotations
@@ -11,14 +12,18 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+from uuid import uuid4
+
 from aurora.llm.config import load_llm_config, DISTILL_THRESHOLD_TURNS, SESSION_IDLE_TIMEOUT_MINUTES
 from aurora.llm.openai_compat import OpenAICompatProvider
 from aurora.llm.provider import LLMProvider
+from aurora.memory.ledger import ObjectiveLedger
 from aurora.memory.store import MemoryStore
 from aurora.pipelines.distillation import apply_distillation, distill_session
 from aurora.relation.state import RelationalState
 from aurora.relation.tension import TensionQueue
 from aurora.runtime.contracts import AuroraMove
+from aurora.runtime.state import RuntimeState
 from aurora.phases.awake import run_awake
 
 
@@ -40,17 +45,15 @@ class EngineOutput:
 class AuroraEngine:
     """Aurora 核心引擎。
 
-    Attributes:
-        memory_store: 记忆存储。
-        relational_states: 关系状态字典。
-        tension_queues: 张力队列字典。
-        state: 运行时状态。
-        llm: LLM 提供者。
-        _conversation_buffer: 会话缓冲 [(user, aurora), ...]。
+    三层架构：
+    - ObjectiveLedger: 冷事实持久化（SQLite + 向量）
+    - RelationalState: 主观状态投影（全量挂载到 System Prompt）
+    - TensionQueue: 未解决悬案（半衰期衰减）
     """
 
     __slots__ = (
         "memory_store",
+        "ledger",
         "relational_states",
         "tension_queues",
         "state",
@@ -61,12 +64,14 @@ class AuroraEngine:
     def __init__(
         self,
         memory_store: MemoryStore,
+        ledger: ObjectiveLedger,
         relational_states: dict[str, RelationalState],
         tension_queues: dict[str, TensionQueue],
-        state,
+        state: RuntimeState,
         llm: LLMProvider,
     ) -> None:
         self.memory_store = memory_store
+        self.ledger = ledger
         self.relational_states = relational_states
         self.tension_queues = tension_queues
         self.state = state
@@ -89,14 +94,14 @@ class AuroraEngine:
                 )
             llm = OpenAICompatProvider(llm_config)
 
-        from aurora.runtime.state import RuntimeState
-
+        db_dir = data_dir or ".aurora"
         memory_store = MemoryStore()
+        ledger = ObjectiveLedger(db_path=f"{db_dir}/ledger.db")
         relational_states: dict[str, RelationalState] = {}
         tension_queues: dict[str, TensionQueue] = {}
         state = RuntimeState()
 
-        return cls(memory_store, relational_states, tension_queues, state, llm)
+        return cls(memory_store, ledger, relational_states, tension_queues, state, llm)
 
     def handle_turn(
         self, session_id: str, text: str, relation_id: str | None = None
@@ -131,6 +136,7 @@ class AuroraEngine:
             relational_state=relational_state,
             tension_queue=tension_queue,
             memory_store=self.memory_store,
+            ledger=self.ledger,
             now_ts=now_ts,
             llm=self.llm,
         )
@@ -182,11 +188,13 @@ class AuroraEngine:
         if relational_state is None or tension_queue is None:
             return
 
+        existing_facts = self.ledger.facts_for_relation(relation_id)
+
         patch = distill_session(
             conversation=conversation,
             relation_id=relation_id,
             current_state=relational_state,
-            memory_store=self.memory_store,
+            existing_facts=existing_facts,
             now_ts=now_ts,
             llm=self.llm,
         )
@@ -197,6 +205,16 @@ class AuroraEngine:
             tension_queue=tension_queue,
             now_ts=now_ts,
         )
+
+        if patch.facts:
+            for fact_text in patch.facts:
+                self.ledger.add_fact(
+                    fact_id=f"fact_{uuid4().hex[:12]}",
+                    content=fact_text,
+                    document_date=now_ts,
+                    event_date=now_ts,
+                    relation_id=relation_id,
+                )
 
         relational_state.last_distilled_at = now_ts
 

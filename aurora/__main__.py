@@ -4,8 +4,7 @@
 
 ```bash
 python -m aurora turn "Hello Aurora"
-python -m aurora doze
-python -m aurora sleep
+python -m aurora status
 ```
 """
 from aurora.surface.cli import main
