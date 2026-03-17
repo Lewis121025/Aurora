@@ -46,12 +46,16 @@ class OpenAICompatProvider:
             urllib.error.URLError: 网络请求失败。
             json.JSONDecodeError: 响应解析失败。
         """
-        payload = json.dumps({
+        payload_obj: dict[str, Any] = {
             "model": self._config.model,
             "messages": messages,
             "temperature": 0.7,
             "max_tokens": self._config.max_tokens,
-        }).encode()
+        }
+        if self._config.enable_thinking is not None:
+            payload_obj["enable_thinking"] = self._config.enable_thinking
+
+        payload = json.dumps(payload_obj).encode()
 
         request = urllib.request.Request(
             f"{self._config.base_url.rstrip('/')}/chat/completions",

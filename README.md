@@ -94,6 +94,14 @@ uv run mypy aurora tests --show-error-codes --pretty
 uv run ruff check aurora tests
 ```
 
+真实 LLM smoke test 不进入默认测试套件，需要显式触发：
+
+```bash
+AURORA_RUN_LIVE_TESTS=1 uv run pytest -q tests/live_llm_smoke.py
+```
+
+`AuroraKernel.create()` 现在会优先读取进程环境变量；如果当前 shell 没有导出，也会从仓库根目录的 `.env` 读取通用键 `AURORA_LLM_BASE_URL`、`AURORA_LLM_MODEL`、`AURORA_LLM_API_KEY`，或者按 `AURORA_LLM_PROVIDER` 映射到 provider scoped 键（例如 `AURORA_BAILIAN_LLM_*`）。
+
 ## 项目结构
 
 ```text
