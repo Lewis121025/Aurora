@@ -1,12 +1,13 @@
 # Aurora
 
-Aurora v2 是一个嵌入式记忆 SDK。它不把记忆当作默认检索层，而是把交互历史编译成一个可持久化、可调试的当前关系状态。
+Aurora v3 是一个 relation-only 的关系型陪伴内核。它不再围绕 `session` 组织记忆，而是把每段长期连续性收口到单一 `relation_id` 下。
 
-系统只有三层：
+内核只有两类持久化真相：
 
-1. `Evidence Log`：原始对话与编译失败事件的 append-only 证据流
-2. `Relation Field`：默认挂载的长期主观状态，表达过去如何改变了当前姿态
-3. `Archive`：按需激活的完整检索层，只负责精确回忆事实与证据
+1. `Evidence Log`：append-only 的用户/助手事件流
+2. `Memory Atoms`：唯一长期语义原子
+
+`RelationField / OpenLoops / Facts` 都是由当前 atoms 派生出来的运行时视图，不再是并列真相层。
 
 ## 安装
 
@@ -34,7 +35,6 @@ from aurora.runtime.engine import AuroraKernel
 kernel = AuroraKernel.create()
 
 turn = kernel.turn("default", "以后别用安抚式表达，直接一点。")
-report = kernel.compile_pending("default")
 snapshot = kernel.snapshot("default")
 recall = kernel.recall("default", "我现在住在哪里？")
 
@@ -43,19 +43,17 @@ kernel.close()
 
 公开接口固定为：
 
-- `turn(session_id, text, now_ts=None) -> TurnOutput`
-- `compile_pending(session_id=None, now_ts=None) -> CompileReport`
-- `snapshot(session_id) -> RelationSnapshot`
-- `recall(session_id, query, limit=5) -> RecallResult`
+- `turn(relation_id, text, now_ts=None) -> TurnOutput`
+- `snapshot(relation_id) -> RelationSnapshot`
+- `recall(relation_id, query, limit=5) -> RecallResult`
 - `close() -> None`
 
 ## CLI
 
 ```bash
 aurora turn "Hello Aurora"
-aurora compile --session-id default
-aurora snapshot --session-id default
-aurora recall "我现在住在哪里？" --session-id default
+aurora snapshot --relation-id default
+aurora recall "我现在住在哪里？" --relation-id default
 aurora status
 ```
 
@@ -64,27 +62,21 @@ aurora status
 | Endpoint | Method | Body | 说明 |
 | --- | --- | --- | --- |
 | `/health` | `GET` | - | 健康检查 |
-| `/turn` | `POST` | `{"session_id": "...", "text": "...", "now_ts": 0}` | 执行一轮热路径 |
-| `/compile` | `POST` | `{"session_id": "...", "now_ts": 0}` | 编译 pending turns |
-| `/snapshot/{session_id}` | `GET` | - | 查看关系快照 |
-| `/recall` | `POST` | `{"session_id": "...", "query": "...", "limit": 5}` | 精确召回 archive |
+| `/turn` | `POST` | `{"relation_id": "...", "text": "...", "now_ts": 0}` | 执行一轮 relation-scoped turn |
+| `/snapshot/{relation_id}` | `GET` | - | 查看关系快照 |
+| `/recall` | `POST` | `{"relation_id": "...", "query": "...", "limit": 5}` | 调试/运维向的 recall |
 
 ## 运行模型
 
-热路径只做四件事：
+每轮 `turn` 固定执行：
 
-1. 记录 user turn 到 evidence log
-2. 读取 `RelationField + Top OpenLoops`
-3. 必要时激活 archive recall
-4. 生成回复并记录 assistant turn
+1. 记录 user event
+2. 吸收显式高价值信号到 pre-response atoms
+3. 基于 atoms 派生 `RelationField + OpenLoops + RecallHits`
+4. 生成回复并记录 assistant event
+5. 运行 post-response compiler，补充事实、修订、遗忘和 loop 原子
 
-后台 compiler 单独负责把 pending turns 编译为 `MemoryOp`，再由 reducer 应用到：
-
-- `RelationField`
-- `OpenLoop`
-- `FactRecord`
-
-冲突事实不会被静默覆盖，而是生成版本链并打开 `contradiction` loop。
+`forget` 不是删除命令，而是新的 memory atom。它会局部影响相关 atoms 的可见性和后续投影，但不会硬删 evidence。
 
 ## 质量保障
 
@@ -100,8 +92,6 @@ uv run ruff check aurora tests
 AURORA_RUN_LIVE_TESTS=1 uv run pytest -q tests/live_llm_smoke.py
 ```
 
-`AuroraKernel.create()` 现在会优先读取进程环境变量；如果当前 shell 没有导出，也会从仓库根目录的 `.env` 读取通用键 `AURORA_LLM_BASE_URL`、`AURORA_LLM_MODEL`、`AURORA_LLM_API_KEY`，或者按 `AURORA_LLM_PROVIDER` 映射到 provider scoped 键（例如 `AURORA_BAILIAN_LLM_*`）。
-
 ## 项目结构
 
 ```text
@@ -115,6 +105,7 @@ aurora/
 │   ├── openai_compat.py
 │   └── provider.py
 ├── memory/
+│   ├── atoms.py
 │   ├── ledger.py
 │   └── store.py
 ├── pipelines/
@@ -131,7 +122,7 @@ aurora/
     └── cli.py
 ```
 
-## 文档
+## 架构说明
 
 [`docs/aurora-architecture-blueprint.md`](docs/aurora-architecture-blueprint.md)
 

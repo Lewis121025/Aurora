@@ -4,8 +4,7 @@
 
 ```bash
 python -m aurora turn "Hello Aurora"
-python -m aurora compile
-python -m aurora snapshot --session-id default
+python -m aurora snapshot --relation-id default
 python -m aurora status
 ```
 """

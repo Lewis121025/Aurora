@@ -1,77 +1,71 @@
-# Aurora v2 Architecture Blueprint
+# Aurora v3 Architecture Blueprint
 
 ## Position
 
-Aurora v2 不是 RAG 平台，也不是生命周期模拟器。它是一个把交互历史编译成当前关系状态的嵌入式 SDK。
+Aurora v3 是 relation-only 的陪伴内核。主路径只围绕单一 `relation_id` 组织连续性，不保留并行的 session 语义。
 
-系统本体只有三层：
+系统只有两类持久化真相：
 
 1. `Evidence Log`
-   记录 `user_turn`、`assistant_turn`、`compile_failure`。它是唯一真相源，append-only。
-2. `Relation Field`
-   默认挂载到每轮回复的长期主观状态。它表达过去如何改变了当前姿态。
-3. `Archive`
-   只在需要精确回忆时激活，负责事实与 transcript 的混合检索，不负责人格塑形。
+   append-only 的用户、助手与编译失败事件流。
+2. `Memory Atoms`
+   唯一长期语义原子，承载事实、规则、词汇、未完成事项、修订与遗忘。
+
+`RelationField / OpenLoops / Facts` 都是运行时派生视图，不是并列真相层。
 
 ## Runtime
 
-热路径严格限制为：
+每轮 `turn` 固定执行：
 
-1. 写入 user turn
-2. 读取 `RelationField + Top OpenLoops`
-3. 判断是否需要 archive recall
+1. 写入 user event
+2. 运行 pre-response 规则，吸收显式高价值信号
+3. 读取当前 atoms，派生 `RelationField + OpenLoops + RecallHits`
 4. 生成回复
-5. 写入 assistant turn
+5. 写入 assistant event
+6. 运行 post-response compiler，追加新的 atoms
 
-默认不做全局检索，不做状态编译，不做阶段流转。
+编译失败不会回滚当轮 evidence，只会追加 `compile_failure` 事件。
 
 ## Compiler
 
-后台 compiler 只输出类型化 `MemoryOp`：
+Aurora v3 有两条收敛后的编译路径：
 
-- `assert_fact`
-- `revise_fact`
-- `patch_relation`
-- `open_loop`
-- `resolve_loop`
-- `add_rule`
-- `update_lexicon`
+1. pre-response deterministic rules
+   处理显式 forget、interaction rule 与高置信度 loop 信号。
+2. post-response LLM compiler
+   输出类型化 `MemoryOp`，再由 reducer 落成 atoms。
 
-Reducer 是唯一允许修改长期状态的入口。失败时回滚事务，状态保持不变。
+允许的 atom op 只有：
 
-## State Model
+- `fact`
+- `rule`
+- `lexicon`
+- `loop`
+- `revision`
+- `forget`
+
+Reducer 是唯一允许修改长期语义的入口。
+
+## Derived Views
 
 ### Relation Field
 
-显式关系场包含：
+当前关系姿态只由 lifecycle-effective atoms 派生，不直接持久化为独立真相层。
 
-- `trust`
-- `distance`
-- `warmth`
-- `tension`
-- `repair_debt`
-- `shared_lexicon`
-- `interaction_rules`
-- `last_compiled_at`
+### Open Loops
 
-### Open Loop
-
-只保留四种未完成事项：
+只保留四种 loop：
 
 - `commitment`
 - `contradiction`
 - `unfinished_thread`
 - `unresolved_question`
 
-Loop 允许衰减紧迫度，但不允许无痕消失。
+loop 的当前状态来自 loop atoms 的归并结果。
 
 ### Facts
 
-事实以版本链存储：
-
-- 新事实用 `assert_fact`
-- 更正事实用 `revise_fact`
-- 冲突不会静默覆盖，而是生成新的 active fact，并打开 `contradiction` loop
+事实视图来自 fact atoms；修订不会静默覆盖，而是通过新的 fact atom 与 revision atom 表达。
 
 ## Storage
 
@@ -80,18 +74,15 @@ Loop 允许衰减紧迫度，但不允许无痕消失。
 核心表只有：
 
 - `events`
-- `relation_fields`
-- `open_loops`
-- `facts`
-- `fact_embeddings`
+- `memory_atoms`
 
-不引入外部向量数据库，不保留旧状态机兼容层。
+不引入额外状态表，不保留旧关系场/事实表双轨模型。
 
 ## Surface
 
-核心库只提供 Python SDK。
+核心库提供 Python SDK。
 
-外层适配只有两个：
+外层适配只有：
 
 - CLI
 - FastAPI
@@ -100,20 +91,18 @@ Loop 允许衰减紧迫度，但不允许无痕消失。
 
 ## Acceptance Criteria
 
-Aurora v2 的验收标准不是召回率，而是以下行为是否稳定出现：
+Aurora v3 的验收标准是语义收敛是否稳定成立：
 
-1. 多轮互动后关系姿态持续一致
-2. 用户更正旧事实时不会静默覆盖
-3. 承诺与未完事项会持续存在直到被解决
-4. 只有在明确需要时才触发 archive recall
-5. 编译失败不会损坏长期状态
+1. 同一 `relation_id` 下连续性由 atoms 稳定延续
+2. 用户更正旧信息时不会静默覆盖
+3. forget 影响可见性，而不是硬删 evidence
+4. 编译失败不会污染已有 atoms
 
 ## Rejected Paths
 
 以下路径不再属于 Aurora：
 
-- `awake / doze / sleep`
-- `metabolic` 生命周期模拟
-- 从图结构反推关系状态
-- “默认先检索，再决定怎么说”的主路径
+- session-scoped 双轨记忆
+- 把 relation field、facts、loops 落成独立持久化真相层，而不是保持为 derived views
 - 为旧架构保留兼容垫片
+- 默认先做全局检索再决定如何回应

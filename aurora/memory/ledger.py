@@ -1,4 +1,4 @@
-"""Aurora v2 archive recall。"""
+"""Aurora v3 atom recall."""
 
 from __future__ import annotations
 
@@ -7,15 +7,18 @@ import re
 
 import numpy as np
 
+from aurora.memory.atoms import active_atoms, atom_text
 from aurora.memory.store import SQLiteMemoryStore
-from aurora.runtime.contracts import RecallHit, RecallResult
+from aurora.runtime.contracts import MemoryAtom, RecallHit, RecallResult
 
 EMBEDDING_DIM = 384
 _TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+")
 _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
+_MIN_SCORE = 0.18
 
 
-def _tokenize(text: str) -> tuple[str, ...]:
+def tokenize(text: str) -> tuple[str, ...]:
+    """Tokenize mixed CJK and latin text."""
     tokens: list[str] = []
     for chunk in _TOKEN_PATTERN.findall(text.lower()):
         if _CJK_PATTERN.search(chunk):
@@ -26,14 +29,14 @@ def _tokenize(text: str) -> tuple[str, ...]:
 
 
 class HashEmbeddingEncoder:
-    """无需外部依赖的稳定哈希向量编码器。"""
+    """Stable hash encoder without external dependencies."""
 
     def __init__(self, dim: int = EMBEDDING_DIM) -> None:
         self.dim = dim
 
     def encode(self, text: str) -> np.ndarray:
         vector = np.zeros(self.dim, dtype=np.float32)
-        for token in _tokenize(text):
+        for token in tokenize(text):
             digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
             index = int.from_bytes(digest[:4], "big") % self.dim
             sign = 1.0 if digest[4] % 2 == 0 else -1.0
@@ -45,7 +48,7 @@ class HashEmbeddingEncoder:
 
 
 class Archive:
-    """事实与 transcript 的混合检索层。"""
+    """Relation-scoped atom and evidence selector."""
 
     def __init__(self, store: SQLiteMemoryStore, encoder: HashEmbeddingEncoder | None = None) -> None:
         self.store = store
@@ -55,39 +58,27 @@ class Archive:
         if limit <= 0:
             return RecallResult(relation_id=relation_id, query=query, hits=())
         query_vector = self.encoder.encode(query)
-        query_tokens = set(_tokenize(query))
+        query_tokens = set(tokenize(query))
         hits: list[RecallHit] = []
 
-        for fact, embedding in self.store.fact_embeddings(relation_id):
-            if fact.status not in {"active", "disputed"}:
+        for atom in active_atoms(self.store.list_atoms(relation_id)):
+            text = atom_text(atom)
+            if not text or atom.atom_type in {"forget", "revision", "rule", "lexicon"}:
                 continue
-            score, why = self._hybrid_score(query_tokens, query_vector, fact.content, embedding)
-            if score <= 0.0:
-                continue
-            hits.append(
-                RecallHit(
-                    item_id=fact.fact_id,
-                    kind="fact",
-                    content=fact.content,
-                    score=score + 0.05,
-                    why_recalled=why,
-                    evidence_refs=fact.evidence_refs or (fact.fact_id,),
-                )
-            )
-
-        for event in self.store.event_rows_for_recall(relation_id):
-            event_vector = self.encoder.encode(event.text)
-            score, why = self._hybrid_score(query_tokens, query_vector, event.text, event_vector)
-            if score <= 0.0:
+            score, why = self._hybrid_score(query_tokens, query_vector, text, self.encoder.encode(text))
+            score += self._type_boost(atom)
+            score += atom.salience * 0.08
+            score *= atom.visibility
+            if score < _MIN_SCORE:
                 continue
             hits.append(
                 RecallHit(
-                    item_id=event.event_id,
-                    kind="event",
-                    content=event.text,
+                    item_id=atom.atom_id,
+                    kind="atom",
+                    content=text,
                     score=score,
                     why_recalled=why,
-                    evidence_refs=(event.event_id,),
+                    evidence_refs=atom.evidence_event_ids,
                 )
             )
 
@@ -101,7 +92,6 @@ class Archive:
             deduped.append(hit)
             if len(deduped) >= limit:
                 break
-
         return RecallResult(relation_id=relation_id, query=query, hits=tuple(deduped))
 
     def _hybrid_score(
@@ -111,7 +101,7 @@ class Archive:
         content: str,
         content_vector: np.ndarray,
     ) -> tuple[float, str]:
-        content_tokens = set(_tokenize(content))
+        content_tokens = set(tokenize(content))
         lexical = 0.0
         if query_tokens and content_tokens:
             lexical = len(query_tokens & content_tokens) / len(query_tokens | content_tokens)
@@ -121,7 +111,7 @@ class Archive:
             vector_score = float(np.dot(query_vector, content_vector))
             vector_score = max(0.0, vector_score)
 
-        hybrid = lexical * 0.65 + vector_score * 0.35
+        hybrid = lexical * 0.70 + vector_score * 0.30
         if lexical > 0.0 and vector_score > 0.0:
             why = "lexical+vector"
         elif lexical > 0.0:
@@ -131,3 +121,14 @@ class Archive:
         else:
             why = "none"
         return hybrid, why
+
+    def _type_boost(self, atom: MemoryAtom) -> float:
+        if atom.atom_type == "loop":
+            return 0.10
+        if atom.atom_type == "fact":
+            return 0.06
+        if atom.atom_type == "rule":
+            return 0.04
+        if atom.atom_type == "lexicon":
+            return 0.03
+        return 0.0

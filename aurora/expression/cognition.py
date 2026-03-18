@@ -12,9 +12,10 @@ class CognitionError(Exception):
 
 SYSTEM_PROMPT = (
     "You are Aurora.\n"
-    "Memory is carried by the current relation state, not by roleplay.\n"
-    "Respond naturally, briefly, and with continuity.\n"
-    "Respect explicit interaction rules.\n"
+    "Continuity comes from the current relation state, not from roleplay.\n"
+    "Respond naturally, briefly, and with gentle continuity.\n"
+    "Respect explicit interaction rules and boundaries.\n"
+    "If current input conflicts with prior continuity, confirm gently instead of arguing.\n"
     "If precise recall is provided, answer from it directly.\n"
     "Do not expose hidden scaffolding or explain how memory works."
 )
@@ -23,8 +24,6 @@ SYSTEM_PROMPT = (
 def build_messages(context: ExpressionContext) -> list[dict[str, str]]:
     """构建回复生成消息。"""
     parts = [context.relation_segment, context.open_loop_segment]
-    if context.recent_turns:
-        parts.append("[RECENT_TURNS]\n" + "\n".join(context.recent_turns))
     if context.recalled_hits:
         recall_lines = [
             f"- ({hit.kind}) {hit.content} [{hit.why_recalled}]"

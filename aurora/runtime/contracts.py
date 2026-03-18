@@ -1,4 +1,4 @@
-"""Aurora v2 运行时合约。"""
+"""Aurora v3 runtime contracts."""
 
 from __future__ import annotations
 
@@ -6,30 +6,25 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 
+AtomType = Literal["fact", "rule", "lexicon", "loop", "revision", "forget"]
+AtomStatus = Literal["active", "resolved", "superseded", "hidden"]
 LoopType = Literal["commitment", "contradiction", "unfinished_thread", "unresolved_question"]
 LoopStatus = Literal["active", "resolved"]
-FactStatus = Literal["active", "superseded", "disputed"]
-MemoryOpType = Literal[
-    "assert_fact",
-    "revise_fact",
-    "patch_relation",
-    "open_loop",
-    "resolve_loop",
-    "add_rule",
-    "update_lexicon",
-]
+FactStatus = Literal["active", "superseded", "hidden"]
+FactKind = Literal["profile", "preference", "current_state", "biographical"]
 EventKind = Literal["user_turn", "assistant_turn", "compile_failure"]
-RecallKind = Literal["fact", "event"]
+RecallKind = Literal["atom"]
+MemoryOpType = AtomType
 
 
 def clamp(value: float, lo: float = 0.0, hi: float = 1.0) -> float:
-    """钳制浮点数到指定范围。"""
+    """Clamp a float into the target range."""
     return max(lo, min(hi, value))
 
 
 @dataclass(slots=True)
 class RelationField:
-    """长期主观关系状态。"""
+    """Hidden derived relation state."""
 
     relation_id: str
     trust: float = 0.35
@@ -43,8 +38,48 @@ class RelationField:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryAtom:
+    """The only long-term semantic truth in Aurora."""
+
+    atom_id: str
+    relation_id: str
+    atom_type: AtomType
+    payload: dict[str, Any]
+    status: AtomStatus
+    confidence: float
+    salience: float
+    visibility: float
+    evidence_event_ids: tuple[str, ...] = ()
+    affects_atom_ids: tuple[str, ...] = ()
+    supersedes_atom_id: str | None = None
+    created_at: float = 0.0
+    updated_at: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class EventRecord:
+    """Append-only evidence event."""
+
+    event_id: str
+    relation_id: str
+    kind: EventKind
+    role: str
+    text: str
+    created_at: float
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class MemoryOp:
+    """Compiler output before being applied as atoms."""
+
+    op_type: MemoryOpType
+    payload: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class OpenLoop:
-    """未完成事项或冲突张力。"""
+    """Derived open loop view."""
 
     loop_id: str
     relation_id: str
@@ -59,45 +94,24 @@ class OpenLoop:
 
 @dataclass(frozen=True, slots=True)
 class FactRecord:
-    """版本化事实记录。"""
+    """Derived fact view."""
 
     fact_id: str
     relation_id: str
     content: str
+    fact_kind: FactKind
     document_date: float
     event_date: float
     status: FactStatus
     supersedes: str | None
     confidence: float
+    visibility: float
     evidence_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class EventRecord:
-    """Evidence log 事件。"""
-
-    event_id: str
-    relation_id: str
-    session_id: str
-    kind: EventKind
-    role: str
-    text: str
-    created_at: float
-    pending_compile: bool
-    payload: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass(frozen=True, slots=True)
-class MemoryOp:
-    """Compiler 输出的唯一更新操作。"""
-
-    op_type: MemoryOpType
-    payload: dict[str, Any]
-
-
-@dataclass(frozen=True, slots=True)
 class RecallHit:
-    """检索命中结果。"""
+    """Selected atom or evidence hit."""
 
     item_id: str
     kind: RecallKind
@@ -109,7 +123,7 @@ class RecallHit:
 
 @dataclass(frozen=True, slots=True)
 class RecallResult:
-    """冷记忆召回结果。"""
+    """Recall result for one relation-scoped query."""
 
     relation_id: str
     query: str
@@ -118,39 +132,23 @@ class RecallResult:
 
 @dataclass(frozen=True, slots=True)
 class TurnOutput:
-    """热路径 turn 输出。"""
+    """Hot-path turn output."""
 
     turn_id: str
     relation_id: str
     response_text: str
     recall_used: bool
     recalled_ids: tuple[str, ...]
-    pending_event_ids: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class CompileFailure:
-    """编译失败记录。"""
-
-    relation_id: str
-    reason: str
-
-
-@dataclass(frozen=True, slots=True)
-class CompileReport:
-    """后台 compiler 执行结果。"""
-
-    compiled_relations: tuple[str, ...]
-    applied_ops: int
-    failures: tuple[CompileFailure, ...]
+    applied_atom_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
 class RelationSnapshot:
-    """可调试的关系快照。"""
+    """Debug snapshot."""
 
     relation_id: str
     field: RelationField
     open_loops: tuple[OpenLoop, ...]
     facts: tuple[FactRecord, ...]
-    pending_compile_count: int
+    atoms: tuple[MemoryAtom, ...]
+    recent_events: tuple[EventRecord, ...]

@@ -1,4 +1,4 @@
-"""Aurora v2 FastAPI surface."""
+"""Aurora v3 FastAPI surface."""
 
 from __future__ import annotations
 
@@ -16,25 +16,20 @@ _OPEN_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
 
 
 class TurnRequest(BaseModel):
-    session_id: str = Field(min_length=1)
+    relation_id: str = Field(min_length=1)
     text: str = Field(min_length=1)
     now_ts: float | None = None
 
 
-class CompileRequest(BaseModel):
-    session_id: str | None = None
-    now_ts: float | None = None
-
-
 class RecallRequest(BaseModel):
-    session_id: str = Field(min_length=1)
+    relation_id: str = Field(min_length=1)
     query: str = Field(min_length=1)
     limit: int = Field(default=5, ge=1, le=20)
 
 
 def build_app(engine: AuroraKernel) -> FastAPI:
-    """构建 Aurora v2 API。"""
-    app = FastAPI(title="Aurora", version="2.0")
+    """Build Aurora v3 API."""
+    app = FastAPI(title="Aurora", version="3.0")
     api_key = os.environ.get("AURORA_API_KEY")
 
     @app.middleware("http")
@@ -51,23 +46,19 @@ def build_app(engine: AuroraKernel) -> FastAPI:
 
     @app.post("/turn")
     def turn(payload: TurnRequest) -> dict[str, Any]:
-        return asdict(engine.turn(payload.session_id, payload.text, now_ts=payload.now_ts))
+        return asdict(engine.turn(payload.relation_id, payload.text, now_ts=payload.now_ts))
 
-    @app.post("/compile")
-    def compile_pending(payload: CompileRequest) -> dict[str, Any]:
-        return asdict(engine.compile_pending(session_id=payload.session_id, now_ts=payload.now_ts))
-
-    @app.get("/snapshot/{session_id}")
-    def snapshot(session_id: str) -> dict[str, Any]:
-        return asdict(engine.snapshot(session_id))
+    @app.get("/snapshot/{relation_id}")
+    def snapshot(relation_id: str) -> dict[str, Any]:
+        return asdict(engine.snapshot(relation_id))
 
     @app.post("/recall")
     def recall(payload: RecallRequest) -> dict[str, Any]:
-        return asdict(engine.recall(payload.session_id, payload.query, limit=payload.limit))
+        return asdict(engine.recall(payload.relation_id, payload.query, limit=payload.limit))
 
     return app
 
 
 def create_app() -> FastAPI:
-    """创建 FastAPI 应用实例。"""
+    """Create a FastAPI app instance."""
     return build_app(AuroraKernel.create())

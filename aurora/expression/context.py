@@ -14,5 +14,4 @@ class ExpressionContext:
     input_text: str
     relation_segment: str
     open_loop_segment: str
-    recent_turns: tuple[str, ...] = ()
     recalled_hits: tuple[RecallHit, ...] = ()
