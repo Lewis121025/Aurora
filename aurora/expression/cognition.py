@@ -1,4 +1,4 @@
-"""Aurora v2 回复生成。"""
+"""Aurora v2 response generation."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from aurora.llm.provider import LLMProvider
 
 
 class CognitionError(Exception):
-    """回复生成异常。"""
+    """Response generation error."""
 
 
 SYSTEM_PROMPT = (
@@ -22,7 +22,7 @@ SYSTEM_PROMPT = (
 
 
 def build_messages(context: ExpressionContext) -> list[dict[str, str]]:
-    """构建回复生成消息。"""
+    """Build messages for response generation."""
     parts = [context.relation_segment, context.open_loop_segment]
     if context.recalled_hits:
         recall_lines = [
@@ -39,7 +39,7 @@ def build_messages(context: ExpressionContext) -> list[dict[str, str]]:
 
 
 def run_cognition(context: ExpressionContext, llm: LLMProvider) -> str:
-    """生成 Aurora 回复文本。"""
+    """Generate Aurora response text."""
     raw = llm.complete(build_messages(context)).strip()
     if not raw:
         raise CognitionError("LLM returned an empty response")

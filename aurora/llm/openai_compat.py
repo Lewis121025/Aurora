@@ -1,7 +1,7 @@
-"""OpenAI 兼容 LLM 提供者实现。
+"""OpenAI-compatible LLM provider implementation.
 
-使用标准库 urllib 实现与 OpenAI API 兼容的 HTTP 客户端，
-支持任意 OpenAI 兼容接口（如阿里云百炼、DeepSeek 等）。
+Uses standard library urllib to implement an HTTP client compatible with OpenAI API,
+supporting any OpenAI-compatible interface (e.g., Alibaba Cloud Bailian, DeepSeek, etc.).
 """
 from __future__ import annotations
 
@@ -14,37 +14,38 @@ from aurora.llm.config import LLMConfig
 
 
 class OpenAICompatProvider:
-    """OpenAI 兼容 LLM 提供者。
+    """OpenAI-compatible LLM provider.
 
-    通过 HTTP POST 请求调用 LLM API，返回响应文本。
-    不依赖第三方 HTTP 库，仅使用标准库 urllib。
+    Calls LLM API via HTTP POST requests and returns response text.
+    No third-party HTTP library dependencies, uses only standard library urllib.
 
     Attributes:
-        _config: LLM 配置对象。
+        _config: LLM configuration object.
     """
 
     def __init__(self, config: LLMConfig) -> None:
-        """初始化提供者。
+        """Initialize the provider.
 
         Args:
-            config: LLM 配置对象。
+            config: LLM configuration object.
         """
         self._config = config
 
     def complete(self, messages: list[dict[str, str]]) -> str:
-        """调用 LLM 完成补全。
+        """Call LLM to complete the request.
 
-        发送聊天完成请求到 LLM API，解析响应并返回文本内容。
+        Sends a chat completion request to the LLM API, parses the response,
+        and returns the text content.
 
         Args:
-            messages: 消息列表，每条消息包含 role 和 content 字段。
+            messages: List of messages, each containing role and content fields.
 
         Returns:
-            LLM 响应文本；若无有效响应则返回空字符串。
+            LLM response text; empty string if no valid response.
 
         Raises:
-            urllib.error.URLError: 网络请求失败。
-            json.JSONDecodeError: 响应解析失败。
+            urllib.error.URLError: Network request failed.
+            json.JSONDecodeError: Response parsing failed.
         """
         payload_obj: dict[str, Any] = {
             "model": self._config.model,

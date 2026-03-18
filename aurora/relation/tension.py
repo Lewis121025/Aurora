@@ -1,4 +1,4 @@
-"""Open loop helper。"""
+"""Open loop helper."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ _HALF_LIFE_HOURS = {
 
 
 def current_urgency(loop: OpenLoop, now_ts: float) -> float:
-    """按 loop 类型进行半衰期衰减。"""
+    """Apply half-life decay based on loop type."""
     hours_elapsed = max(0.0, (now_ts - loop.updated_at) / 3600.0)
     half_life = _HALF_LIFE_HOURS[loop.loop_type]
     decay = float(0.5 ** (hours_elapsed / half_life))
@@ -21,14 +21,14 @@ def current_urgency(loop: OpenLoop, now_ts: float) -> float:
 
 
 def top_open_loops(loops: tuple[OpenLoop, ...], now_ts: float, limit: int = 3) -> tuple[OpenLoop, ...]:
-    """选出当前最重要的 active loops。"""
+    """Select the most important active loops."""
     active = [loop for loop in loops if loop.status == "active"]
     ordered = sorted(active, key=lambda item: current_urgency(item, now_ts), reverse=True)
     return tuple(ordered[:limit])
 
 
 def to_prompt_segment(loops: tuple[OpenLoop, ...], now_ts: float) -> str:
-    """将 open loops 投影为 prompt 片段。"""
+    """Project open loops into a prompt segment."""
     ranked = top_open_loops(loops, now_ts)
     if not ranked:
         return "[OPEN_LOOPS]\nnone"

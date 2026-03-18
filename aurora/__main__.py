@@ -1,6 +1,6 @@
-"""包入口模块。
+"""Package entry module.
 
-支持通过 `python -m aurora` 运行 CLI：
+Supports running CLI via `python -m aurora`:
 
 ```bash
 python -m aurora turn "Hello Aurora"

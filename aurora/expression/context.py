@@ -1,4 +1,4 @@
-"""热路径表达上下文。"""
+"""Hot path expression context."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from aurora.runtime.contracts import RecallHit
 
 @dataclass(frozen=True, slots=True)
 class ExpressionContext:
-    """单次回复生成所需的上下文。"""
+    """Context required for single response generation."""
 
     input_text: str
     relation_segment: str

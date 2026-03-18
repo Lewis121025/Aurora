@@ -1,9 +1,9 @@
-"""LLM 配置模块。
+"""LLM configuration module.
 
-定义 LLM 配置及运行时参数：
-- LLM 配置（环境变量读取）
-- 蒸馏阈值配置
-- 会话超时配置
+Defines LLM configuration and runtime parameters:
+- LLM configuration (environment variable loading)
+- Distillation threshold configuration
+- Session timeout configuration
 """
 
 from __future__ import annotations
@@ -15,13 +15,13 @@ from pathlib import Path
 
 @dataclass(frozen=True, slots=True)
 class LLMConfig:
-    """LLM 配置。
+    """LLM configuration.
 
     Attributes:
-        base_url: LLM API 基础 URL。
-        model: 模型名称。
-        api_key: API 密钥。
-        timeout_s: 请求超时（秒）。
+        base_url: LLM API base URL.
+        model: Model name.
+        api_key: API key.
+        timeout_s: Request timeout in seconds.
     """
 
     base_url: str
@@ -33,13 +33,13 @@ class LLMConfig:
 
 
 DISTILL_THRESHOLD_TURNS = 20
-"""蒸馏触发阈值：单会话累计轮数达到此值时触发蒸馏。"""
+"""Distillation trigger threshold: triggers when session turn count reaches this value."""
 
 SESSION_IDLE_TIMEOUT_MINUTES = 30
-"""会话空闲超时（分钟）：超过此时间无交互则触发蒸馏。"""
+"""Session idle timeout in minutes: triggers distillation after this duration without interaction."""
 
 EMBEDDING_DIM = 384
-"""向量维度（MiniLM all-MiniLM-L6-v2）。"""
+"""Embedding dimension (MiniLM all-MiniLM-L6-v2)."""
 
 
 def _load_dotenv() -> dict[str, str]:
@@ -81,18 +81,18 @@ def _parse_bool(raw: str) -> bool:
 
 
 def load_llm_config() -> LLMConfig | None:
-    """从环境变量加载 LLM 配置。
+    """Load LLM configuration from environment variables.
 
-    必需环境变量：
+    Required environment variables:
         - AURORA_LLM_BASE_URL
         - AURORA_LLM_API_KEY
 
-    可选环境变量：
-        - AURORA_LLM_MODEL: 默认 "gpt-4o-mini"
-        - AURORA_LLM_TIMEOUT_S: 默认 30.0
+    Optional environment variables:
+        - AURORA_LLM_MODEL: defaults to "gpt-4o-mini"
+        - AURORA_LLM_TIMEOUT_S: defaults to 30.0
 
     Returns:
-        LLMConfig: 配置对象；若必需变量缺失则返回 None。
+        LLMConfig: configuration object; None if required variables are missing.
     """
     dotenv_values = _load_dotenv()
     provider = _pick_value(dotenv_values, "AURORA_LLM_PROVIDER").strip().lower()
