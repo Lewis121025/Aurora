@@ -31,9 +31,17 @@ jobs:
       run: |
         python -m compileall -q aurora
 
+    - name: Run tests
+      run: |
+        pytest -q
+
     - name: Run mypy
       run: |
-        mypy aurora --show-error-codes --pretty
+        mypy aurora tests --show-error-codes --pretty
+
+    - name: Run ruff
+      run: |
+        ruff check aurora tests
 
     - name: Type coverage report
       run: |

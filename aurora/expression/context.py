@@ -12,6 +12,6 @@ class ExpressionContext:
     """Context required for single response generation."""
 
     input_text: str
-    relation_segment: str
-    open_loop_segment: str
+    state_segment: str
+    episode_segment: str
     recalled_hits: tuple[RecallHit, ...] = ()

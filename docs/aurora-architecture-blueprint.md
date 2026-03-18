@@ -1,71 +1,89 @@
-# Aurora v3 Architecture Blueprint
+# Aurora vNext Architecture Blueprint
 
 ## Position
 
-Aurora v3 是 relation-only 的陪伴内核。主路径只围绕单一 `relation_id` 组织连续性，不保留并行的 session 语义。
+Aurora vNext 是一个单一主体的人类记忆内核。主路径只围绕单一 `subject_id` 组织连续性，并把所有持久化内容统一成 `MemoryAtom` ledger。`memory_atoms` 是唯一内部持久化真相；公开 surface 只暴露从当前可见记忆投影出的 state views，不暴露 raw atoms 或 provenance。
 
-系统只有两类持久化真相：
+其中 `atom_kind` 固定为：
 
-1. `Evidence Log`
-   append-only 的用户、助手与编译失败事件流。
-2. `Memory Atoms`
-   唯一长期语义原子，承载事实、规则、词汇、未完成事项、修订与遗忘。
-
-`RelationField / OpenLoops / Facts` 都是运行时派生视图，不是并列真相层。
+- `evidence`
+- `episode`
+- `semantic`
+- `procedural`
+- `cognitive`
+- `affective`
+- `narrative`
+- `inhibition`
 
 ## Runtime
 
 每轮 `turn` 固定执行：
 
-1. 写入 user event
-2. 运行 pre-response 规则，吸收显式高价值信号
-3. 读取当前 atoms，派生 `RelationField + OpenLoops + RecallHits`
-4. 生成回复
-5. 写入 assistant event
-6. 运行 post-response compiler，追加新的 atoms
+1. 写入 user evidence atom
+2. 先把 user message 结构化编译进当前记忆
+3. 读取更新后的 subject state
+4. 执行 `temporal_scope="current"` 的 blended recall
+5. 生成回复
+6. 写入 assistant evidence atom
+7. 构建一个新的 episode atom
+8. 编译 assistant commitments / narrative updates
+9. 运行 reconsolidation / inhibition pass
 
-编译失败不会回滚当轮 evidence，只会追加 `compile_failure` 事件。
+如果 distillation 失败，不回滚 evidence atom；只追加 `compile_failure` evidence atom。
 
-## Compiler
+## State Projection
 
-Aurora v3 有两条收敛后的编译路径：
+`state(subject_id)` 返回 `SubjectMemoryState` 的公开投影，只暴露主体当前可见记忆：
 
-1. pre-response deterministic rules
-   处理显式 forget、interaction rule 与高置信度 loop 信号。
-2. post-response LLM compiler
-   输出类型化 `MemoryOp`，再由 reducer 落成 atoms。
+- `semantic_self_model`
+- `semantic_world_model`
+- `procedural_memory`
+- `active_cognition`
+- `affective_state`
+- `narrative_state`
+- `recent_episodes`
 
-允许的 atom op 只有：
+其中 assistant 明确承诺的未来动作会被蒸馏成 `procedural` atom，`trigger="assistant_commitment"`，并保留在当前状态里，直到被新的语义覆盖或显式抑制。
 
-- `fact`
-- `rule`
-- `lexicon`
-- `loop`
-- `revision`
-- `forget`
+其中 `cognitive`、`affective`，以及当前 `trigger="plan"` 的 `procedural` atoms 都代表当前状态快照，不做无限累积；新的同类 atom 会 supersede 旧快照。
 
-Reducer 是唯一允许修改长期语义的入口。
+## Recall
 
-## Derived Views
+Aurora vNext 的 `recall(subject_id, query, limit=5, mode="blended", temporal_scope=...)` 要求显式指定 `temporal_scope`：
 
-### Relation Field
+- `current` 只召回当前有效记忆
+- `historical` 只召回历史记忆
+- `both` 同时召回当前与历史记忆
 
-当前关系姿态只由 lifecycle-effective atoms 派生，不直接持久化为独立真相层。
+`blended recall` 只是 atom selection 的模式，不是独立记忆层：
 
-### Open Loops
+- `episode` atoms 提供情景
+- `semantic` / `procedural` / `cognitive` / `affective` / `narrative` atoms 提供长期语义
 
-只保留四种 loop：
+被 `inhibited` 的 atoms 不会进入 recall。`superseded` atoms 只在 `temporal_scope="historical"` 或 `temporal_scope="both"` 时重新可见。
 
-- `commitment`
-- `contradiction`
-- `unfinished_thread`
-- `unresolved_question`
+## Lifecycle
 
-loop 的当前状态来自 loop atoms 的归并结果。
+### Reconsolidation
 
-### Facts
+新的 semantic atom 如果与旧 atom 在同一语义槽位冲突：
 
-事实视图来自 fact atoms；修订不会静默覆盖，而是通过新的 fact atom 与 revision atom 表达。
+- 旧 atom 变为 `superseded`
+- 新 atom 通过 `supersedes_atom_id` 指向旧 atom
+
+Aurora 不会静默覆盖旧事实。
+
+### Inhibition
+
+显式 forget 不会删除 evidence。
+
+Aurora 会：
+
+- 创建一个 `inhibition` atom
+- 通过 `inhibits_atom_ids` 指向目标 atoms
+- 把目标 atoms 变为 `inhibited`
+
+所以 evidence 仍在，但后续 state / recall 不再把它们当作当前有效记忆。
 
 ## Storage
 
@@ -73,10 +91,10 @@ loop 的当前状态来自 loop atoms 的归并结果。
 
 核心表只有：
 
-- `events`
+- `metadata`
 - `memory_atoms`
 
-不引入额外状态表，不保留旧关系场/事实表双轨模型。
+Aurora vNext 使用新的 `aurora_vnext.db` 和 `memory_atoms` schema，不保留兼容分支。
 
 ## Surface
 
@@ -86,23 +104,27 @@ loop 的当前状态来自 loop atoms 的归并结果。
 
 - CLI
 - FastAPI
+- MCP stdio server
 
 它们都只是 `AuroraKernel` 的薄封装，不持有额外业务状态。
 
 ## Acceptance Criteria
 
-Aurora v3 的验收标准是语义收敛是否稳定成立：
+Aurora vNext 的验收标准是：
 
-1. 同一 `relation_id` 下连续性由 atoms 稳定延续
-2. 用户更正旧信息时不会静默覆盖
-3. forget 影响可见性，而不是硬删 evidence
-4. 编译失败不会污染已有 atoms
+1. 一轮交互会沉淀成 `evidence -> episode -> semantic/procedural/cognitive/affective/narrative/inhibition atoms`
+2. semantic reconsolidation 不会静默覆盖旧记忆
+3. inhibition 会隐藏记忆，但不会删除 evidence
+4. cognitive 只保留结构化摘要，不存 raw thought
+5. affective state 与 episode emotion markers 分层存在
+6. narrative arcs 能跨 episode 累积
+7. relation-first views 不再出现在主路径
 
 ## Rejected Paths
 
 以下路径不再属于 Aurora：
 
-- session-scoped 双轨记忆
-- 把 relation field、facts、loops 落成独立持久化真相层，而不是保持为 derived views
-- 为旧架构保留兼容垫片
-- 默认先做全局检索再决定如何回应
+- relation-first continuity kernel
+- 三层持久化真相作为对外主模型
+- `snapshot()` / `field / facts / open_loops`
+- 暴露任意 trace mutation 接口给外部 surface

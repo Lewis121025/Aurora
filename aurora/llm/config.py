@@ -1,10 +1,4 @@
-"""LLM configuration module.
-
-Defines LLM configuration and runtime parameters:
-- LLM configuration (environment variable loading)
-- Distillation threshold configuration
-- Session timeout configuration
-"""
+"""LLM configuration module."""
 
 from __future__ import annotations
 
@@ -30,16 +24,6 @@ class LLMConfig:
     timeout_s: float = 30.0
     max_tokens: int = 1024
     enable_thinking: bool | None = None
-
-
-DISTILL_THRESHOLD_TURNS = 20
-"""Distillation trigger threshold: triggers when session turn count reaches this value."""
-
-SESSION_IDLE_TIMEOUT_MINUTES = 30
-"""Session idle timeout in minutes: triggers distillation after this duration without interaction."""
-
-EMBEDDING_DIM = 384
-"""Embedding dimension (MiniLM all-MiniLM-L6-v2)."""
 
 
 def _load_dotenv() -> dict[str, str]:

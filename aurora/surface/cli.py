@@ -1,4 +1,4 @@
-"""Aurora v3 CLI."""
+"""Aurora vNext CLI."""
 
 from __future__ import annotations
 
@@ -9,22 +9,35 @@ from dataclasses import asdict
 from aurora.runtime.engine import AuroraKernel
 
 
+def _require_non_empty(value: str) -> str:
+    normalized = value.strip()
+    if not normalized:
+        raise argparse.ArgumentTypeError("must not be empty")
+    return normalized
+
+
 def main() -> None:
     """CLI entrypoint."""
     parser = argparse.ArgumentParser(prog="aurora")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    turn_parser = subparsers.add_parser("turn", help="Run one relation-scoped turn")
-    turn_parser.add_argument("text", help="Input text for Aurora")
-    turn_parser.add_argument("--relation-id", default="default")
+    turn_parser = subparsers.add_parser("turn", help="Run one subject-scoped turn")
+    turn_parser.add_argument("text", type=_require_non_empty, help="Input text for Aurora")
+    turn_parser.add_argument("--subject-id", required=True, type=_require_non_empty)
 
-    snapshot_parser = subparsers.add_parser("snapshot", help="Show relation snapshot")
-    snapshot_parser.add_argument("--relation-id", default="default")
+    state_parser = subparsers.add_parser("state", help="Show subject memory state")
+    state_parser.add_argument("--subject-id", required=True, type=_require_non_empty)
 
-    recall_parser = subparsers.add_parser("recall", help="Recall relation-scoped atoms and evidence")
-    recall_parser.add_argument("query", help="Recall query")
-    recall_parser.add_argument("--relation-id", default="default")
+    recall_parser = subparsers.add_parser("recall", help="Recall subject memory")
+    recall_parser.add_argument("query", type=_require_non_empty, help="Recall query")
+    recall_parser.add_argument("--subject-id", required=True, type=_require_non_empty)
+    recall_parser.add_argument("--temporal-scope", required=True, choices=["current", "historical", "both"])
     recall_parser.add_argument("--limit", type=int, default=5)
+    recall_parser.add_argument(
+        "--mode",
+        default="blended",
+        choices=["blended", "episodic", "semantic", "procedural", "cognitive", "affective", "narrative"],
+    )
 
     subparsers.add_parser("status", help="Show kernel status")
 
@@ -33,18 +46,26 @@ def main() -> None:
 
     try:
         if args.command == "turn":
-            output = kernel.turn(relation_id=args.relation_id, text=args.text)
+            output = kernel.turn(subject_id=args.subject_id, text=args.text)
             print(output.response_text)
             return
 
-        if args.command == "snapshot":
-            print(json.dumps(asdict(kernel.snapshot(args.relation_id)), ensure_ascii=False, indent=2))
+        if args.command == "state":
+            print(json.dumps(asdict(kernel.state(args.subject_id)), ensure_ascii=False, indent=2))
             return
 
         if args.command == "recall":
             print(
                 json.dumps(
-                    asdict(kernel.recall(args.relation_id, args.query, limit=args.limit)),
+                    asdict(
+                        kernel.recall(
+                            args.subject_id,
+                            args.query,
+                            temporal_scope=args.temporal_scope,
+                            limit=args.limit,
+                            mode=args.mode,
+                        )
+                    ),
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -52,7 +73,7 @@ def main() -> None:
             return
 
         if args.command == "status":
-            print(json.dumps({"status": "ok", "relations": kernel.store.relation_count()}, ensure_ascii=False, indent=2))
+            print(json.dumps({"status": "ok", "subjects": kernel.store.subject_count()}, ensure_ascii=False, indent=2))
             return
     finally:
         kernel.close()
