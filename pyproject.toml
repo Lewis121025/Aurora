@@ -16,8 +16,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
-  "mypy>=1.8",
+  "mypy[html-report]>=1.8",
   "ruff>=0.1",
+  "lxml>=4.9",
 ]
 embedding = [
   "sentence-transformers>=2.2.0",
