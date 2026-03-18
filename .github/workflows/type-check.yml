@@ -6,19 +6,21 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+permissions:
+  contents: read
+
 jobs:
   type-check:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v6
       with:
         python-version: '3.10'
+        cache: pip
 
     - name: Install dependencies
       run: |
@@ -38,8 +40,8 @@ jobs:
         mypy aurora --html-report mypy-report --any-exprs-report mypy-report
 
     - name: Upload type coverage
-      uses: actions/upload-artifact@v4
-      if: always()
+      uses: actions/upload-artifact@v6
+      if: always() && hashFiles('mypy-report/**') != ''
       with:
         name: type-coverage-report
         path: mypy-report/
