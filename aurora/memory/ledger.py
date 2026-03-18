@@ -6,12 +6,14 @@ import hashlib
 import re
 
 import numpy as np
+import numpy.typing as npt
 
 from aurora.memory.atoms import active_atoms, atom_text
 from aurora.memory.store import SQLiteMemoryStore
 from aurora.runtime.contracts import MemoryAtom, RecallHit, RecallResult
 
 EMBEDDING_DIM = 384
+FloatVector = npt.NDArray[np.float32]
 _TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+")
 _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
 _MIN_SCORE = 0.18
@@ -34,7 +36,7 @@ class HashEmbeddingEncoder:
     def __init__(self, dim: int = EMBEDDING_DIM) -> None:
         self.dim = dim
 
-    def encode(self, text: str) -> np.ndarray:
+    def encode(self, text: str) -> FloatVector:
         vector = np.zeros(self.dim, dtype=np.float32)
         for token in tokenize(text):
             digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
@@ -97,9 +99,9 @@ class Archive:
     def _hybrid_score(
         self,
         query_tokens: set[str],
-        query_vector: np.ndarray,
+        query_vector: FloatVector,
         content: str,
-        content_vector: np.ndarray,
+        content_vector: FloatVector,
     ) -> tuple[float, str]:
         content_tokens = set(tokenize(content))
         lexical = 0.0
