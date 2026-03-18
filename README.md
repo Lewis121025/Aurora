@@ -1,16 +1,12 @@
 # Aurora
 
-Aurora vNext 是一个单一主体的人类记忆内核。它把长期记忆统一收敛成一个 `MemoryAtom` ledger。`memory_atoms` 是唯一内部持久化真相；公开 `state` 只暴露主体当前可见的 pure projection views，不回传 raw atoms 或 provenance。evidence、episode、semantic、procedural、cognitive、affective、narrative、inhibition 都只是 `atom_kind`，不再是并列系统。
+Aurora vNext 是一个单一主体的人类记忆内核。它不再把“当前状态”建模成一组固定字段，也不再通过外部规则去改写旧记忆；Aurora 的真相改为**不可变 memory atoms + 不可变 memory-field edges + 派生 activation cache**。当前态、查询结果和回复上下文都来自当前 memory field 的只读投影。
 
-`MemoryAtom` 的 `atom_kind` 目前覆盖八类长期记忆：
+`MemoryAtom` 的 `atom_kind` 目前覆盖四类节点：
 
 - `evidence`
+- `memory`
 - `episode`
-- `semantic`
-- `procedural`
-- `cognitive`
-- `affective`
-- `narrative`
 - `inhibition`
 
 ## 安装
@@ -43,7 +39,7 @@ kernel = AuroraKernel.create()
 
 turn = kernel.turn("subject-alice", "我在杭州工作，也喜欢爵士乐。")
 state = kernel.state("subject-alice")
-recall = kernel.recall("subject-alice", "杭州 生活", mode="blended", temporal_scope="current")
+recall = kernel.recall("subject-alice", "杭州 生活", limit=8)
 
 kernel.close()
 ```
@@ -52,26 +48,23 @@ kernel.close()
 
 - `turn(subject_id, text, now_ts=None) -> TurnOutput`
 - `state(subject_id) -> SubjectMemoryState`
-- `recall(subject_id, query, limit=5, mode="blended", temporal_scope="current|historical|both") -> RecallResult`
+- `recall(subject_id, query, limit=8) -> RecallResult`
 - `close() -> None`
 
-`state(subject_id)` 只返回投影视图字段：
+`state(subject_id)` 返回当前 memory field 视图：
 
-- `semantic_self_model`
-- `semantic_world_model`
-- `procedural_memory`
-- `active_cognition`
-- `affective_state`
-- `narrative_state`
-- `recent_episodes`
+- `summary`: 当前 memory field 的文本摘要
+- `atoms`: 当前高激活节点
+- `edges`: 当前局部高影响边
+
+`recall(subject_id, query, limit=8)` 返回查询驱动的局部 memory field 切片，同样只包含 `summary`、`atoms`、`edges`。
 
 ## CLI
 
 ```bash
 aurora turn "Hello Aurora" --subject-id subject-alice
 aurora state --subject-id subject-alice
-aurora recall "我现在住在哪里？" --subject-id subject-alice --mode blended --temporal-scope current
-aurora recall "我以前住在哪里？" --subject-id subject-alice --mode blended --temporal-scope historical
+aurora recall "我现在住在哪里？" --subject-id subject-alice --limit 8
 aurora status
 ```
 
@@ -86,9 +79,7 @@ aurora-mcp
 MCP vNext 暴露：
 
 - tools: `aurora_turn`, `aurora_recall`
-- resources: `aurora://subject/{subject_id}/state`
-
-`aurora_recall` 需要显式传入 `temporal_scope`，例如 `current`、`historical` 或 `both`。
+- resources: `aurora://subject/{subject_id}/memory-field`
 
 ## HTTP API
 
@@ -102,28 +93,54 @@ uv run uvicorn aurora.surface.api:create_app --factory --host 0.0.0.0 --port 800
 | --- | --- | --- | --- |
 | `/health` | `GET` | - | 健康检查 |
 | `/turn` | `POST` | `{"subject_id": "...", "text": "...", "now_ts": 0}` | 执行一轮 subject-scoped turn |
-| `/state/{subject_id}` | `GET` | - | 查看主体当前可见记忆状态 |
-| `/recall` | `POST` | `{"subject_id": "...", "query": "...", "limit": 5, "mode": "blended", "temporal_scope": "current"}` | scope-aware recall，返回 `temporal_scope` 和 hits |
-
-`/state/{subject_id}` 只返回投影视图字段，不包含 raw atoms 或 provenance。`/recall` 的返回结果包含 `subject_id`、`query`、`mode`、`temporal_scope` 和 `hits`。
+| `/state/{subject_id}` | `GET` | - | 查看主体当前 memory field |
+| `/recall` | `POST` | `{"subject_id": "...", "query": "...", "limit": 8}` | 返回查询驱动的局部 memory field 切片 |
 
 ## 运行模型
 
 每轮 `turn` 固定执行：
 
 1. 写入 user evidence atom
-2. 先把 user message 结构化编译进当前记忆
-3. 用显式 `temporal_scope` recall 读取当前、历史或双态记忆
-4. 基于更新后的 `state + recall` 生成回复
-5. 写入 assistant evidence atom
-6. 生成 episode atom，并编译 assistant commitments / narrative updates
-7. 运行 reconsolidation / inhibition lifecycle 更新
+2. 将用户输入编译成新的 memory / episode / inhibition nodes 和 signed weighted edges
+3. 对当前 subject 的 memory field 执行写时演化，刷新 activation cache
+4. 从当前 memory field 和 query 切片生成 `MemoryBrief`，按 `current_mainline / query_relevant / recent_changes / active_tensions / ongoing_commitments` 组织回复上下文
+5. 生成回复
+6. 写入 assistant evidence atom
+7. 将完整回合编译成 episode / memory / inhibition nodes 和 edges
+8. 再执行一次写时演化
 
-`inhibition` 不会删除 evidence atom。它只会抑制相关 atoms 的可访问性和当前连续性。公开 `state` 只返回 projection views，不回传 raw atoms 或 provenance。
+Aurora 不再直接改写旧 atom。冲突、淡化、遗忘和延续都通过不可变节点进入图后，借由边关系自然改变当前激活分布。
 
-assistant 侧明确承诺的未来动作，例如“我会提醒你……”，会进入 `procedural_memory`，并带上 `owner="aurora"` 与 `trigger="assistant_commitment"`，这样它不只停留在 episode 场景里。
+## 系统公理
 
-`cognitive`、`affective`，以及当前 `trigger="plan"` 的 `procedural` atoms 在公开状态里都被当作当前快照，而不是无限累积的历史列表。新的同类状态会 supersede 旧快照。
+Aurora 的 memory field kernel 只承诺以下公理：
+
+1. 真相只由不可变 `memory_atoms`、不可变 `memory_edges` 和派生 `activation_cache` 组成。
+2. 每个节点都有一个只由本地 retention 和 query seed 决定的内禀激活。
+3. 正边只传播高于内禀基线的剩余激活，因此静止场不会自我放大。
+4. 负边按源节点当前可达性传播抑制压力，不表达逻辑否定或真值裁决。
+5. `state()` 和 `recall()` 返回的是当前 memory field 的只读投影，不是唯一真值声明。
+6. `recall()` 以缓存场为初值，但不会回写或污染缓存；激活演化始终有界并收敛到稳定固定点。
+
+## Compiler Boundary
+
+`distillation` 只是一层 proposal compiler，不是真值裁决器。它遵守以下边界：
+
+1. user compiler 只能提议 `memory | inhibition`，completed-turn compiler 只能提议 `memory | episode | inhibition`。
+2. 非 JSON、非 object 的 compiler 输出不会被修补，而是沉淀为 `compile_failure` evidence。
+3. 非法 `kind`、空文本、非法数值范围、未知引用、自环边都会被直接丢弃。
+4. 任何触及 `evidence` 的边都会被过滤；`evidence` 只记录观察痕迹，不进入场耦合。
+
+## Storage Invariants
+
+SQLite store 现在直接守住以下真相边界：
+
+1. `atom_kind` 只能是 `evidence | memory | episode | inhibition`，核心数值范围必须落在合法区间。
+2. edge 和 activation cache 都只能引用同一 `subject_id` 下真实存在的 atom。
+3. edge 不允许自环，也不允许触及 `evidence` atom。
+4. `evidence` 只能作为观察痕迹存在，不能带来源链。
+5. `activation_cache` 的替换是原子事务，失败时不会留下半更新状态。
+6. 持久化 payload 的恢复是严格的：非法 kind、坏 JSON、错误形状和缺失必填字段都会显式失败，不做静默兜底。
 
 ## 质量保障
 
@@ -132,6 +149,12 @@ uv run pytest -q
 uv run mypy aurora tests --show-error-codes --pretty
 uv run ruff check aurora tests
 python -m compileall -q aurora tests
+```
+
+真实百炼链路 smoke 默认不进常规测试，显式开启：
+
+```bash
+AURORA_LIVE_TESTS=1 uv run pytest -q tests/test_live_bailian_vnext.py
 ```
 
 ## 项目结构

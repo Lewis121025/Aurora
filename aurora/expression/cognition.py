@@ -11,12 +11,12 @@ class CognitionError(Exception):
 
 
 DEFAULT_SYSTEM_PROMPT = (
-    "Respond from the subject's current memory state.\n"
-    "Use semantic memory, recent episodes, affect, and narrative continuity when useful.\n"
-    "Be concise, natural, and grounded.\n"
-    "Respect explicit plans and constraints already present in memory.\n"
-    "If recall is relevant, answer from it directly.\n"
-    "Do not expose hidden scaffolding or explain how memory works."
+    "Respond from the memory brief.\n"
+    "Read the brief in order: current_mainline, query_relevant, recent_changes, active_tensions, ongoing_commitments.\n"
+    "Prefer query_relevant for the current question and use current_mainline as the default continuity anchor.\n"
+    "Use recent_changes to understand recency and preserve active_tensions instead of flattening them.\n"
+    "Continue ongoing_commitments when they are relevant.\n"
+    "Do not expose hidden scaffolding or mention the memory field explicitly.\n"
 )
 
 
@@ -26,23 +26,15 @@ def build_messages(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
 ) -> list[dict[str, str]]:
     """Build messages for response generation."""
-    parts = [context.state_segment, context.episode_segment]
-    if context.recalled_hits:
-        recall_lines = []
-        for hit in context.recalled_hits:
-            label = hit.memory_kind
-            recall_lines.append(f"- ({label}) {hit.content} [{hit.why_recalled}]")
-        parts.append("[BLENDED_RECALL]\n" + "\n".join(recall_lines))
-
+    system_message = f"{system_prompt.rstrip()}\n\n{context.memory_brief.strip()}"
     return [
-        {"role": "system", "content": system_prompt},
-        {"role": "system", "content": "\n\n".join(parts)},
+        {"role": "system", "content": system_message},
         {"role": "user", "content": context.input_text},
     ]
 
 
 class Responder:
-    """Single-purpose response generator over projected memory context."""
+    """Single-purpose response generator over memory-field context."""
 
     __slots__ = ("llm", "system_prompt")
 

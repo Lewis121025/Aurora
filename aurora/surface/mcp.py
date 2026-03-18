@@ -9,7 +9,7 @@ from dataclasses import asdict
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
-from aurora.runtime.contracts import RecallMode, RecallResult, RecallTemporalScope, SubjectMemoryState, TurnOutput
+from aurora.runtime.contracts import ActivatedAtom, ActivatedEdge, RecallResult, SubjectMemoryState, TurnOutput
 from aurora.runtime.engine import AuroraKernel
 
 mcp = FastMCP("Aurora")
@@ -22,22 +22,33 @@ class MCPTurnOutput(BaseModel):
     subject_id: str
     response_text: str
     recall_used: bool
-    applied_atom_ids: list[str] = Field(default_factory=list)
+    created_atom_ids: list[str] = Field(default_factory=list)
+    created_edge_ids: list[str] = Field(default_factory=list)
 
 
-class MCPRecallHit(BaseModel):
-    memory_kind: str
-    content: str
-    score: float
-    why_recalled: str
+class MCPActivatedAtom(BaseModel):
+    atom_id: str
+    atom_kind: str
+    text: str
+    activation: float
+    confidence: float
+    salience: float
+    created_at: float
+
+
+class MCPActivatedEdge(BaseModel):
+    source_atom_id: str
+    target_atom_id: str
+    influence: float
+    confidence: float
 
 
 class MCPRecallOutput(BaseModel):
     subject_id: str
     query: str
-    temporal_scope: RecallTemporalScope
-    mode: RecallMode
-    hits: list[MCPRecallHit]
+    summary: str
+    atoms: list[MCPActivatedAtom]
+    edges: list[MCPActivatedEdge]
 
 
 def _require_non_empty(value: str, field_name: str) -> str:
@@ -81,25 +92,26 @@ def _turn_payload(output: TurnOutput) -> MCPTurnOutput:
         subject_id=output.subject_id,
         response_text=output.response_text,
         recall_used=output.recall_used,
-        applied_atom_ids=list(output.applied_atom_ids),
+        created_atom_ids=list(output.created_atom_ids),
+        created_edge_ids=list(output.created_edge_ids),
     )
+
+
+def _atom_payload(atom: ActivatedAtom) -> MCPActivatedAtom:
+    return MCPActivatedAtom(**asdict(atom))
+
+
+def _edge_payload(edge: ActivatedEdge) -> MCPActivatedEdge:
+    return MCPActivatedEdge(**asdict(edge))
 
 
 def _recall_payload(result: RecallResult) -> MCPRecallOutput:
     return MCPRecallOutput(
         subject_id=result.subject_id,
         query=result.query,
-        temporal_scope=result.temporal_scope,
-        mode=result.mode,
-        hits=[
-            MCPRecallHit(
-                memory_kind=hit.memory_kind,
-                content=hit.content,
-                score=hit.score,
-                why_recalled=hit.why_recalled,
-            )
-            for hit in result.hits
-        ],
+        summary=result.summary,
+        atoms=[_atom_payload(atom) for atom in result.atoms],
+        edges=[_edge_payload(edge) for edge in result.edges],
     )
 
 
@@ -120,32 +132,24 @@ def aurora_turn(subject_id: str, text: str, now_ts: float | None = None) -> MCPT
 
 
 @mcp.tool(name="aurora_recall", structured_output=True)
-def aurora_recall(
-    subject_id: str,
-    query: str,
-    temporal_scope: RecallTemporalScope,
-    limit: int = 5,
-    mode: RecallMode = "blended",
-) -> MCPRecallOutput:
-    """Recall subject-scoped memory hits."""
+def aurora_recall(subject_id: str, query: str, limit: int = 8) -> MCPRecallOutput:
+    """Recall one subject-scoped memory-field slice."""
     return _recall_payload(
         _get_kernel().recall(
             _require_non_empty(subject_id, "subject_id"),
             _require_non_empty(query, "query"),
-            temporal_scope=temporal_scope,
             limit=_require_positive_limit(limit),
-            mode=mode,
         )
     )
 
 
 @mcp.resource(
-    "aurora://subject/{subject_id}/state",
-    name="aurora_subject_state",
+    "aurora://subject/{subject_id}/memory-field",
+    name="aurora_subject_memory_field",
     mime_type="application/json",
 )
 def subject_state(subject_id: str) -> str:
-    """Get the current subject memory state."""
+    """Get the current subject memory field."""
     return _json(asdict(_state_payload(subject_id)))
 
 

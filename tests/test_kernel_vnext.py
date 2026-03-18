@@ -4,10 +4,15 @@ from dataclasses import asdict, is_dataclass
 import json
 from typing import Any, cast
 
-import pytest
-
-from aurora.runtime.contracts import AffectiveContent, EpisodeContent, EvidenceContent, MemoryAtom, SemanticContent
-from aurora.runtime.projections import build_memory_projection
+from aurora.runtime.contracts import (
+    AtomKind,
+    EpisodeContent,
+    EvidenceContent,
+    MemoryContent,
+    MemoryAtom,
+    MemoryEdge,
+)
+from aurora.runtime.projections import build_memory_brief
 from tests.conftest import KernelFactory, QueueLLM, scripted_memory_llm
 
 
@@ -45,13 +50,70 @@ def _stored_atoms(kernel: Any, subject_id: str, *, atom_kind: str | None = None)
     return [atom for atom in atoms if atom.atom_kind == atom_kind]
 
 
-def _semantic_values(items: tuple[Any, ...]) -> set[str]:
-    return {item.value for item in items}
+def _stored_edges(kernel: Any, subject_id: str) -> list[Any]:
+    return list(kernel.store.list_edges(subject_id))
 
 
-def test_evidence_becomes_stateful_memory_and_keeps_evidence_archive(kernel_factory: KernelFactory) -> None:
+def _activation(kernel: Any, subject_id: str) -> dict[str, float]:
+    return dict(kernel.store.list_activation_cache(subject_id))
+
+
+def _intrinsic_activation(confidence: float, salience: float) -> float:
+    retention = confidence * salience
+    return retention / (1.0 + retention)
+
+
+def _add_text_atom(
+    kernel: Any,
+    *,
+    subject_id: str,
+    atom_id: str,
+    text: str,
+    atom_kind: AtomKind = "memory",
+    confidence: float = 0.82,
+    salience: float = 0.78,
+    created_at: float = 0.0,
+) -> MemoryAtom:
+    atom = MemoryAtom(
+        atom_id=atom_id,
+        subject_id=subject_id,
+        atom_kind=atom_kind,
+        content=MemoryContent(text=text),
+        confidence=confidence,
+        salience=salience,
+        created_at=created_at,
+    )
+    kernel.store.add_atom(atom)
+    return atom
+
+
+def _add_edge(
+    kernel: Any,
+    *,
+    subject_id: str,
+    edge_id: str,
+    source_atom_id: str,
+    target_atom_id: str,
+    influence: float,
+    confidence: float = 0.95,
+    created_at: float = 0.0,
+) -> MemoryEdge:
+    edge = MemoryEdge(
+        edge_id=edge_id,
+        subject_id=subject_id,
+        source_atom_id=source_atom_id,
+        target_atom_id=target_atom_id,
+        influence=influence,
+        confidence=confidence,
+        created_at=created_at,
+    )
+    kernel.store.add_edge(edge)
+    return edge
+
+
+def test_turn_writes_memory_field_nodes_and_keeps_typed_payloads(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
-    subject_id = "subject-evidence"
+    subject_id = "subject-field"
 
     turn = kernel.turn(subject_id, "我在杭州工作，也喜欢爵士乐，今天心情很好。", now_ts=1.0)
     state = kernel.state(subject_id)
@@ -60,108 +122,86 @@ def test_evidence_becomes_stateful_memory_and_keeps_evidence_archive(kernel_fact
     assert turn.subject_id == subject_id
     assert turn.response_text.strip() == "ack"
     assert turn.recall_used is True
+    assert turn.created_atom_ids
     assert state.subject_id == subject_id
-    assert _semantic_values(state.semantic_self_model) == {"杭州", "爵士乐"}
-    assert state.affective_state.mood == "positive"
-    assert state.recent_episodes
-    assert state.recent_episodes[-1].summary
-    assert state.recent_episodes[-1].actors
-    assert state.recent_episodes[-1].time_span.start == 1.0
+    assert state.summary.startswith("[CURRENT_MEMORY_FIELD]")
+    assert state.atoms
+    assert any("杭州" in atom.text for atom in state.atoms)
+    assert any("爵士乐" in atom.text for atom in state.atoms)
     assert any(isinstance(atom.content, EvidenceContent) for atom in stored_atoms)
-    assert any(atom.atom_kind == "semantic" for atom in stored_atoms)
-    assert any(atom.atom_kind == "affective" for atom in stored_atoms)
+    assert any(isinstance(atom.content, MemoryContent) for atom in stored_atoms if atom.atom_kind == "memory")
+    assert any(isinstance(atom.content, EpisodeContent) for atom in stored_atoms if atom.atom_kind == "episode")
 
 
-def test_public_state_is_projection_only(kernel_factory: KernelFactory) -> None:
+def test_axiom_state_exposes_field_projection_not_truth_schema(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
-    subject_id = "subject-projection-only"
+    subject_id = "subject-field-view"
 
     state = kernel.state(subject_id)
     empty_state_json = _json_text(state)
-    assert "atom_id" not in empty_state_json
-    assert "source_atom_ids" not in empty_state_json
-    assert "supersedes_atom_id" not in empty_state_json
-    assert "inhibits_atom_ids" not in empty_state_json
 
-    kernel.turn(subject_id, "我在杭州工作，也喜欢爵士乐。", now_ts=1.0)
-    state = kernel.state(subject_id)
-    state_json = _json_text(state)
-
-    assert all(not isinstance(item, MemoryAtom) for item in state.semantic_self_model)
-    assert all(not isinstance(item, MemoryAtom) for item in state.procedural_memory)
-    assert all(not isinstance(item, MemoryAtom) for item in state.recent_episodes)
-    assert "atom_id" not in state_json
-    assert "source_atom_ids" not in state_json
-    assert "supersedes_atom_id" not in state_json
-    assert "inhibits_atom_ids" not in state_json
+    assert state.summary == "[CURRENT_MEMORY_FIELD]\n- none"
+    assert state.atoms == ()
+    assert state.edges == ()
+    assert "semantic_self_model" not in empty_state_json
+    assert "semantic_world_model" not in empty_state_json
+    assert "active_cognition" not in empty_state_json
 
 
-def test_memory_atom_payloads_stay_typed(kernel_factory: KernelFactory) -> None:
-    kernel = _kernel(kernel_factory)
-    subject_id = "subject-typed-payloads"
-
-    kernel.turn(subject_id, "我在杭州工作，也喜欢爵士乐，今天心情很好。", now_ts=1.0)
-
-    stored_atoms = _stored_atoms(kernel, subject_id)
-    assert all(not isinstance(atom.content, dict) for atom in stored_atoms)
-    assert any(isinstance(atom.content, EvidenceContent) for atom in stored_atoms)
-    assert any(isinstance(atom.content, EpisodeContent) for atom in stored_atoms)
-    assert any(isinstance(atom.content, SemanticContent) for atom in stored_atoms)
-    assert any(isinstance(atom.content, AffectiveContent) for atom in stored_atoms)
-
-
-def test_response_reads_user_compiled_state_before_generation(kernel_factory: KernelFactory) -> None:
+def test_response_reads_memory_brief_before_generation(kernel_factory: KernelFactory) -> None:
     llm = QueueLLM(
-        lambda messages: _assert_current_state_visible(messages),
+        lambda messages: _assert_memory_brief_visible(messages),
         repeat_last=False,
         structured=scripted_memory_llm,
     )
     kernel = cast(Any, kernel_factory(llm=llm))
-    subject_id = "subject-pre-response-compile"
 
-    kernel.turn(subject_id, "我现在住在杭州。", now_ts=1.0)
+    kernel.turn("subject-pre-response-field", "我现在住在杭州。", now_ts=1.0)
 
 
-def _assert_current_state_visible(messages: list[dict[str, str]]) -> str:
-    state_segment = messages[1]["content"]
-    assert "杭州" in state_segment
-    assert "上海" not in state_segment
+def _assert_memory_brief_visible(messages: list[dict[str, str]]) -> str:
+    memory_brief = messages[0]["content"]
+    assert "[MEMORY_BRIEF]" in memory_brief
+    assert "current_mainline:" in memory_brief
+    assert "query_relevant:" in memory_brief
+    assert "recent_changes:" in memory_brief
+    assert "active_tensions:" in memory_brief
+    assert "ongoing_commitments:" in memory_brief
+    assert "杭州" in memory_brief
+    assert "semantic_self_model" not in memory_brief
     return "ack"
 
 
-def test_recall_requires_explicit_temporal_scope(kernel_factory: KernelFactory) -> None:
+def test_conflict_write_shifts_activation_without_mutating_old_nodes(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
-    with pytest.raises(TypeError):
-        kernel.recall("subject", "我住在哪里？")
-
-
-def test_semantic_reconsolidation_supersedes_without_silent_overwrite(kernel_factory: KernelFactory) -> None:
-    kernel = _kernel(kernel_factory)
-    subject_id = "subject-reconsolidation"
+    subject_id = "subject-conflict"
 
     kernel.turn(subject_id, "我住在上海。", now_ts=1.0)
-    kernel.turn(subject_id, "更正，我现在住在杭州。", now_ts=2.0)
+    turn = kernel.turn(subject_id, "更正，我现在住在杭州。", now_ts=2.0)
 
     state = kernel.state(subject_id)
-    stored_semantic = _stored_atoms(kernel, subject_id, atom_kind="semantic")
+    stored_memory = _stored_atoms(kernel, subject_id, atom_kind="memory")
+    stored_edges = _stored_edges(kernel, subject_id)
+    activation = _activation(kernel, subject_id)
 
-    assert _semantic_values(state.semantic_self_model) == {"杭州"}
-    assert any(atom.status == "superseded" and "上海" in _json_text(atom.content) for atom in stored_semantic)
-    assert any(atom.status == "active" and "杭州" in _json_text(atom.content) for atom in stored_semantic)
-    assert "我住在杭州" in _json_text(state.active_cognition)
-    assert "我住在上海" not in _json_text(state.active_cognition)
+    assert len(stored_memory) >= 2
+    assert any("上海" in _json_text(atom.content) for atom in stored_memory)
+    assert any("杭州" in _json_text(atom.content) for atom in stored_memory)
+    assert any(edge.influence < 0.0 for edge in stored_edges)
+    assert turn.created_edge_ids
 
-    current = kernel.recall(subject_id, "我现在住在哪里？", temporal_scope="current", limit=5, mode="blended")
-    assert current.hits
-    assert any(hit.memory_kind == "semantic" and "杭州" in hit.content for hit in current.hits)
-    assert all("上海" not in hit.content for hit in current.hits if hit.memory_kind == "semantic")
+    shanghai_atom = next(atom for atom in stored_memory if "上海" in _json_text(atom.content))
+    hangzhou_atom = next(atom for atom in stored_memory if "杭州" in _json_text(atom.content))
+    assert activation[hangzhou_atom.atom_id] > activation[shanghai_atom.atom_id]
+    assert any("杭州" in atom.text for atom in state.atoms)
+    assert "status" not in _json_text(stored_memory)
 
-    historical = kernel.recall(subject_id, "我以前住在哪里？", temporal_scope="historical", limit=10, mode="blended")
-    assert any("上海" in hit.content for hit in historical.hits)
-    assert all("杭州" not in hit.content for hit in historical.hits if hit.memory_kind == "semantic")
+    recalled = kernel.recall(subject_id, "我住在哪里？", limit=5)
+    assert recalled.atoms
+    assert any("杭州" in atom.text for atom in recalled.atoms)
 
 
-def test_inhibition_hides_memory_without_deleting_evidence(kernel_factory: KernelFactory) -> None:
+def test_inhibition_changes_activation_without_deleting_nodes(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
     subject_id = "subject-inhibition"
 
@@ -170,187 +210,460 @@ def test_inhibition_hides_memory_without_deleting_evidence(kernel_factory: Kerne
 
     state = kernel.state(subject_id)
     stored_atoms = _stored_atoms(kernel, subject_id)
+    stored_edges = _stored_edges(kernel, subject_id)
+    activation = _activation(kernel, subject_id)
 
-    assert "爵士乐" not in _json_text(state.semantic_self_model)
+    jazz_atom = next(atom for atom in stored_atoms if atom.atom_kind == "memory" and "爵士乐" in _json_text(atom.content))
     assert any(atom.atom_kind == "inhibition" for atom in stored_atoms)
     assert any(atom.atom_kind == "evidence" and "我喜欢爵士乐" in _json_text(atom.content) for atom in stored_atoms)
     assert any(atom.atom_kind == "evidence" and "请忘掉我喜欢爵士乐" in _json_text(atom.content) for atom in stored_atoms)
+    assert any(edge.target_atom_id == jazz_atom.atom_id and edge.influence < 0.0 for edge in stored_edges)
+    assert activation[jazz_atom.atom_id] <= 0.05
+    assert all(
+        not (atom.atom_kind == "memory" and "爵士乐" in atom.text)
+        for atom in state.atoms
+    )
 
-    recalled = kernel.recall(subject_id, "我喜欢什么音乐？", temporal_scope="current", limit=5, mode="blended")
-    assert all("爵士乐" not in hit.content for hit in recalled.hits)
+    recalled = kernel.recall(subject_id, "我喜欢什么音乐？", limit=5)
+    assert all(
+        not (atom.atom_kind == "memory" and "爵士乐" in atom.text)
+        for atom in recalled.atoms
+    )
 
 
-def test_inhibited_content_does_not_reenter_projection(kernel_factory: KernelFactory) -> None:
+def test_axiom_user_compiler_drops_non_stage_kinds_and_illegal_edges(kernel_factory: KernelFactory) -> None:
+    def structured(messages: list[dict[str, str]]) -> str:
+        system_text = "\n".join(message["content"] for message in messages if message["role"] == "system")
+        if "[AURORA_USER_FIELD_COMPILER]" not in system_text:
+            return json.dumps({"atoms": [], "edges": []}, ensure_ascii=False)
+        payload = json.loads(messages[-1]["content"])
+        current_field = payload.get("current_field")
+        existing = current_field if isinstance(current_field, list) else []
+        evidence_id = next(
+            str(item.get("atom_id", ""))
+            for item in existing
+            if isinstance(item, dict) and str(item.get("kind", "")) == "evidence"
+        )
+        return json.dumps(
+            {
+                "atoms": [
+                    {"kind": "episode", "text": "非法 episode", "confidence": 0.9, "salience": 0.8},
+                    {"kind": "memory", "text": "", "confidence": 0.9, "salience": 0.8},
+                    {"kind": "memory", "text": "合法记忆", "confidence": 0.91, "salience": 0.83},
+                    {"kind": "memory", "text": "非法数值", "confidence": 1.3, "salience": 0.7},
+                ],
+                "edges": [
+                    {"source": "new:0", "target": evidence_id, "influence": 0.8, "confidence": 0.9},
+                    {"source": "new:0", "target": "missing", "influence": 0.8, "confidence": 0.9},
+                    {"source": "new:0", "target": "new:0", "influence": 0.8, "confidence": 0.9},
+                ],
+            },
+            ensure_ascii=False,
+        )
+
+    kernel = cast(
+        Any,
+        kernel_factory(
+            llm=QueueLLM(
+                "ack",
+                repeat_last=True,
+                structured=structured,
+            )
+        ),
+    )
+    subject_id = "subject-compiler-boundary"
+
+    turn = kernel.turn(subject_id, "写入一些乱七八糟的内容。", now_ts=1.0)
+    stored_atoms = _stored_atoms(kernel, subject_id)
+    stored_edges = _stored_edges(kernel, subject_id)
+    stored_memory = [atom for atom in stored_atoms if atom.atom_kind == "memory"]
+
+    assert turn.created_edge_ids == ()
+    assert any(atom.atom_kind == "evidence" for atom in stored_atoms)
+    assert [atom for atom in stored_atoms if atom.atom_kind == "episode"] == []
+    assert len(stored_memory) == 1
+    assert _json_text(stored_memory[0].content) == _json_text(MemoryContent(text="合法记忆"))
+    assert stored_edges == []
+
+
+def test_axiom_malformed_compiler_output_records_compile_failure_evidence(kernel_factory: KernelFactory) -> None:
+    kernel = cast(
+        Any,
+        kernel_factory(
+            llm=QueueLLM(
+                "ack",
+                repeat_last=True,
+                structured=lambda messages: "not-json"
+                if "[AURORA_USER_FIELD_COMPILER]"
+                in "\n".join(message["content"] for message in messages if message["role"] == "system")
+                else json.dumps({"atoms": [], "edges": []}, ensure_ascii=False),
+            )
+        ),
+    )
+    subject_id = "subject-compile-failure"
+
+    turn = kernel.turn(subject_id, "这轮 compiler 会坏掉。", now_ts=1.0)
+    stored_atoms = _stored_atoms(kernel, subject_id)
+    compile_failures = [
+        atom
+        for atom in stored_atoms
+        if atom.atom_kind == "evidence"
+        and isinstance(atom.content, EvidenceContent)
+        and atom.content.event_kind == "compile_failure"
+    ]
+
+    assert turn.response_text == "ack"
+    assert compile_failures
+    assert any("Expecting value" in atom.content.text for atom in compile_failures)
+
+
+def test_query_cannot_resurrect_suppressed_exact_match(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
-    subject_id = "subject-inhibition-projection"
+    subject_id = "subject-suppressed-query"
 
-    kernel.turn(subject_id, "我喜欢爵士乐。", now_ts=1.0)
-    kernel.turn(subject_id, "请忘掉我喜欢爵士乐。", now_ts=2.0)
+    jazz = _add_text_atom(
+        kernel,
+        subject_id=subject_id,
+        atom_id="memory-jazz",
+        text="我喜欢爵士乐",
+        created_at=1.0,
+    )
+    inhibition = _add_text_atom(
+        kernel,
+        subject_id=subject_id,
+        atom_id="inhibition-jazz",
+        atom_kind="inhibition",
+        text="请忘掉我喜欢爵士乐",
+        confidence=0.9,
+        salience=0.85,
+        created_at=2.0,
+    )
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-forget-jazz",
+        source_atom_id=inhibition.atom_id,
+        target_atom_id=jazz.atom_id,
+        influence=-1.0,
+        confidence=0.95,
+        created_at=2.0,
+    )
 
-    state_segment, episode_segment, _ = build_memory_projection(kernel.state(subject_id), ())
+    activation = kernel.field.evolve(subject_id)
+    recalled = kernel.recall(subject_id, "爵士乐", limit=5)
 
-    assert "爵士乐" not in state_segment
-    assert "爵士乐" not in episode_segment
+    assert activation[jazz.atom_id] <= 0.05
+    assert all(atom.atom_id != jazz.atom_id for atom in recalled.atoms)
+    assert any(atom.atom_id == inhibition.atom_id for atom in recalled.atoms)
 
 
-def test_reconsolidation_does_not_hide_unrelated_episode_context(kernel_factory: KernelFactory) -> None:
+def test_axiom_intrinsic_activation_depends_only_on_local_retention(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
-    subject_id = "subject-episode-continuity"
+    subject_id = "subject-intrinsic-field"
 
-    kernel.turn(subject_id, "我住在上海。今天和朋友吃饭很开心。", now_ts=1.0)
-    kernel.turn(subject_id, "更正，我现在住在杭州。", now_ts=2.0)
+    anchor = _add_text_atom(
+        kernel,
+        subject_id=subject_id,
+        atom_id="memory-anchor",
+        text="锚点记忆",
+        confidence=0.91,
+        salience=0.73,
+        created_at=1.0,
+    )
 
-    state = kernel.state(subject_id)
+    activation = kernel.field.evolve(subject_id)
+    expected = _intrinsic_activation(anchor.confidence, anchor.salience)
 
-    assert any("朋友吃饭很开心" in episode.summary for episode in state.recent_episodes)
-    assert any("更正，我现在住在杭州" in episode.summary for episode in state.recent_episodes)
+    assert abs(activation[anchor.atom_id] - expected) < 1e-6
 
 
-def test_affective_episode_markers_and_current_mood_are_separate(kernel_factory: KernelFactory) -> None:
+def test_axiom_resting_field_does_not_self_amplify(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
-    subject_id = "subject-affect"
+    subject_id = "subject-resting-field"
 
-    kernel.turn(subject_id, "今天见到老朋友，我很开心，也有点放松。", now_ts=1.0)
+    source = _add_text_atom(
+        kernel,
+        subject_id=subject_id,
+        atom_id="memory-source",
+        text="源记忆",
+        confidence=0.92,
+        salience=0.61,
+        created_at=1.0,
+    )
+    target = _add_text_atom(
+        kernel,
+        subject_id=subject_id,
+        atom_id="memory-target",
+        text="目标记忆",
+        confidence=0.77,
+        salience=0.69,
+        created_at=2.0,
+    )
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-resting-source-target",
+        source_atom_id=source.atom_id,
+        target_atom_id=target.atom_id,
+        influence=1.0,
+        confidence=0.95,
+        created_at=3.0,
+    )
 
-    state = kernel.state(subject_id)
-    episode = state.recent_episodes[-1]
+    activation = kernel.field.evolve(subject_id)
 
-    assert episode.emotion_markers
-    assert state.affective_state.mood == "positive"
-    assert "开心" in state.affective_state.active_feelings
-    assert _json_text(episode.emotion_markers) != _json_text(state.affective_state)
-
-
-def test_cognitive_summary_stays_structured_without_raw_thought(kernel_factory: KernelFactory) -> None:
-    kernel = _kernel(kernel_factory)
-    subject_id = "subject-cognition"
-
-    kernel.turn(subject_id, "我想先把部署文档补完，再同步团队，不想让大家一直等。", now_ts=1.0)
-
-    cognition_text = _json_text(kernel.state(subject_id).active_cognition)
-
-    assert "raw_thought" not in cognition_text
-    assert "reasoning" not in cognition_text
-    assert "scratchpad" not in cognition_text
-    for key in ("beliefs", "goals", "conflicts", "intentions", "commitments"):
-        assert key in cognition_text
-
-
-def test_cognitive_snapshot_is_single_active_state(kernel_factory: KernelFactory) -> None:
-    kernel = _kernel(kernel_factory)
-    subject_id = "subject-cognition-snapshot"
-
-    kernel.turn(subject_id, "我想先把部署文档补完。", now_ts=1.0)
-    kernel.turn(subject_id, "我想先去散步。", now_ts=2.0)
-
-    state = kernel.state(subject_id)
-    stored_cognition = _stored_atoms(kernel, subject_id, atom_kind="cognitive")
-
-    assert "先去散步" in _json_text(state.active_cognition)
-    assert "先把部署文档补完" not in _json_text(state.active_cognition)
-    assert sum(1 for atom in stored_cognition if atom.status == "active") == 1
-    assert sum(1 for atom in stored_cognition if atom.status == "superseded") == 1
-    assert any(atom.supersedes_atom_id for atom in stored_cognition if atom.status == "active")
+    assert abs(activation[source.atom_id] - _intrinsic_activation(source.confidence, source.salience)) < 1e-6
+    assert abs(activation[target.atom_id] - _intrinsic_activation(target.confidence, target.salience)) < 1e-6
 
 
-def test_procedural_plan_is_single_active_snapshot(kernel_factory: KernelFactory) -> None:
-    kernel = _kernel(kernel_factory)
-    subject_id = "subject-procedural-plan-snapshot"
-
-    kernel.turn(subject_id, "我想先把部署文档补完，再同步团队。", now_ts=1.0)
-    kernel.turn(subject_id, "我想先去散步，再回来写文档。", now_ts=2.0)
-
-    state = kernel.state(subject_id)
-    stored_procedures = _stored_atoms(kernel, subject_id, atom_kind="procedural")
-
-    assert len(state.procedural_memory) == 1
-    assert "先去散步，再回来写文档" in state.procedural_memory[-1].text
-    assert "先把部署文档补完，再同步团队" not in _json_text(state.procedural_memory)
-    assert sum(1 for atom in stored_procedures if atom.status == "active" and "plan" in _json_text(atom.content)) == 1
-    assert any(atom.supersedes_atom_id for atom in stored_procedures if atom.status == "active" and "plan" in _json_text(atom.content))
-
-
-def test_assistant_commitment_enters_procedural_memory(kernel_factory: KernelFactory) -> None:
+def test_completed_turn_writes_episode_and_future_memory_traces(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory, "我会明天提醒你同步团队。")
-    subject_id = "subject-assistant-commitment"
+    subject_id = "subject-turn-field"
 
     kernel.turn(subject_id, "明天提醒我同步团队。", now_ts=1.0)
 
     state = kernel.state(subject_id)
-    recalled = kernel.recall(subject_id, "提醒我同步团队", temporal_scope="current", limit=5, mode="blended")
+    stored_atoms = _stored_atoms(kernel, subject_id)
 
-    assert any("Aurora承诺：明天提醒你同步团队" in item.text for item in state.procedural_memory)
-    assert any(item.trigger == "assistant_commitment" for item in state.procedural_memory)
-    assert any("Aurora承诺：明天提醒你同步团队" in hit.content for hit in recalled.hits)
+    assert any(atom.atom_kind == "episode" for atom in stored_atoms)
+    assert any(atom.atom_kind == "memory" and "Aurora承诺" in _json_text(atom.content) for atom in stored_atoms)
+    assert any("Aurora承诺" in atom.text for atom in state.atoms)
 
 
-def test_narrative_memory_accumulates_across_episodes(kernel_factory: KernelFactory) -> None:
+def test_axiom_recall_returns_query_activated_field_projection(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
-    subject_id = "subject-narrative"
-
-    kernel.turn(subject_id, "搬到杭州以后，我在重新适应工作节奏。", now_ts=1.0)
-    kernel.turn(subject_id, "最近我把周末留给朋友和运动，生活开始重新排好。", now_ts=2.0)
-
-    state = kernel.state(subject_id)
-
-    assert state.narrative_state.arcs
-    assert any(arc.episode_count >= 2 for arc in state.narrative_state.arcs)
-    assert any("杭州" in arc.theme or "杭州" in arc.storyline for arc in state.narrative_state.arcs)
-
-
-def test_episode_captures_both_sides_of_the_turn(kernel_factory: KernelFactory) -> None:
-    kernel = _kernel(kernel_factory, "我会明天提醒你同步团队。")
-    subject_id = "subject-episode-full-turn"
-
-    kernel.turn(subject_id, "明天提醒我同步团队。", now_ts=1.0)
-
-    episode = kernel.state(subject_id).recent_episodes[-1]
-    assert "明天提醒我同步团队" in episode.summary
-    assert "我会明天提醒你同步团队" in episode.summary
-    assert episode.time_span.start < episode.time_span.end
-
-
-def test_blended_recall_surfaces_episode_semantic_and_narrative_memories(kernel_factory: KernelFactory) -> None:
-    kernel = _kernel(kernel_factory)
-    subject_id = "subject-blended-recall"
+    subject_id = "subject-recall-field"
 
     kernel.turn(subject_id, "我在杭州工作，也喜欢爵士乐。", now_ts=1.0)
     kernel.turn(subject_id, "搬到杭州以后，我在重新适应工作节奏。", now_ts=2.0)
     kernel.turn(subject_id, "最近我把周末留给朋友和运动，生活开始重新排好。", now_ts=3.0)
 
-    recalled = kernel.recall(subject_id, "杭州 适应 生活", temporal_scope="current", limit=10, mode="blended")
+    recalled = kernel.recall(subject_id, "杭州 适应 生活", limit=6)
+    memory_brief = build_memory_brief(kernel.state(subject_id), recalled)
 
-    assert any(hit.memory_kind == "episode" for hit in recalled.hits)
-    assert any(hit.memory_kind == "semantic" for hit in recalled.hits)
-    assert any(hit.memory_kind == "narrative" for hit in recalled.hits)
+    assert recalled.summary.startswith("[QUERY_MEMORY_FIELD]")
+    assert recalled.atoms
+    assert any(atom.atom_kind == "memory" for atom in recalled.atoms)
+    assert memory_brief.startswith("[MEMORY_BRIEF]")
+    assert "current_mainline:" in memory_brief
+    assert "query_relevant:" in memory_brief
+    assert "recent_changes:" in memory_brief
 
-
-def test_both_scope_recall_dedupes_publicly_indistinguishable_hits(kernel_factory: KernelFactory) -> None:
+def test_positive_cycle_query_stays_ranked_without_saturating(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
-    subject_id = "subject-recall-dedupe"
+    subject_id = "subject-cycle"
 
-    kernel.turn(subject_id, "我住在杭州。", now_ts=1.0)
-    kernel.turn(subject_id, "更正，我现在住在上海。", now_ts=2.0)
-    kernel.turn(subject_id, "更正，我现在住在杭州。", now_ts=3.0)
+    alpha = _add_text_atom(kernel, subject_id=subject_id, atom_id="memory-a", text="Alpha", created_at=1.0)
+    beta = _add_text_atom(kernel, subject_id=subject_id, atom_id="memory-b", text="Beta", created_at=2.0)
+    gamma = _add_text_atom(kernel, subject_id=subject_id, atom_id="memory-c", text="Gamma", created_at=3.0)
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-a-b",
+        source_atom_id=alpha.atom_id,
+        target_atom_id=beta.atom_id,
+        influence=1.0,
+        created_at=4.0,
+    )
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-b-c",
+        source_atom_id=beta.atom_id,
+        target_atom_id=gamma.atom_id,
+        influence=1.0,
+        created_at=5.0,
+    )
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-c-a",
+        source_atom_id=gamma.atom_id,
+        target_atom_id=alpha.atom_id,
+        influence=1.0,
+        created_at=6.0,
+    )
 
-    recalled = kernel.recall(subject_id, "我住在哪里？", temporal_scope="both", limit=10, mode="blended")
-    semantic_contents = [hit.content for hit in recalled.hits if hit.memory_kind == "semantic"]
+    activation = kernel.field.evolve(subject_id)
+    recalled = kernel.recall(subject_id, "Alpha", limit=3)
 
-    assert semantic_contents.count("我现在住在杭州") == 1
+    assert max(activation.values()) < 0.8
+    assert recalled.atoms
+    assert recalled.atoms[0].atom_id == alpha.atom_id
+    assert recalled.atoms[0].activation > recalled.atoms[-1].activation
+    assert all(atom.activation < 0.8 for atom in recalled.atoms)
 
 
-def test_affective_atoms_are_single_active_snapshot(kernel_factory: KernelFactory) -> None:
+def test_axiom_field_evolution_converges_to_fixed_point(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
-    subject_id = "subject-affective-snapshot"
+    subject_id = "subject-competitive-fixed-point"
 
-    kernel.turn(subject_id, "今天很开心。", now_ts=1.0)
-    kernel.turn(subject_id, "现在有点焦虑。", now_ts=2.0)
+    source = _add_text_atom(kernel, subject_id=subject_id, atom_id="source", text="稳定支持", created_at=1.0)
+    damp = _add_text_atom(
+        kernel,
+        subject_id=subject_id,
+        atom_id="damp",
+        atom_kind="inhibition",
+        text="稳定抑制",
+        confidence=0.9,
+        salience=0.84,
+        created_at=2.0,
+    )
+    target = _add_text_atom(kernel, subject_id=subject_id, atom_id="target", text="目标记忆", created_at=3.0)
+    control = _add_text_atom(kernel, subject_id=subject_id, atom_id="control", text="对照记忆", created_at=4.0)
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-source-target",
+        source_atom_id=source.atom_id,
+        target_atom_id=target.atom_id,
+        influence=1.0,
+        created_at=5.0,
+    )
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-damp-target",
+        source_atom_id=damp.atom_id,
+        target_atom_id=target.atom_id,
+        influence=-0.95,
+        confidence=0.95,
+        created_at=6.0,
+    )
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-source-control",
+        source_atom_id=source.atom_id,
+        target_atom_id=control.atom_id,
+        influence=1.0,
+        created_at=7.0,
+    )
 
+    first = kernel.field.evolve(subject_id)
+    second = kernel.field.evolve(subject_id)
+
+    assert first == second
+    assert 0.0 <= first[target.atom_id] < 0.05
+    assert first[control.atom_id] > first[target.atom_id]
+    assert first[control.atom_id] >= first[source.atom_id]
+
+
+def test_axiom_field_activation_is_bounded(kernel_factory: KernelFactory) -> None:
+    kernel = _kernel(kernel_factory)
+    subject_id = "subject-bounded"
+
+    kernel.turn(subject_id, "我住在上海。", now_ts=1.0)
+    kernel.turn(subject_id, "更正，我现在住在杭州。", now_ts=2.0)
+    kernel.turn(subject_id, "我想先去散步，再回来写文档。", now_ts=3.0)
+    kernel.turn(subject_id, "今天有点焦虑。", now_ts=4.0)
+
+    activation = _activation(kernel, subject_id)
+
+    assert activation
+    assert all(0.0 <= value <= 1.0 for value in activation.values())
+
+
+def test_axiom_recall_is_read_only_against_cached_field(kernel_factory: KernelFactory) -> None:
+    kernel = _kernel(kernel_factory)
+    subject_id = "subject-read-only-recall"
+
+    kernel.turn(subject_id, "我住在杭州，也喜欢爵士乐。", now_ts=1.0)
+    before = _activation(kernel, subject_id)
+
+    first = kernel.recall(subject_id, "杭州", limit=5)
+    after_first = _activation(kernel, subject_id)
+    second = kernel.recall(subject_id, "杭州", limit=5)
+    after_second = _activation(kernel, subject_id)
+
+    assert before == after_first == after_second
+    assert first == second
+
+
+def test_axiom_repeated_recall_does_not_drift_field_projection(kernel_factory: KernelFactory) -> None:
+    kernel = _kernel(kernel_factory)
+    subject_id = "subject-recall-sequence"
+
+    kernel.turn(subject_id, "我在杭州工作，也喜欢爵士乐。", now_ts=1.0)
+    kernel.turn(subject_id, "最近我在适应新的生活节奏。", now_ts=2.0)
+    baseline_state = kernel.state(subject_id)
+    baseline_activation = _activation(kernel, subject_id)
+    baseline_recall = kernel.recall(subject_id, "杭州", limit=5)
+
+    for query in ("杭州", "生活", "爵士乐", "工作", "适应", "杭州"):
+        kernel.recall(subject_id, query, limit=5)
+
+    final_state = kernel.state(subject_id)
+    final_activation = _activation(kernel, subject_id)
+    final_recall = kernel.recall(subject_id, "杭州", limit=5)
+
+    assert baseline_activation == final_activation
+    assert baseline_state == final_state
+    assert baseline_recall == final_recall
+
+
+def test_axiom_inhibitory_pressure_keeps_suppressed_node_hidden(kernel_factory: KernelFactory) -> None:
+    kernel = _kernel(kernel_factory)
+    subject_id = "subject-neighbor-suppression"
+
+    suppressed = _add_text_atom(
+        kernel,
+        subject_id=subject_id,
+        atom_id="suppressed",
+        text="我喜欢爵士乐",
+        created_at=1.0,
+    )
+    neighbor = _add_text_atom(
+        kernel,
+        subject_id=subject_id,
+        atom_id="neighbor",
+        atom_kind="memory",
+        text="我最近一直在听各种音乐",
+        confidence=0.8,
+        salience=0.76,
+        created_at=2.0,
+    )
+    inhibition = _add_text_atom(
+        kernel,
+        subject_id=subject_id,
+        atom_id="inhibition",
+        atom_kind="inhibition",
+        text="请忘掉我喜欢爵士乐",
+        confidence=0.9,
+        salience=0.85,
+        created_at=3.0,
+    )
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-neighbor-suppressed",
+        source_atom_id=neighbor.atom_id,
+        target_atom_id=suppressed.atom_id,
+        influence=0.9,
+        confidence=0.9,
+        created_at=4.0,
+    )
+    _add_edge(
+        kernel,
+        subject_id=subject_id,
+        edge_id="edge-inhibition-suppressed",
+        source_atom_id=inhibition.atom_id,
+        target_atom_id=suppressed.atom_id,
+        influence=-1.0,
+        confidence=0.95,
+        created_at=5.0,
+    )
+
+    baseline = kernel.field.evolve(subject_id)
+    before = _activation(kernel, subject_id)
+
+    for query in ("音乐", "最近在听什么", "爵士乐", "音乐", "最近在听什么"):
+        recalled = kernel.recall(subject_id, query, limit=5)
+        assert all(atom.atom_id != suppressed.atom_id for atom in recalled.atoms)
+
+    after = _activation(kernel, subject_id)
     state = kernel.state(subject_id)
-    stored_affective = _stored_atoms(kernel, subject_id, atom_kind="affective")
 
-    assert "焦虑" in _json_text(state.affective_state)
-    assert "开心" not in _json_text(state.affective_state)
-    assert sum(1 for atom in stored_affective if atom.status == "active") == 1
-    assert sum(1 for atom in stored_affective if atom.status == "superseded") == 1
-    assert any(atom.supersedes_atom_id for atom in stored_affective if atom.status == "active")
+    assert baseline[suppressed.atom_id] <= 0.05
+    assert before == after
+    assert all(atom.atom_id != suppressed.atom_id for atom in state.atoms)

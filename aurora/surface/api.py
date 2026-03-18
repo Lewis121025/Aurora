@@ -10,13 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
-from aurora.runtime.contracts import (
-    RecallMode,
-    RecallResult,
-    RecallTemporalScope,
-    SubjectMemoryState,
-    TurnOutput,
-)
+from aurora.runtime.contracts import RecallResult, SubjectMemoryState, TurnOutput
 from aurora.runtime.engine import AuroraKernel
 
 _OPEN_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
@@ -43,9 +37,7 @@ class TurnRequest(BaseModel):
 class RecallRequest(BaseModel):
     subject_id: str = Field(min_length=1)
     query: str = Field(min_length=1)
-    temporal_scope: RecallTemporalScope
-    limit: int = Field(default=5, ge=1, le=20)
-    mode: RecallMode = "blended"
+    limit: int = Field(default=8, ge=1, le=20)
 
     @field_validator("subject_id", "query")
     @classmethod
@@ -70,15 +62,13 @@ class SurfaceKernel(Protocol):
         subject_id: str,
         query: str,
         *,
-        temporal_scope: RecallTemporalScope,
-        limit: int = 5,
-        mode: RecallMode = "blended",
+        limit: int = 8,
     ) -> RecallResult: ...
 
 
 def build_app(engine: SurfaceKernel) -> FastAPI:
     """Build the Aurora API app."""
-    app = FastAPI(title="Aurora", version="4.0")
+    app = FastAPI(title="Aurora", version="5.0")
     api_key = os.environ.get("AURORA_API_KEY")
 
     @app.middleware("http")
@@ -110,9 +100,7 @@ def build_app(engine: SurfaceKernel) -> FastAPI:
             engine.recall(
                 payload.subject_id,
                 payload.query,
-                temporal_scope=payload.temporal_scope,
                 limit=payload.limit,
-                mode=payload.mode,
             )
         )
 

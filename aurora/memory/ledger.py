@@ -1,30 +1,24 @@
-"""Subject-scoped memory recall."""
+"""Memory-field evolution and recall for Aurora."""
 
 from __future__ import annotations
 
 import hashlib
 import re
-from typing import cast
 
 import numpy as np
 import numpy.typing as npt
 
-from aurora.memory.state import atom_text, suppressed_source_ids, visible_recall_atoms
 from aurora.memory.store import SQLiteMemoryStore
-from aurora.runtime.contracts import MemoryAtom, MemoryKind, RecallHit, RecallMode, RecallResult, RecallTemporalScope
+from aurora.runtime.contracts import ActivatedAtom, ActivatedEdge, MemoryAtom, MemoryEdge, RecallResult, atom_text
 
 EMBEDDING_DIM = 384
 FloatVector = npt.NDArray[np.float32]
 _TOKEN_PATTERN = re.compile(r"[\w\u4e00-\u9fff]+")
 _CJK_PATTERN = re.compile(r"[\u4e00-\u9fff]")
-_BLENDED_MEMORY_KINDS: tuple[MemoryKind, ...] = (
-    "episode",
-    "semantic",
-    "procedural",
-    "cognitive",
-    "affective",
-    "narrative",
-)
+_STATE_LIMIT = 12
+_RECALL_LIMIT = 8
+_VISIBLE_FLOOR = 0.05
+_SOLVER_EPSILON = 1e-6
 
 
 def tokenize(text: str) -> tuple[str, ...]:
@@ -57,77 +51,209 @@ class HashEmbeddingEncoder:
         return vector / norm
 
 
-class Archive:
-    """Selector over recallable subject memory."""
+class MemoryField:
+    """Conservative evolution for Aurora's memory field."""
 
-    def __init__(self, store: SQLiteMemoryStore, encoder: HashEmbeddingEncoder | None = None) -> None:
+    __slots__ = ("store", "encoder", "iterations")
+
+    def __init__(self, store: SQLiteMemoryStore, encoder: HashEmbeddingEncoder | None = None, iterations: int = 8) -> None:
         self.store = store
         self.encoder = encoder or HashEmbeddingEncoder()
+        self.iterations = iterations
+
+    def evolve(self, subject_id: str) -> dict[str, float]:
+        atoms = self.store.list_atoms(subject_id)
+        edges = self.store.list_edges(subject_id)
+        activations = _solve_activation(atoms, edges, iterations=self.iterations)
+        updated_at = _latest_timestamp(atoms, edges)
+        self.store.replace_activation_cache(subject_id, activations, updated_at=updated_at)
+        return activations
+
+    def state_slice(
+        self,
+        subject_id: str,
+        *,
+        limit: int = _STATE_LIMIT,
+    ) -> tuple[tuple[ActivatedAtom, ...], tuple[ActivatedEdge, ...]]:
+        atoms = self.store.list_atoms(subject_id)
+        edges = self.store.list_edges(subject_id)
+        activations = self.store.list_activation_cache(subject_id)
+        if atoms and not activations:
+            activations = self.evolve(subject_id)
+        return _select_slice(atoms, edges, activations, limit=limit)
 
     def recall(
         self,
         subject_id: str,
         query: str,
         *,
-        temporal_scope: RecallTemporalScope,
-        limit: int = 5,
-        mode: RecallMode = "blended",
+        limit: int = _RECALL_LIMIT,
     ) -> RecallResult:
-        if limit <= 0:
-            return RecallResult(subject_id=subject_id, query=query, temporal_scope=temporal_scope, mode=mode, hits=())
-
         atoms = self.store.list_atoms(subject_id)
-        query_tokens = set(tokenize(query))
-        query_vector = self.encoder.encode(query)
-        blocked_sources = set(suppressed_source_ids(atoms)) if temporal_scope == "current" else set()
-        ranked_hits: list[tuple[tuple[int, float, float, float, float, float], RecallHit]] = []
-
-        for atom in visible_recall_atoms(atoms, include_superseded=temporal_scope != "current"):
-            if not _matches_mode(atom, mode):
-                continue
-            if not _matches_temporal_scope(atom, temporal_scope):
-                continue
-            if blocked_sources and atom.atom_kind in {"episode", "narrative"}:
-                if any(source_id in blocked_sources for source_id in atom.source_atom_ids):
-                    continue
-            text = atom_text(atom)
-            if not text:
-                continue
-            lexical, vector_score = _relevance(query_tokens, query_vector, text, self.encoder)
-            if lexical <= 0.0 and vector_score <= 0.0:
-                continue
-            ranked_hits.append(
-                (
-                    _sort_key(
-                        atom=atom,
-                        lexical=lexical,
-                        vector_score=vector_score,
-                        temporal_scope=temporal_scope,
-                    ),
-                    RecallHit(
-                        memory_kind=cast(MemoryKind, atom.atom_kind),
-                        content=text,
-                        score=max(lexical, vector_score),
-                        why_recalled=_why_recalled(
-                            atom=atom,
-                            lexical=lexical,
-                            vector_score=vector_score,
-                            temporal_scope=temporal_scope,
-                        ),
-                    ),
-                )
-            )
-
-        ordered = _dedupe_hits(
-            tuple(hit for _, hit in sorted(ranked_hits, key=lambda item: item[0], reverse=True))
+        if not atoms:
+            return RecallResult(subject_id=subject_id, query=query, summary="", atoms=(), edges=())
+        edges = self.store.list_edges(subject_id)
+        activations = self.store.list_activation_cache(subject_id)
+        if not activations:
+            activations = self.evolve(subject_id)
+        query_bias = _query_bias(query, atoms, activations, self.encoder)
+        local = _solve_activation(
+            atoms,
+            edges,
+            seed_bias=query_bias,
+            initial_activation=activations,
+            iterations=self.iterations,
         )
+        selected_atoms, selected_edges = _select_slice(atoms, edges, local, limit=limit)
         return RecallResult(
             subject_id=subject_id,
             query=query,
-            temporal_scope=temporal_scope,
-            mode=mode,
-            hits=ordered[:limit],
+            summary=_field_summary(selected_atoms, selected_edges, heading="[QUERY_MEMORY_FIELD]"),
+            atoms=selected_atoms,
+            edges=selected_edges,
         )
+
+
+def _solve_activation(
+    atoms: tuple[MemoryAtom, ...],
+    edges: tuple[MemoryEdge, ...],
+    *,
+    seed_bias: dict[str, float] | None = None,
+    initial_activation: dict[str, float] | None = None,
+    iterations: int,
+) -> dict[str, float]:
+    """Solve one bounded memory-field fixed point.
+
+    Kernel axioms mirrored by docs and tests:
+    - Every node has an intrinsic activation determined only by local retention and query seed.
+    - Positive edges transmit only activation above the intrinsic baseline, so the resting field does not self-amplify.
+    - Negative edges transmit inhibitory pressure in proportion to source accessibility.
+    - Recall uses the cached field as its initial state, not as a hard lower bound.
+    - Relaxation scales with outgoing mass to keep the iteration damped.
+    """
+    if not atoms:
+        return {}
+
+    atom_ids = [atom.atom_id for atom in atoms]
+    index = {atom_id: position for position, atom_id in enumerate(atom_ids)}
+    retention = np.array(
+        [
+            max(
+                atom.confidence * atom.salience,
+                0.0,
+            )
+            for atom in atoms
+        ],
+        dtype=np.float32,
+    )
+    seed = np.zeros(len(atoms), dtype=np.float32)
+    if seed_bias:
+        for atom_id, value in seed_bias.items():
+            if atom_id in index:
+                seed[index[atom_id]] = max(seed[index[atom_id]], float(value))
+    intrinsic = _intrinsic_activation(retention + seed)
+    current = np.array(intrinsic, dtype=np.float32)
+    if initial_activation:
+        for atom_id, value in initial_activation.items():
+            if atom_id in index:
+                current[index[atom_id]] = float(value)
+    current = np.clip(current, 0.0, 1.0)
+    weights, relaxation = _normalized_edge_weights(edges, index)
+    for _ in range(iterations):
+        target = np.array(intrinsic, dtype=np.float32)
+        for source_index, target_index, weight in weights:
+            source_signal = current[source_index]
+            if weight > 0.0:
+                # Positive support can only transmit activation above the local resting field.
+                source_signal = max(0.0, float(current[source_index] - intrinsic[source_index]))
+            else:
+                # Inhibitory pressure depends on how reachable the source currently is.
+                source_signal = min(
+                    1.0,
+                    float(current[source_index] / max(float(intrinsic[source_index]), _SOLVER_EPSILON)),
+                )
+            target[target_index] += weight * source_signal
+        target = np.clip(target, 0.0, 1.0)
+        updated = np.clip(current + relaxation * (target - current), 0.0, 1.0)
+        if np.allclose(updated, current, atol=1e-4):
+            current = updated
+            break
+        current = updated
+    return {atom_id: float(current[index[atom_id]]) for atom_id in atom_ids}
+
+
+def _normalized_edge_weights(
+    edges: tuple[MemoryEdge, ...],
+    index: dict[str, int],
+) -> tuple[tuple[tuple[int, int, float], ...], float]:
+    positive_mass: dict[str, float] = {}
+    for edge in edges:
+        if edge.source_atom_id not in index or edge.target_atom_id not in index:
+            continue
+        if edge.influence <= 0.0:
+            continue
+        positive_mass[edge.source_atom_id] = positive_mass.get(edge.source_atom_id, 0.0) + (
+            edge.influence * edge.confidence
+        )
+
+    normalized: list[tuple[int, int, float]] = []
+    source_mass: dict[int, float] = {}
+    for edge in edges:
+        source_index = index.get(edge.source_atom_id)
+        target_index = index.get(edge.target_atom_id)
+        if source_index is None or target_index is None:
+            continue
+        raw_weight = edge.influence * edge.confidence
+        if raw_weight > 0.0:
+            scale = positive_mass.get(edge.source_atom_id, 0.0)
+            if scale <= 0.0:
+                continue
+            weight = raw_weight / scale
+        else:
+            weight = raw_weight
+        normalized.append((source_index, target_index, weight))
+        source_mass[source_index] = source_mass.get(source_index, 0.0) + abs(weight)
+
+    normalized_mass = max(source_mass.values(), default=0.0)
+    relaxation = 1.0 if normalized_mass <= 0.0 else 1.0 / (1.0 + normalized_mass)
+    return tuple(normalized), float(relaxation)
+
+
+def _query_bias(
+    query: str,
+    atoms: tuple[MemoryAtom, ...],
+    activations: dict[str, float],
+    encoder: HashEmbeddingEncoder,
+) -> dict[str, float]:
+    query_tokens = set(tokenize(query))
+    query_vector = encoder.encode(query)
+    bias: dict[str, float] = {}
+    for atom in atoms:
+        if atom.atom_kind == "evidence":
+            continue
+        text = atom_text(atom)
+        if not text:
+            continue
+        lexical, vector_score = _relevance(query_tokens, query_vector, text, encoder)
+        score = max(lexical, vector_score) * _query_availability(atom, activations)
+        if score <= 0.0:
+            continue
+        bias[atom.atom_id] = score
+    return bias
+
+
+def _intrinsic_activation(value: FloatVector) -> FloatVector:
+    bounded = np.maximum(value, 0.0)
+    intrinsic = bounded / (1.0 + bounded)
+    return np.clip(intrinsic, _SOLVER_EPSILON, 1.0 - _SOLVER_EPSILON)
+
+
+def _query_availability(atom: MemoryAtom, activations: dict[str, float]) -> float:
+    baseline = float(_intrinsic_activation(np.array([atom.confidence * atom.salience], dtype=np.float32))[0])
+    if baseline <= 0.0:
+        return 0.0
+    current = max(0.0, activations.get(atom.atom_id, 0.0))
+    return min(1.0, current / baseline)
 
 
 def _relevance(
@@ -148,75 +274,88 @@ def _relevance(
     return lexical, vector_score
 
 
-def _matches_mode(atom: MemoryAtom, mode: RecallMode) -> bool:
-    if mode == "blended":
-        return atom.atom_kind in _BLENDED_MEMORY_KINDS
-    if mode == "episodic":
-        return atom.atom_kind == "episode"
-    return atom.atom_kind == mode
-
-
-def _matches_temporal_scope(atom: MemoryAtom, temporal_scope: RecallTemporalScope) -> bool:
-    if atom.status == "inhibited":
-        return False
-    if temporal_scope == "current":
-        return atom.status == "active"
-    if temporal_scope == "historical":
-        return atom.status == "superseded"
-    return atom.status in {"active", "superseded"}
-
-
-def _sort_key(
+def _select_slice(
+    atoms: tuple[MemoryAtom, ...],
+    edges: tuple[MemoryEdge, ...],
+    activations: dict[str, float],
     *,
-    atom: MemoryAtom,
-    lexical: float,
-    vector_score: float,
-    temporal_scope: RecallTemporalScope,
-) -> tuple[int, float, float, float, float, float]:
-    return (
-        _status_priority(atom.status, temporal_scope),
-        lexical,
-        vector_score,
-        atom.salience,
-        atom.accessibility,
-        atom.updated_at,
+    limit: int,
+) -> tuple[tuple[ActivatedAtom, ...], tuple[ActivatedEdge, ...]]:
+    ordered_atoms = sorted(
+        (
+            atom
+            for atom in atoms
+            if atom.atom_kind != "evidence" and activations.get(atom.atom_id, 0.0) > _VISIBLE_FLOOR
+        ),
+        key=lambda atom: (
+            activations.get(atom.atom_id, 0.0),
+            atom.salience,
+            atom.created_at,
+            atom.atom_id,
+        ),
+        reverse=True,
+    )[:limit]
+    atom_ids = {atom.atom_id for atom in ordered_atoms}
+    selected_atoms = tuple(
+        ActivatedAtom(
+            atom_id=atom.atom_id,
+            atom_kind=atom.atom_kind,
+            text=atom_text(atom),
+            activation=activations.get(atom.atom_id, 0.0),
+            confidence=atom.confidence,
+            salience=atom.salience,
+            created_at=atom.created_at,
+        )
+        for atom in ordered_atoms
     )
+    ranked_edges = sorted(
+        (
+            edge
+            for edge in edges
+            if edge.source_atom_id in atom_ids and edge.target_atom_id in atom_ids
+        ),
+        key=lambda edge: (
+            abs(edge.influence) * edge.confidence * activations.get(edge.source_atom_id, 0.0),
+            edge.created_at,
+            edge.edge_id,
+        ),
+        reverse=True,
+    )[: limit * 2]
+    selected_edges = tuple(
+        ActivatedEdge(
+            source_atom_id=edge.source_atom_id,
+            target_atom_id=edge.target_atom_id,
+            influence=edge.influence,
+            confidence=edge.confidence,
+        )
+        for edge in ranked_edges
+    )
+    return selected_atoms, selected_edges
 
 
-def _status_priority(status: str, temporal_scope: RecallTemporalScope) -> int:
-    if temporal_scope == "current":
-        return 1 if status == "active" else 0
-    if temporal_scope == "historical":
-        return 1 if status == "superseded" else 0
-    return 0
-
-
-def _why_recalled(
-    atom: MemoryAtom,
+def _field_summary(
+    atoms: tuple[ActivatedAtom, ...],
+    edges: tuple[ActivatedEdge, ...],
     *,
-    lexical: float,
-    vector_score: float,
-    temporal_scope: RecallTemporalScope,
+    heading: str,
 ) -> str:
-    signals: list[str] = []
-    if lexical > 0.0:
-        signals.append("lexical")
-    if vector_score > 0.0:
-        signals.append("vector")
-    if temporal_scope == "current" and atom.status == "active":
-        signals.append("current")
-    if temporal_scope == "historical" and atom.status == "superseded":
-        signals.append("historical")
-    return "+".join(signals) or "matched"
+    lines = [heading]
+    if not atoms:
+        lines.append("- none")
+        return "\n".join(lines)
+    for atom in atoms:
+        lines.append(f"- {atom.atom_kind} ({atom.activation:.3f}): {atom.text}")
+    if edges:
+        lines.append("[LOCAL_CONNECTIONS]")
+        for edge in edges[: max(1, min(8, len(edges)))]:
+            lines.append(f"- {edge.source_atom_id} -> {edge.target_atom_id}: {edge.influence:.3f}")
+    return "\n".join(lines)
 
 
-def _dedupe_hits(hits: tuple[RecallHit, ...]) -> tuple[RecallHit, ...]:
-    seen: set[tuple[MemoryKind, str]] = set()
-    unique: list[RecallHit] = []
-    for hit in hits:
-        key = (hit.memory_kind, hit.content)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(hit)
-    return tuple(unique)
+def _latest_timestamp(atoms: tuple[MemoryAtom, ...], edges: tuple[MemoryEdge, ...]) -> float:
+    latest = 0.0
+    for atom in atoms:
+        latest = max(latest, atom.created_at)
+    for edge in edges:
+        latest = max(latest, edge.created_at)
+    return latest

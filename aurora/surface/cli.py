@@ -1,4 +1,4 @@
-"""Aurora vNext CLI."""
+"""Aurora memory-field CLI."""
 
 from __future__ import annotations
 
@@ -25,19 +25,13 @@ def main() -> None:
     turn_parser.add_argument("text", type=_require_non_empty, help="Input text for Aurora")
     turn_parser.add_argument("--subject-id", required=True, type=_require_non_empty)
 
-    state_parser = subparsers.add_parser("state", help="Show subject memory state")
+    state_parser = subparsers.add_parser("state", help="Show the current memory field")
     state_parser.add_argument("--subject-id", required=True, type=_require_non_empty)
 
-    recall_parser = subparsers.add_parser("recall", help="Recall subject memory")
+    recall_parser = subparsers.add_parser("recall", help="Recall a local memory-field slice")
     recall_parser.add_argument("query", type=_require_non_empty, help="Recall query")
     recall_parser.add_argument("--subject-id", required=True, type=_require_non_empty)
-    recall_parser.add_argument("--temporal-scope", required=True, choices=["current", "historical", "both"])
-    recall_parser.add_argument("--limit", type=int, default=5)
-    recall_parser.add_argument(
-        "--mode",
-        default="blended",
-        choices=["blended", "episodic", "semantic", "procedural", "cognitive", "affective", "narrative"],
-    )
+    recall_parser.add_argument("--limit", type=int, default=8)
 
     subparsers.add_parser("status", help="Show kernel status")
 
@@ -61,9 +55,7 @@ def main() -> None:
                         kernel.recall(
                             args.subject_id,
                             args.query,
-                            temporal_scope=args.temporal_scope,
                             limit=args.limit,
-                            mode=args.mode,
                         )
                     ),
                     ensure_ascii=False,

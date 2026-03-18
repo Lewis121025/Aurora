@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from aurora.runtime.contracts import RecallHit
-
 
 @dataclass(frozen=True, slots=True)
 class ExpressionContext:
     """Context required for single response generation."""
 
     input_text: str
-    state_segment: str
-    episode_segment: str
-    recalled_hits: tuple[RecallHit, ...] = ()
+    memory_brief: str

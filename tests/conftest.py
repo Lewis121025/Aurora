@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterator
 import json
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, Protocol
 
 import pytest
 
@@ -18,11 +18,7 @@ StructuredResponder = Callable[[list[dict[str, str]]], str]
 
 
 class QueueLLM:
-    """Explicit step-driven LLM stub.
-
-    Tests can queue fixed outputs or set `repeat_last=True` for open-ended call
-    patterns without touching a real model.
-    """
+    """Explicit step-driven LLM stub."""
 
     def __init__(
         self,
@@ -66,283 +62,173 @@ _LIKE_PATTERN = re.compile(r"(?:我|也)喜欢([^，。！？；]+)")
 def scripted_memory_llm(messages: list[dict[str, str]]) -> str:
     system_text = "\n".join(message["content"] for message in messages if message["role"] == "system")
     payload = json.loads(messages[-1]["content"])
-    if "[AURORA_USER_MEMORY_COMPILER]" in system_text:
-        return json.dumps(_compile_user_payload(payload), ensure_ascii=False)
-    if "[AURORA_TURN_MEMORY_COMPILER]" in system_text:
-        return json.dumps(_compile_turn_payload(payload), ensure_ascii=False)
+    if "[AURORA_USER_FIELD_COMPILER]" in system_text:
+        return json.dumps(_compile_user_field(payload), ensure_ascii=False)
+    if "[AURORA_TURN_FIELD_COMPILER]" in system_text:
+        return json.dumps(_compile_turn_field(payload), ensure_ascii=False)
     raise AssertionError("structured compiler received an unknown prompt")
 
 
-def _compile_user_payload(payload: object) -> dict[str, object]:
+def _compile_user_field(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise AssertionError("compiler payload must be an object")
     text = str(payload.get("user_text", ""))
-    current_memory = payload.get("current_memory")
-    memory = current_memory if isinstance(current_memory, list) else []
-    semantic: list[dict[str, object]] = []
-    procedural: list[dict[str, object]] = []
-    inhibitions: list[dict[str, object]] = []
+    current_field = payload.get("current_field")
+    memory = current_field if isinstance(current_field, list) else []
+    is_forget = any(marker in text for marker in ("请忘掉", "忘掉", "别记", "不要记", "忘了"))
+    atoms: list[dict[str, object]] = []
+    edges: list[dict[str, object]] = []
 
     for match in _LOCATION_PATTERN.finditer(text):
-        value = match.group(1).strip()
-        semantic.append(
-            {
-                "subject": "user",
-                "attribute": "location.current",
-                "scope": "self",
-                "value": value,
-                "text": f"我现在住在{value}",
-            }
-        )
+        atoms.append(_field_atom("memory", f"我现在住在{match.group(1).strip()}", 0.94, 0.90))
     for match in _WORK_PATTERN.finditer(text):
-        value = match.group(1).strip()
-        semantic.append(
-            {
-                "subject": "user",
-                "attribute": "work.location",
-                "scope": "self",
-                "value": value,
-                "text": f"我在{value}工作",
-            }
-        )
+        atoms.append(_field_atom("memory", f"我在{match.group(1).strip()}工作", 0.92, 0.84))
     for match in _LIKE_PATTERN.finditer(text):
         value = match.group(1).strip()
-        if not value:
-            continue
-        semantic.append(
-            {
-                "subject": "user",
-                "attribute": "preference.like",
-                "scope": "self",
-                "value": value,
-                "text": f"我喜欢{value}",
-            }
-        )
+        if value and not is_forget:
+            atoms.append(_field_atom("memory", f"我喜欢{value}", 0.90, 0.82))
 
     plan_match = _PLAN_PATTERN.search(text.replace("，", ","))
     if plan_match is not None:
         first_step = plan_match.group(1).strip(" 。！？")
         second_step = plan_match.group(2).strip(" 。！？")
-        procedural.append(
-            {
-                "rule": f"先{first_step}，再{second_step}",
-                "trigger": "plan",
-                "steps": [first_step, second_step],
-                "text": f"先{first_step}，再{second_step}",
-                "owner": None,
-            }
+        atoms.append(_field_atom("memory", f"先{first_step}，再{second_step}", 0.86, 0.88))
+
+    if "想" in text and "不想" in text:
+        atoms.append(_field_atom("memory", text.strip(" 。！？"), 0.78, 0.76))
+    elif "想" in text:
+        atoms.append(_field_atom("memory", text.strip(" 。！？"), 0.74, 0.72))
+
+    emotional_trace = _emotion_trace(text)
+    if emotional_trace is not None:
+        atoms.append(emotional_trace)
+
+    if any(marker in text for marker in ("更正", "其实", "改口")):
+        existing_location_ids = _match_atoms(memory, lambda item: _item_kind(item) == "memory" and "住在" in _item_text(item))
+        if existing_location_ids:
+            for atom_index, atom in enumerate(atoms):
+                if atom.get("kind") == "memory" and "住在" in str(atom.get("text", "")):
+                    edges.extend(
+                        _edge(f"new:{atom_index}", target_atom_id, -0.92, 0.94)
+                        for target_atom_id in existing_location_ids
+                    )
+
+    if is_forget:
+        atoms.append(_field_atom("inhibition", text.strip(), 0.96, 0.84))
+        inhibition_index = len(atoms) - 1
+        target_ids = _match_atoms(
+            memory,
+            lambda item: _item_kind(item) != "evidence" and bool(_item_text(item)) and _item_text(item) in text,
         )
+        edges.extend(_edge(f"new:{inhibition_index}", atom_id, -0.95, 0.97) for atom_id in target_ids)
 
-    beliefs = [f"我住在{match.group(1)}" for match in _LOCATION_PATTERN.finditer(text)]
-    goals = [text.split("想", 1)[-1].strip("，。！？ ") for _ in [1] if "想" in text and text.split("想", 1)[-1].strip("，。！？ ")]
-    conflicts = [clause.strip() for clause in _clauses(text) if "不想" in clause]
-    intentions: list[str] = []
-    commitments: list[str] = []
-    if plan_match is not None:
-        intentions.append(plan_match.group(1).strip(" 。！？"))
-        commitments.append(plan_match.group(2).strip(" 。！？"))
-
-    cognitive: dict[str, object] | None = None
-    if any((beliefs, goals, conflicts, intentions, commitments)):
-        cognitive = {
-            "beliefs": beliefs,
-            "goals": goals,
-            "conflicts": conflicts,
-            "intentions": intentions,
-            "commitments": commitments,
-        }
-
-    affective = _affective_payload(text)
-
-    if any(marker in text for marker in ("请忘掉", "忘掉", "别记", "不要记", "忘了")):
-        target_text = text
-        target_ids = [
-            str(item.get("atom_id"))
-            for item in memory
-            if isinstance(item, dict)
-            and _memory_matches_target(item, target_text)
-        ]
-        if target_ids:
-            inhibitions.append(
-                {
-                    "summary": text.strip(),
-                    "target_summary": text.split("忘", 1)[-1].strip(" ：:。！？"),
-                    "target_atom_ids": target_ids,
-                }
-            )
-
-    return {
-        "semantic": semantic,
-        "procedural": procedural,
-        "cognitive": cognitive,
-        "affective": affective,
-        "inhibitions": inhibitions,
-    }
+    return {"atoms": atoms, "edges": edges}
 
 
-def _compile_turn_payload(payload: object) -> dict[str, object]:
+def _compile_turn_field(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise AssertionError("compiler payload must be an object")
     user_text = str(payload.get("user_text", "")).strip()
     assistant_text = str(payload.get("assistant_text", "")).strip()
-    episode = {
-        "title": (user_text or assistant_text)[:24] or "interaction",
-        "summary": " | ".join(
-            fragment
-            for fragment in (
-                f"user: {user_text}" if user_text else "",
-                f"aurora: {assistant_text}" if assistant_text else "",
-            )
-            if fragment
+    current_field = payload.get("current_field")
+    memory = current_field if isinstance(current_field, list) else []
+    atoms: list[dict[str, object]] = [
+        _field_atom(
+            "episode",
+            " | ".join(
+                fragment
+                for fragment in (
+                    f"user: {user_text}" if user_text else "",
+                    f"aurora: {assistant_text}" if assistant_text else "",
+                )
+                if fragment
+            ),
+            0.98,
+            0.70,
         )
-        or "interaction",
-        "actors": ["user", "aurora", *_actors(user_text)],
-        "setting": _setting(user_text),
-        "emotion_markers": _episode_markers(user_text),
-        "text": " | ".join(
-            fragment
-            for fragment in (
-                f"user: {user_text}" if user_text else "",
-                f"aurora: {assistant_text}" if assistant_text else "",
-            )
-            if fragment
-        )
-        or "interaction",
-    }
-    procedural: list[dict[str, object]] = []
+    ]
     if assistant_text.startswith(("我会", "我来", "我可以")):
         action = assistant_text.removeprefix("我会").removeprefix("我来").removeprefix("我可以").strip(" ，。！？")
         if action:
-            procedural.append(
-                {
-                    "rule": f"Aurora承诺：{action}",
-                    "trigger": "assistant_commitment",
-                    "steps": [action],
-                    "text": f"Aurora承诺：{action}",
-                    "owner": "aurora",
-                }
-            )
-    narrative = _narrative_payload(user_text)
+            atoms.append(_field_atom("memory", f"Aurora承诺：{action}", 0.88, 0.86))
+    if any(token in user_text for token in ("杭州", "生活", "适应", "朋友", "运动")):
+        atoms.append(_field_atom("memory", user_text[:48], 0.78, 0.80))
+
+    edges: list[dict[str, object]] = []
+    if len(atoms) > 1:
+        episode_targets = _match_atoms(memory, lambda item: _item_kind(item) == "episode")
+        for atom_index in range(1, len(atoms)):
+            edges.extend(_edge(f"new:{atom_index}", target_atom_id, 0.35, 0.70) for target_atom_id in episode_targets[-2:])
+
+    return {"atoms": atoms, "edges": edges}
+
+
+def _field_atom(kind: str, text: str, confidence: float, salience: float) -> dict[str, object]:
     return {
-        "episode": episode,
-        "procedural": procedural,
-        "narrative": [] if narrative is None else [narrative],
+        "kind": kind,
+        "text": text,
+        "confidence": confidence,
+        "salience": salience,
+        "referents": ["subject"],
     }
 
 
-def _affective_payload(text: str) -> dict[str, object] | None:
-    feelings: list[str] = []
-    valence = 0.0
-    intensity = 0.0
-    for label, current_valence, current_intensity in (
-        ("心情很好", 0.7, 0.78),
+def _emotion_trace(text: str) -> dict[str, object] | None:
+    labels: list[str] = []
+    for label, _, _ in (
+        ("心情很好", 0.7, 0.76),
         ("开心", 0.7, 0.88),
         ("高兴", 0.7, 0.84),
-        ("放松", 0.7, 0.66),
-        ("轻松", 0.7, 0.64),
+        ("放松", 0.6, 0.66),
+        ("轻松", 0.6, 0.64),
         ("难过", -0.7, 0.82),
         ("焦虑", -0.7, 0.86),
-        ("紧张", -0.7, 0.76),
+        ("紧张", -0.6, 0.78),
         ("沮丧", -0.7, 0.80),
-        ("生气", -0.7, 0.90),
+        ("生气", -0.9, 0.90),
     ):
         if label not in text:
             continue
-        feelings.append(label)
-        valence += current_valence
-        intensity += current_intensity
-    if not feelings:
+        labels.append(label)
+    if not labels:
         return None
-    valence /= len(feelings)
-    intensity /= len(feelings)
-    mood = "mixed" if valence == 0.0 else "positive" if valence > 0.0 else "negative"
     return {
-        "mood": mood,
-        "valence": valence,
-        "intensity": intensity,
-        "feelings": feelings,
-        "text": f"{mood}: {'/'.join(feelings)}",
+        "kind": "memory",
+        "text": " / ".join(labels),
+        "confidence": 0.82,
+        "salience": 0.78,
+        "referents": ["subject"],
     }
 
 
-def _episode_markers(text: str) -> list[dict[str, object]]:
-    affective = _affective_payload(text)
-    if affective is None:
-        return []
-    intensity = cast(float, affective["intensity"])
-    valence = cast(float, affective["valence"])
-    feelings = cast(list[str], affective["feelings"])
-    return [
-        {
-            "label": feeling,
-            "intensity": intensity,
-            "valence": valence,
-        }
-        for feeling in feelings
-    ]
+def _edge(source: str, target: str, influence: float, confidence: float) -> dict[str, object]:
+    return {
+        "source": source,
+        "target": target,
+        "influence": influence,
+        "confidence": confidence,
+    }
 
 
-def _setting(text: str) -> str:
-    for pattern in (
-        re.compile(r"(?:住在|搬到|在)([\u4e00-\u9fff]{1,12}?)(?=工作|生活|住|见|待|，|。|！|？|；|$)"),
-        re.compile(r"(杭州|上海|北京|深圳|广州|苏州|成都|南京|武汉|西安)"),
-    ):
-        match = pattern.search(text)
-        if match is not None:
-            return match.group(1)
-    return "未指明"
+def _match_atoms(memory: list[object], predicate: Callable[[dict[str, object]], bool]) -> list[str]:
+    matches: list[str] = []
+    for item in memory:
+        if not isinstance(item, dict):
+            continue
+        if predicate(item):
+            matches.append(str(item.get("atom_id", "")))
+    return [item for item in matches if item]
 
 
-def _actors(text: str) -> list[str]:
-    actors: list[str] = []
-    if "老朋友" in text:
-        actors.append("老朋友")
-    elif "朋友" in text:
-        actors.append("朋友")
-    if "团队" in text:
-        actors.append("团队")
-    return actors
+def _item_kind(item: dict[str, object]) -> str:
+    return str(item.get("kind", "")).strip()
 
 
-def _narrative_payload(text: str) -> dict[str, object] | None:
-    if ("杭州" in text or any(token in text for token in ("朋友", "运动", "周末"))) and any(
-        token in text for token in ("适应", "重新", "开始", "生活", "朋友", "运动", "工作")
-    ):
-        return {
-            "theme": "在杭州重建生活",
-            "storyline": text[:40],
-            "status": "active",
-            "unresolved_threads": ["工作节奏"] if "工作节奏" in text else [],
-            "role_changes": ["new resident"] if "搬到杭州" in text else [],
-            "text": f"在杭州重建生活 - {text[:40]}",
-        }
-    if "搬到" in text:
-        return {
-            "theme": "迁居后的调整",
-            "storyline": text[:40],
-            "status": "active",
-            "unresolved_threads": [],
-            "role_changes": ["new resident"],
-            "text": f"迁居后的调整 - {text[:40]}",
-        }
-    return None
-
-
-def _memory_matches_target(item: object, text: str) -> bool:
-    if not isinstance(item, dict):
-        return False
+def _item_text(item: dict[str, object]) -> str:
     content = item.get("content")
-    if not isinstance(content, dict):
-        return False
-    content_text = str(content.get("text", ""))
-    if content_text and content_text in text:
-        return True
-    value = str(content.get("value", ""))
-    return bool(value and value in text)
-
-
-def _clauses(text: str) -> tuple[str, ...]:
-    return tuple(fragment.strip() for fragment in re.split(r"[，。！？；;\n]+", text) if fragment.strip())
+    if isinstance(content, dict):
+        return str(content.get("text", "")).strip()
+    return ""
 
 
 class KernelFactory(Protocol):
