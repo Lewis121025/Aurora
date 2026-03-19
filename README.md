@@ -2,6 +2,8 @@
 
 Aurora is a single-subject memory kernel. It stores immutable memory atoms, immutable edges, and a derived activation cache. State and recall are read-only projections over the current memory field.
 
+This release is an academic-grade launch: a rigorously validated kernel release for internal research use, technical review, benchmark publication, and controlled demonstration. It is not a business GA service.
+
 ## Installation
 
 ```bash
@@ -37,6 +39,30 @@ Aurora exposes one public LLM settings shape:
 
 The runtime accepts providers backed by the OpenAI-compatible chat completions protocol.
 
+## Launch Envelope
+
+This release supports a narrow and explicit operating envelope:
+
+- single subject at a time
+- single-host persistence
+- no high-availability guarantees
+- no multi-writer guarantees
+- no cross-subject retrieval service
+
+## Release Scope
+
+This release is:
+
+- suitable for controlled deployment and rigorous evaluation
+- suitable for technical review and benchmark-style regression checks
+- suitable for embedded use inside a host application or agent
+
+This release is not:
+
+- a horizontally scaled shared service
+- a multi-tenant memory platform
+- a business-SLA service
+
 ## Python SDK
 
 ```python
@@ -62,8 +88,9 @@ kernel.close()
 
 If `llm_settings` is omitted, `AuroraKernel.create()` reads `AURORA_LLM_PROVIDER` and `AURORA_LLM_CONFIG_*`.
 
-Public methods:
+Public runtime surface:
 
+- `AuroraKernel.create(...) -> AuroraKernel`
 - `turn(subject_id, text, now_ts=None) -> TurnOutput`
 - `state(subject_id) -> SubjectMemoryState`
 - `recall(subject_id, query, limit=8) -> RecallResult`
@@ -128,9 +155,15 @@ Aurora maintains these runtime boundaries:
 5. `evidence` records observations only and does not participate in field coupling.
 6. Payload decoding is strict. Invalid kinds, malformed payloads, and illegal references fail explicitly.
 
+## Reproducibility
+
+The academic-grade release guarantee applies to the kernel behavior and the repository-kept validation suite. Provider-backed responses still depend on the configured provider and model. Provider-specific demo validation stays local and untracked.
+
 ## Validation
 
-The repository keeps unit tests and standard static checks only.
+The canonical repo-kept release validation entrypoint is the GitHub workflow at `.github/workflows/release-validation.yml`.
+
+The repository keeps unit tests, repository audit checks, academic regression scenarios, and standard static checks only.
 
 ```bash
 uv run pytest -q
@@ -139,17 +172,31 @@ uv run ruff check aurora tests
 python -m compileall -q aurora tests
 ```
 
+## Release Checklist
+
+Release is blocked unless all of the following hold:
+
+- tracked tests pass
+- `ruff`, `mypy`, and `compileall` pass
+- tracked files contain no non-English content
+- tracked files contain no development-only docs or files
+- tracked files contain no live, integration, or provider-only tests
+- the academic regression suite is green
+- the public config shape remains `llm_settings = {"provider": "...", "config": {...}}`
+- the public runtime methods remain `create`, `turn`, `state`, `recall`, and `close`
+- the tracked repository boundary remains limited to production code, minimal release notes, CI, config example, and kept evaluation tests
+
 ## Project Layout
 
 ```text
 aurora/
-├── __main__.py
-├── expression/
-├── llm/
-├── memory/
-├── pipelines/
-├── runtime/
-└── surface/
+|-- __main__.py
+|-- expression/
+|-- llm/
+|-- memory/
+|-- pipelines/
+|-- runtime/
+`-- surface/
 ```
 
 ## License
