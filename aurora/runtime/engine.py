@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 from aurora.expression.cognition import DEFAULT_SYSTEM_PROMPT, Responder
 from aurora.expression.context import ExpressionContext
-from aurora.llm.config import load_llm_config
+from aurora.llm.config import LLMSettings, coerce_llm_settings, load_llm_settings
 from aurora.llm.openai_compat import OpenAICompatProvider
 from aurora.llm.provider import LLMProvider
 from aurora.memory.ledger import HashEmbeddingEncoder, MemoryField
@@ -18,6 +19,16 @@ from aurora.runtime.contracts import MemoryAtom, MemoryEdge, RecallResult, Subje
 from aurora.runtime.projections import build_memory_brief
 
 _TURN_STEP_S = 1e-6
+_OPENAI_COMPAT_PROVIDERS = frozenset({"openai", "openai_compatible", "bailian"})
+
+
+def _build_llm_provider(settings: LLMSettings) -> LLMProvider:
+    if settings.provider in _OPENAI_COMPAT_PROVIDERS:
+        return OpenAICompatProvider(settings.config)
+    raise RuntimeError(
+        "Unsupported AURORA_LLM_PROVIDER. "
+        "Supported providers: openai, openai_compatible, bailian."
+    )
 
 
 class AuroraKernel:
@@ -43,17 +54,20 @@ class AuroraKernel:
         cls,
         data_dir: str | None = None,
         llm: LLMProvider | None = None,
+        llm_settings: LLMSettings | Mapping[str, object] | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     ) -> "AuroraKernel":
+        if llm is not None and llm_settings is not None:
+            raise ValueError("Pass either llm or llm_settings, not both")
         if llm is None:
-            llm_config = load_llm_config()
-            if llm_config is None:
+            settings = coerce_llm_settings(llm_settings) if llm_settings is not None else load_llm_settings()
+            if settings is None:
                 raise RuntimeError(
-                    "Aurora requires an LLM provider. "
-                    "Set AURORA_LLM_BASE_URL and AURORA_LLM_API_KEY. "
-                    "AURORA_LLM_MODEL defaults to gpt-4o-mini."
+                    "Aurora requires llm_settings. "
+                    "Pass llm_settings={'provider': '...', 'config': {...}} "
+                    "or set AURORA_LLM_PROVIDER and AURORA_LLM_CONFIG_*."
                 )
-            llm = OpenAICompatProvider(llm_config)
+            llm = _build_llm_provider(settings)
 
         root = Path(data_dir or ".aurora")
         store = SQLiteMemoryStore(str(root / "aurora_vnext.db"))

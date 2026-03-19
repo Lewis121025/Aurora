@@ -17,25 +17,35 @@ pip install -e '.[dev]'
 
 ## 配置
 
-复制 `.env.example` 至 `.env` 并配置：
+在 `.env` 中配置：
 
 ```env
-AURORA_LLM_BASE_URL=https://api.openai.com/v1
-AURORA_LLM_MODEL=gpt-4o-mini
-AURORA_LLM_API_KEY=your-api-key
+AURORA_LLM_PROVIDER=openai
+AURORA_LLM_CONFIG_BASE_URL=https://api.openai.com/v1
+AURORA_LLM_CONFIG_MODEL=gpt-4o-mini
+AURORA_LLM_CONFIG_API_KEY=your-api-key
 AURORA_API_KEY=your-http-api-key
 ```
 
 `AURORA_API_KEY` 可选，用于 HTTP API 鉴权。设置后，除 `/health`、`/docs` 和 `/openapi.json` 外，其余接口都需要 `Authorization: Bearer ...`。
 
-Aurora 的 LLM 只要求一个 `complete(messages)` 接口。默认适配器当前实现的是 OpenAI-compatible `/chat/completions` 端点。
+Aurora 的公开 LLM 配置固定为 `llm_settings = {"provider": "...", "config": {...}}`。环境变量只是这套结构的平铺版本。Aurora 的内部 LLM 协议仍然只要求一个 `complete(messages)` 接口。默认适配器当前实现的是 OpenAI-compatible `/chat/completions` 端点。
 
 ## Python SDK
 
 ```python
 from aurora.runtime.engine import AuroraKernel
 
-kernel = AuroraKernel.create()
+kernel = AuroraKernel.create(
+    llm_settings={
+        "provider": "openai",
+        "config": {
+            "base_url": "https://api.openai.com/v1",
+            "model": "gpt-4o-mini",
+            "api_key": "your-api-key",
+        },
+    }
+)
 
 turn = kernel.turn("subject-alice", "我在杭州工作，也喜欢爵士乐。")
 state = kernel.state("subject-alice")
@@ -43,6 +53,8 @@ recall = kernel.recall("subject-alice", "杭州 生活", limit=8)
 
 kernel.close()
 ```
+
+省略 `llm_settings` 时，`AuroraKernel.create()` 会从 `AURORA_LLM_PROVIDER` 和 `AURORA_LLM_CONFIG_*` 读取同一套配置。
 
 公开接口固定为：
 
@@ -110,6 +122,14 @@ uv run uvicorn aurora.surface.api:create_app --factory --host 0.0.0.0 --port 800
 8. 再执行一次写时演化
 
 Aurora 不再直接改写旧 atom。冲突、淡化、遗忘和延续都通过不可变节点进入图后，借由边关系自然改变当前激活分布。
+
+## LLM Providers
+
+当前内置支持以下 `AURORA_LLM_PROVIDER`：
+
+- `openai`
+- `openai_compatible`
+- `bailian`
 
 ## 系统公理
 

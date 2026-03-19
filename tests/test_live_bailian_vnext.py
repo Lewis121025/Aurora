@@ -46,9 +46,9 @@ def _live_env() -> dict[str, str]:
     if env.get("AURORA_LLM_PROVIDER", "").strip().lower() != "bailian":
         pytest.skip("live Bailian tests require AURORA_LLM_PROVIDER=bailian")
     required = (
-        "AURORA_BAILIAN_LLM_API_KEY",
-        "AURORA_BAILIAN_LLM_MODEL",
-        "AURORA_BAILIAN_LLM_BASE_URL",
+        "AURORA_LLM_CONFIG_API_KEY",
+        "AURORA_LLM_CONFIG_MODEL",
+        "AURORA_LLM_CONFIG_BASE_URL",
     )
     missing = [name for name in required if not env.get(name, "").strip()]
     if missing:
