@@ -25,6 +25,9 @@ ENV/
 .vscode/
 .idea/
 .claude/
+AGENTS.md
+CLAUDE.md
+claude.md
 *.swp
 *.swo
 *~
@@ -32,6 +35,7 @@ ENV/
 .env
 .env.*
 !.env.example
+docs/
 
 .DS_Store
 Thumbs.db
@@ -43,6 +47,12 @@ tmp_tui_check/
 data/
 data_v4/
 snapshots/
+tests/conftest.py
+tests/test_kernel_vnext.py
+tests/test_store_vnext.py
+tests/test_surface_vnext.py
+tests/test_memory_brief_vnext.py
+tests/test_live_bailian_vnext.py
 
 *.blob
 *.db
