@@ -115,7 +115,7 @@ def test_turn_writes_memory_field_nodes_and_keeps_typed_payloads(kernel_factory:
     kernel = _kernel(kernel_factory)
     subject_id = "subject-field"
 
-    turn = kernel.turn(subject_id, "我在杭州工作，也喜欢爵士乐，今天心情很好。", now_ts=1.0)
+    turn = kernel.turn(subject_id, "I work in Hangzhou, I also like jazz, and I am feeling great today.", now_ts=1.0)
     state = kernel.state(subject_id)
     stored_atoms = _stored_atoms(kernel, subject_id)
 
@@ -126,8 +126,8 @@ def test_turn_writes_memory_field_nodes_and_keeps_typed_payloads(kernel_factory:
     assert state.subject_id == subject_id
     assert state.summary.startswith("[CURRENT_MEMORY_FIELD]")
     assert state.atoms
-    assert any("杭州" in atom.text for atom in state.atoms)
-    assert any("爵士乐" in atom.text for atom in state.atoms)
+    assert any("Hangzhou" in atom.text for atom in state.atoms)
+    assert any("jazz" in atom.text for atom in state.atoms)
     assert any(isinstance(atom.content, EvidenceContent) for atom in stored_atoms)
     assert any(isinstance(atom.content, MemoryContent) for atom in stored_atoms if atom.atom_kind == "memory")
     assert any(isinstance(atom.content, EpisodeContent) for atom in stored_atoms if atom.atom_kind == "episode")
@@ -156,7 +156,7 @@ def test_response_reads_memory_brief_before_generation(kernel_factory: KernelFac
     )
     kernel = cast(Any, kernel_factory(llm=llm))
 
-    kernel.turn("subject-pre-response-field", "我现在住在杭州。", now_ts=1.0)
+    kernel.turn("subject-pre-response-field", "I now live in Hangzhou.", now_ts=1.0)
 
 
 def _assert_memory_brief_visible(messages: list[dict[str, str]]) -> str:
@@ -167,7 +167,7 @@ def _assert_memory_brief_visible(messages: list[dict[str, str]]) -> str:
     assert "recent_changes:" in memory_brief
     assert "active_tensions:" in memory_brief
     assert "ongoing_commitments:" in memory_brief
-    assert "杭州" in memory_brief
+    assert "Hangzhou" in memory_brief
     assert "semantic_self_model" not in memory_brief
     return "ack"
 
@@ -176,8 +176,8 @@ def test_conflict_write_shifts_activation_without_mutating_old_nodes(kernel_fact
     kernel = _kernel(kernel_factory)
     subject_id = "subject-conflict"
 
-    kernel.turn(subject_id, "我住在上海。", now_ts=1.0)
-    turn = kernel.turn(subject_id, "更正，我现在住在杭州。", now_ts=2.0)
+    kernel.turn(subject_id, "I live in Shanghai.", now_ts=1.0)
+    turn = kernel.turn(subject_id, "Correction, I now live in Hangzhou.", now_ts=2.0)
 
     state = kernel.state(subject_id)
     stored_memory = _stored_atoms(kernel, subject_id, atom_kind="memory")
@@ -185,48 +185,48 @@ def test_conflict_write_shifts_activation_without_mutating_old_nodes(kernel_fact
     activation = _activation(kernel, subject_id)
 
     assert len(stored_memory) >= 2
-    assert any("上海" in _json_text(atom.content) for atom in stored_memory)
-    assert any("杭州" in _json_text(atom.content) for atom in stored_memory)
+    assert any("Shanghai" in _json_text(atom.content) for atom in stored_memory)
+    assert any("Hangzhou" in _json_text(atom.content) for atom in stored_memory)
     assert any(edge.influence < 0.0 for edge in stored_edges)
     assert turn.created_edge_ids
 
-    shanghai_atom = next(atom for atom in stored_memory if "上海" in _json_text(atom.content))
-    hangzhou_atom = next(atom for atom in stored_memory if "杭州" in _json_text(atom.content))
+    shanghai_atom = next(atom for atom in stored_memory if "Shanghai" in _json_text(atom.content))
+    hangzhou_atom = next(atom for atom in stored_memory if "Hangzhou" in _json_text(atom.content))
     assert activation[hangzhou_atom.atom_id] > activation[shanghai_atom.atom_id]
-    assert any("杭州" in atom.text for atom in state.atoms)
+    assert any("Hangzhou" in atom.text for atom in state.atoms)
     assert "status" not in _json_text(stored_memory)
 
-    recalled = kernel.recall(subject_id, "我住在哪里？", limit=5)
+    recalled = kernel.recall(subject_id, "Where do I live?", limit=5)
     assert recalled.atoms
-    assert any("杭州" in atom.text for atom in recalled.atoms)
+    assert any("Hangzhou" in atom.text for atom in recalled.atoms)
 
 
 def test_inhibition_changes_activation_without_deleting_nodes(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
     subject_id = "subject-inhibition"
 
-    kernel.turn(subject_id, "我喜欢爵士乐。", now_ts=1.0)
-    kernel.turn(subject_id, "请忘掉我喜欢爵士乐。", now_ts=2.0)
+    kernel.turn(subject_id, "I like jazz.", now_ts=1.0)
+    kernel.turn(subject_id, "Please forget that I like jazz.", now_ts=2.0)
 
     state = kernel.state(subject_id)
     stored_atoms = _stored_atoms(kernel, subject_id)
     stored_edges = _stored_edges(kernel, subject_id)
     activation = _activation(kernel, subject_id)
 
-    jazz_atom = next(atom for atom in stored_atoms if atom.atom_kind == "memory" and "爵士乐" in _json_text(atom.content))
+    jazz_atom = next(atom for atom in stored_atoms if atom.atom_kind == "memory" and "jazz" in _json_text(atom.content))
     assert any(atom.atom_kind == "inhibition" for atom in stored_atoms)
-    assert any(atom.atom_kind == "evidence" and "我喜欢爵士乐" in _json_text(atom.content) for atom in stored_atoms)
-    assert any(atom.atom_kind == "evidence" and "请忘掉我喜欢爵士乐" in _json_text(atom.content) for atom in stored_atoms)
+    assert any(atom.atom_kind == "evidence" and "I like jazz" in _json_text(atom.content) for atom in stored_atoms)
+    assert any(atom.atom_kind == "evidence" and "Please forget that I like jazz" in _json_text(atom.content) for atom in stored_atoms)
     assert any(edge.target_atom_id == jazz_atom.atom_id and edge.influence < 0.0 for edge in stored_edges)
     assert activation[jazz_atom.atom_id] <= 0.05
     assert all(
-        not (atom.atom_kind == "memory" and "爵士乐" in atom.text)
+        not (atom.atom_kind == "memory" and "jazz" in atom.text)
         for atom in state.atoms
     )
 
-    recalled = kernel.recall(subject_id, "我喜欢什么音乐？", limit=5)
+    recalled = kernel.recall(subject_id, "What music do I like?", limit=5)
     assert all(
-        not (atom.atom_kind == "memory" and "爵士乐" in atom.text)
+        not (atom.atom_kind == "memory" and "jazz" in atom.text)
         for atom in recalled.atoms
     )
 
@@ -247,10 +247,10 @@ def test_axiom_user_compiler_drops_non_stage_kinds_and_illegal_edges(kernel_fact
         return json.dumps(
             {
                 "atoms": [
-                    {"kind": "episode", "text": "非法 episode", "confidence": 0.9, "salience": 0.8},
+                    {"kind": "episode", "text": "invalid episode", "confidence": 0.9, "salience": 0.8},
                     {"kind": "memory", "text": "", "confidence": 0.9, "salience": 0.8},
-                    {"kind": "memory", "text": "合法记忆", "confidence": 0.91, "salience": 0.83},
-                    {"kind": "memory", "text": "非法数值", "confidence": 1.3, "salience": 0.7},
+                    {"kind": "memory", "text": "valid memory", "confidence": 0.91, "salience": 0.83},
+                    {"kind": "memory", "text": "invalid score", "confidence": 1.3, "salience": 0.7},
                 ],
                 "edges": [
                     {"source": "new:0", "target": evidence_id, "influence": 0.8, "confidence": 0.9},
@@ -273,7 +273,7 @@ def test_axiom_user_compiler_drops_non_stage_kinds_and_illegal_edges(kernel_fact
     )
     subject_id = "subject-compiler-boundary"
 
-    turn = kernel.turn(subject_id, "写入一些乱七八糟的内容。", now_ts=1.0)
+    turn = kernel.turn(subject_id, "Write some noisy content into the field.", now_ts=1.0)
     stored_atoms = _stored_atoms(kernel, subject_id)
     stored_edges = _stored_edges(kernel, subject_id)
     stored_memory = [atom for atom in stored_atoms if atom.atom_kind == "memory"]
@@ -282,7 +282,7 @@ def test_axiom_user_compiler_drops_non_stage_kinds_and_illegal_edges(kernel_fact
     assert any(atom.atom_kind == "evidence" for atom in stored_atoms)
     assert [atom for atom in stored_atoms if atom.atom_kind == "episode"] == []
     assert len(stored_memory) == 1
-    assert _json_text(stored_memory[0].content) == _json_text(MemoryContent(text="合法记忆"))
+    assert _json_text(stored_memory[0].content) == _json_text(MemoryContent(text="valid memory"))
     assert stored_edges == []
 
 
@@ -302,7 +302,7 @@ def test_axiom_malformed_compiler_output_records_compile_failure_evidence(kernel
     )
     subject_id = "subject-compile-failure"
 
-    turn = kernel.turn(subject_id, "这轮 compiler 会坏掉。", now_ts=1.0)
+    turn = kernel.turn(subject_id, "The compiler will break on this turn.", now_ts=1.0)
     stored_atoms = _stored_atoms(kernel, subject_id)
     compile_failures = [
         atom
@@ -325,7 +325,7 @@ def test_query_cannot_resurrect_suppressed_exact_match(kernel_factory: KernelFac
         kernel,
         subject_id=subject_id,
         atom_id="memory-jazz",
-        text="我喜欢爵士乐",
+        text="I like jazz",
         created_at=1.0,
     )
     inhibition = _add_text_atom(
@@ -333,7 +333,7 @@ def test_query_cannot_resurrect_suppressed_exact_match(kernel_factory: KernelFac
         subject_id=subject_id,
         atom_id="inhibition-jazz",
         atom_kind="inhibition",
-        text="请忘掉我喜欢爵士乐",
+        text="Please forget that I like jazz",
         confidence=0.9,
         salience=0.85,
         created_at=2.0,
@@ -350,7 +350,7 @@ def test_query_cannot_resurrect_suppressed_exact_match(kernel_factory: KernelFac
     )
 
     activation = kernel.field.evolve(subject_id)
-    recalled = kernel.recall(subject_id, "爵士乐", limit=5)
+    recalled = kernel.recall(subject_id, "jazz", limit=5)
 
     assert activation[jazz.atom_id] <= 0.05
     assert all(atom.atom_id != jazz.atom_id for atom in recalled.atoms)
@@ -365,7 +365,7 @@ def test_axiom_intrinsic_activation_depends_only_on_local_retention(kernel_facto
         kernel,
         subject_id=subject_id,
         atom_id="memory-anchor",
-        text="锚点记忆",
+        text="anchor memory",
         confidence=0.91,
         salience=0.73,
         created_at=1.0,
@@ -385,7 +385,7 @@ def test_axiom_resting_field_does_not_self_amplify(kernel_factory: KernelFactory
         kernel,
         subject_id=subject_id,
         atom_id="memory-source",
-        text="源记忆",
+        text="source memory",
         confidence=0.92,
         salience=0.61,
         created_at=1.0,
@@ -394,7 +394,7 @@ def test_axiom_resting_field_does_not_self_amplify(kernel_factory: KernelFactory
         kernel,
         subject_id=subject_id,
         atom_id="memory-target",
-        text="目标记忆",
+        text="target memory",
         confidence=0.77,
         salience=0.69,
         created_at=2.0,
@@ -417,28 +417,28 @@ def test_axiom_resting_field_does_not_self_amplify(kernel_factory: KernelFactory
 
 
 def test_completed_turn_writes_episode_and_future_memory_traces(kernel_factory: KernelFactory) -> None:
-    kernel = _kernel(kernel_factory, "我会明天提醒你同步团队。")
+    kernel = _kernel(kernel_factory, "I will remind you to sync with the team tomorrow.")
     subject_id = "subject-turn-field"
 
-    kernel.turn(subject_id, "明天提醒我同步团队。", now_ts=1.0)
+    kernel.turn(subject_id, "Remind me to sync with the team tomorrow.", now_ts=1.0)
 
     state = kernel.state(subject_id)
     stored_atoms = _stored_atoms(kernel, subject_id)
 
     assert any(atom.atom_kind == "episode" for atom in stored_atoms)
-    assert any(atom.atom_kind == "memory" and "Aurora承诺" in _json_text(atom.content) for atom in stored_atoms)
-    assert any("Aurora承诺" in atom.text for atom in state.atoms)
+    assert any(atom.atom_kind == "memory" and "Aurora commitment" in _json_text(atom.content) for atom in stored_atoms)
+    assert any("Aurora commitment" in atom.text for atom in state.atoms)
 
 
 def test_axiom_recall_returns_query_activated_field_projection(kernel_factory: KernelFactory) -> None:
     kernel = _kernel(kernel_factory)
     subject_id = "subject-recall-field"
 
-    kernel.turn(subject_id, "我在杭州工作，也喜欢爵士乐。", now_ts=1.0)
-    kernel.turn(subject_id, "搬到杭州以后，我在重新适应工作节奏。", now_ts=2.0)
-    kernel.turn(subject_id, "最近我把周末留给朋友和运动，生活开始重新排好。", now_ts=3.0)
+    kernel.turn(subject_id, "I work in Hangzhou and I also like jazz.", now_ts=1.0)
+    kernel.turn(subject_id, "After moving to Hangzhou, I am readjusting to my work rhythm.", now_ts=2.0)
+    kernel.turn(subject_id, "Lately I have kept weekends for friends and exercise, and life feels ordered again.", now_ts=3.0)
 
-    recalled = kernel.recall(subject_id, "杭州 适应 生活", limit=6)
+    recalled = kernel.recall(subject_id, "Hangzhou adjust life", limit=6)
     memory_brief = build_memory_brief(kernel.state(subject_id), recalled)
 
     assert recalled.summary.startswith("[QUERY_MEMORY_FIELD]")
@@ -498,19 +498,19 @@ def test_axiom_field_evolution_converges_to_fixed_point(kernel_factory: KernelFa
     kernel = _kernel(kernel_factory)
     subject_id = "subject-competitive-fixed-point"
 
-    source = _add_text_atom(kernel, subject_id=subject_id, atom_id="source", text="稳定支持", created_at=1.0)
+    source = _add_text_atom(kernel, subject_id=subject_id, atom_id="source", text="steady support", created_at=1.0)
     damp = _add_text_atom(
         kernel,
         subject_id=subject_id,
         atom_id="damp",
         atom_kind="inhibition",
-        text="稳定抑制",
+        text="steady inhibition",
         confidence=0.9,
         salience=0.84,
         created_at=2.0,
     )
-    target = _add_text_atom(kernel, subject_id=subject_id, atom_id="target", text="目标记忆", created_at=3.0)
-    control = _add_text_atom(kernel, subject_id=subject_id, atom_id="control", text="对照记忆", created_at=4.0)
+    target = _add_text_atom(kernel, subject_id=subject_id, atom_id="target", text="target memory", created_at=3.0)
+    control = _add_text_atom(kernel, subject_id=subject_id, atom_id="control", text="control memory", created_at=4.0)
     _add_edge(
         kernel,
         subject_id=subject_id,
@@ -553,10 +553,10 @@ def test_axiom_field_activation_is_bounded(kernel_factory: KernelFactory) -> Non
     kernel = _kernel(kernel_factory)
     subject_id = "subject-bounded"
 
-    kernel.turn(subject_id, "我住在上海。", now_ts=1.0)
-    kernel.turn(subject_id, "更正，我现在住在杭州。", now_ts=2.0)
-    kernel.turn(subject_id, "我想先去散步，再回来写文档。", now_ts=3.0)
-    kernel.turn(subject_id, "今天有点焦虑。", now_ts=4.0)
+    kernel.turn(subject_id, "I live in Shanghai.", now_ts=1.0)
+    kernel.turn(subject_id, "Correction, I now live in Hangzhou.", now_ts=2.0)
+    kernel.turn(subject_id, "I want to first go for a walk, then come back and write docs.", now_ts=3.0)
+    kernel.turn(subject_id, "I feel anxious today.", now_ts=4.0)
 
     activation = _activation(kernel, subject_id)
 
@@ -568,12 +568,12 @@ def test_axiom_recall_is_read_only_against_cached_field(kernel_factory: KernelFa
     kernel = _kernel(kernel_factory)
     subject_id = "subject-read-only-recall"
 
-    kernel.turn(subject_id, "我住在杭州，也喜欢爵士乐。", now_ts=1.0)
+    kernel.turn(subject_id, "I live in Hangzhou and I also like jazz.", now_ts=1.0)
     before = _activation(kernel, subject_id)
 
-    first = kernel.recall(subject_id, "杭州", limit=5)
+    first = kernel.recall(subject_id, "Hangzhou", limit=5)
     after_first = _activation(kernel, subject_id)
-    second = kernel.recall(subject_id, "杭州", limit=5)
+    second = kernel.recall(subject_id, "Hangzhou", limit=5)
     after_second = _activation(kernel, subject_id)
 
     assert before == after_first == after_second
@@ -584,18 +584,18 @@ def test_axiom_repeated_recall_does_not_drift_field_projection(kernel_factory: K
     kernel = _kernel(kernel_factory)
     subject_id = "subject-recall-sequence"
 
-    kernel.turn(subject_id, "我在杭州工作，也喜欢爵士乐。", now_ts=1.0)
-    kernel.turn(subject_id, "最近我在适应新的生活节奏。", now_ts=2.0)
+    kernel.turn(subject_id, "I work in Hangzhou and I also like jazz.", now_ts=1.0)
+    kernel.turn(subject_id, "Recently I have been adjusting to a new pace of life.", now_ts=2.0)
     baseline_state = kernel.state(subject_id)
     baseline_activation = _activation(kernel, subject_id)
-    baseline_recall = kernel.recall(subject_id, "杭州", limit=5)
+    baseline_recall = kernel.recall(subject_id, "Hangzhou", limit=5)
 
-    for query in ("杭州", "生活", "爵士乐", "工作", "适应", "杭州"):
+    for query in ("Hangzhou", "life", "jazz", "work", "adjust", "Hangzhou"):
         kernel.recall(subject_id, query, limit=5)
 
     final_state = kernel.state(subject_id)
     final_activation = _activation(kernel, subject_id)
-    final_recall = kernel.recall(subject_id, "杭州", limit=5)
+    final_recall = kernel.recall(subject_id, "Hangzhou", limit=5)
 
     assert baseline_activation == final_activation
     assert baseline_state == final_state
@@ -610,7 +610,7 @@ def test_axiom_inhibitory_pressure_keeps_suppressed_node_hidden(kernel_factory: 
         kernel,
         subject_id=subject_id,
         atom_id="suppressed",
-        text="我喜欢爵士乐",
+        text="I like jazz",
         created_at=1.0,
     )
     neighbor = _add_text_atom(
@@ -618,7 +618,7 @@ def test_axiom_inhibitory_pressure_keeps_suppressed_node_hidden(kernel_factory: 
         subject_id=subject_id,
         atom_id="neighbor",
         atom_kind="memory",
-        text="我最近一直在听各种音乐",
+        text="I have been listening to many kinds of music lately",
         confidence=0.8,
         salience=0.76,
         created_at=2.0,
@@ -628,7 +628,7 @@ def test_axiom_inhibitory_pressure_keeps_suppressed_node_hidden(kernel_factory: 
         subject_id=subject_id,
         atom_id="inhibition",
         atom_kind="inhibition",
-        text="请忘掉我喜欢爵士乐",
+        text="Please forget that I like jazz",
         confidence=0.9,
         salience=0.85,
         created_at=3.0,
@@ -657,7 +657,7 @@ def test_axiom_inhibitory_pressure_keeps_suppressed_node_hidden(kernel_factory: 
     baseline = kernel.field.evolve(subject_id)
     before = _activation(kernel, subject_id)
 
-    for query in ("音乐", "最近在听什么", "爵士乐", "音乐", "最近在听什么"):
+    for query in ("music", "what have I been listening to lately", "jazz", "music", "what have I been listening to lately"):
         recalled = kernel.recall(subject_id, query, limit=5)
         assert all(atom.atom_id != suppressed.atom_id for atom in recalled.atoms)
 

@@ -59,7 +59,7 @@ def _recall(
     *atoms: ActivatedAtom,
     edges: tuple[ActivatedEdge, ...] = (),
     subject_id: str = "subject-brief",
-    query: str = "杭州",
+    query: str = "Hangzhou",
 ) -> RecallResult:
     return RecallResult(
         subject_id=subject_id,
@@ -87,66 +87,66 @@ def _sections(memory_brief: str) -> dict[str, list[str]]:
 
 def test_memory_brief_current_mainline_excludes_commitments() -> None:
     state = _state(
-        _atom("memory-home", "我现在住在杭州", activation=0.93),
-        _atom("memory-job", "我在杭州工作", activation=0.88),
-        _atom("memory-commitment", "Aurora承诺：明天提醒同步团队", activation=0.95),
+        _atom("memory-home", "I now live in Hangzhou", activation=0.93),
+        _atom("memory-job", "I work in Hangzhou", activation=0.88),
+        _atom("memory-commitment", "Aurora commitment: remind me to sync with the team tomorrow", activation=0.95),
     )
 
     sections = _sections(build_memory_brief(state))
 
-    assert sections["current_mainline"] == ["我现在住在杭州", "我在杭州工作"]
-    assert sections["ongoing_commitments"] == ["Aurora承诺：明天提醒同步团队"]
+    assert sections["current_mainline"] == ["I now live in Hangzhou", "I work in Hangzhou"]
+    assert sections["ongoing_commitments"] == ["Aurora commitment: remind me to sync with the team tomorrow"]
 
 
 def test_memory_brief_current_mainline_falls_back_to_episode_when_no_plain_memory() -> None:
     state = _state(
-        _atom("episode-latest", "在杭州重新适应新的生活节奏", atom_kind="episode", created_at=2.0),
-        _atom("memory-commitment", "Aurora承诺：明天提醒同步团队", activation=0.95),
+        _atom("episode-latest", "Adjusting to a new pace of life in Hangzhou", atom_kind="episode", created_at=2.0),
+        _atom("memory-commitment", "Aurora commitment: remind me to sync with the team tomorrow", activation=0.95),
     )
 
     sections = _sections(build_memory_brief(state))
 
-    assert sections["current_mainline"] == ["在杭州重新适应新的生活节奏"]
+    assert sections["current_mainline"] == ["Adjusting to a new pace of life in Hangzhou"]
 
 
 def test_memory_brief_query_relevant_excludes_inhibition_and_keeps_overlap_with_mainline() -> None:
-    state = _state(_atom("memory-home", "我现在住在杭州", activation=0.93))
+    state = _state(_atom("memory-home", "I now live in Hangzhou", activation=0.93))
     recall = _recall(
-        _atom("memory-home", "我现在住在杭州", activation=0.97),
-        _atom("inhibition-home", "请忘掉我住在上海", atom_kind="inhibition", activation=0.91),
-        query="我现在住在哪里？",
+        _atom("memory-home", "I now live in Hangzhou", activation=0.97),
+        _atom("inhibition-home", "Please forget that I live in Shanghai", atom_kind="inhibition", activation=0.91),
+        query="Where do I live now?",
     )
 
     sections = _sections(build_memory_brief(state, recall))
 
-    assert sections["current_mainline"] == ["我现在住在杭州"]
-    assert sections["query_relevant"] == ["我现在住在杭州"]
+    assert sections["current_mainline"] == ["I now live in Hangzhou"]
+    assert sections["query_relevant"] == ["I now live in Hangzhou"]
 
 
 def test_memory_brief_recent_changes_uses_newest_episodes_across_state_and_recall() -> None:
     state = _state(
-        _atom("episode-old", "刚搬到杭州", atom_kind="episode", created_at=1.0),
-        _atom("episode-mid", "开始适应新的工作节奏", atom_kind="episode", created_at=2.0),
+        _atom("episode-old", "Just moved to Hangzhou", atom_kind="episode", created_at=1.0),
+        _atom("episode-mid", "Starting to adjust to a new work rhythm", atom_kind="episode", created_at=2.0),
     )
     recall = _recall(
-        _atom("episode-new", "最近我在重新适应新的生活节奏", atom_kind="episode", created_at=3.0),
-        _atom("episode-mid", "开始适应新的工作节奏", atom_kind="episode", created_at=2.0),
+        _atom("episode-new", "Recently readjusting to a new pace of life", atom_kind="episode", created_at=3.0),
+        _atom("episode-mid", "Starting to adjust to a new work rhythm", atom_kind="episode", created_at=2.0),
     )
 
     sections = _sections(build_memory_brief(state, recall))
 
     assert sections["recent_changes"] == [
-        "最近我在重新适应新的生活节奏",
-        "开始适应新的工作节奏",
-        "刚搬到杭州",
+        "Recently readjusting to a new pace of life",
+        "Starting to adjust to a new work rhythm",
+        "Just moved to Hangzhou",
     ]
 
 
 def test_memory_brief_active_tensions_renders_inhibition_and_negative_coupling() -> None:
-    home = _atom("memory-home", "我现在住在杭州")
-    social = _atom("memory-social", "我想多社交")
-    solitude = _atom("memory-solitude", "我也想保留更多独处时间")
-    inhibition = _atom("inhibition-home", "请忘掉我住在上海", atom_kind="inhibition")
+    home = _atom("memory-home", "I now live in Hangzhou")
+    social = _atom("memory-social", "I want more social time")
+    solitude = _atom("memory-solitude", "I also want to keep more time alone")
+    inhibition = _atom("inhibition-home", "Please forget that I live in Shanghai", atom_kind="inhibition")
     state = _state(
         home,
         social,
@@ -171,6 +171,6 @@ def test_memory_brief_active_tensions_renders_inhibition_and_negative_coupling()
     sections = _sections(build_memory_brief(state, recall))
 
     assert sections["active_tensions"] == [
-        "我现在住在杭州 受到 请忘掉我住在上海 的抑制",
-        "我想多社交 与 我也想保留更多独处时间 存在张力",
+        "I now live in Hangzhou is suppressed by Please forget that I live in Shanghai",
+        "I want more social time is in tension with I also want to keep more time alone",
     ]

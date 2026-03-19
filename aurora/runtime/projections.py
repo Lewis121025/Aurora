@@ -99,9 +99,9 @@ def _active_tensions(
             continue
         seen.add(key)
         if source.atom_kind == "inhibition":
-            lines.append(f"{target.text} 受到 {source.text} 的抑制")
+            lines.append(f"{target.text} is suppressed by {source.text}")
         else:
-            lines.append(f"{source.text} 与 {target.text} 存在张力")
+            lines.append(f"{source.text} is in tension with {target.text}")
         if len(lines) >= _TENSION_LIMIT:
             break
     return tuple(lines)
@@ -165,4 +165,4 @@ def _dedupe_atoms(atoms: Iterable[ActivatedAtom]) -> tuple[ActivatedAtom, ...]:
 
 
 def _is_commitment(text: str) -> bool:
-    return text.startswith("Aurora承诺：")
+    return text.startswith("Aurora commitment:")

@@ -22,7 +22,7 @@ def _memory_atom(
     *,
     atom_id: str,
     subject_id: str = "subject-a",
-    text: str = "合法记忆",
+    text: str = "valid memory",
     confidence: float = 0.9,
     salience: float = 0.8,
 ) -> MemoryAtom:
@@ -61,7 +61,7 @@ def _evidence_atom(
     *,
     atom_id: str,
     subject_id: str = "subject-a",
-    text: str = "观察痕迹",
+    text: str = "observed trace",
     source_atom_ids: tuple[str, ...] = (),
 ) -> MemoryAtom:
     return MemoryAtom(
@@ -91,7 +91,7 @@ def test_store_axiom_rejects_invalid_atom_kind_and_score_ranges(store: SQLiteMem
                 atom_id="atom-invalid-kind",
                 subject_id="subject-a",
                 atom_kind=cast(Any, "unknown"),
-                content=MemoryContent(text="非法 kind"),
+                content=MemoryContent(text="invalid atom kind"),
                 confidence=0.9,
                 salience=0.8,
                 created_at=1.0,
