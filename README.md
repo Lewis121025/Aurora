@@ -171,7 +171,7 @@ uv run ruff check aurora tests
 python -m compileall -q aurora tests
 ```
 
-真实百炼链路 smoke 默认不进常规测试，显式开启：
+真实百炼链路 smoke 默认不进常规测试，显式开启。该测试使用仓库根目录的 `.env`，并要求 `AURORA_LLM_PROVIDER=bailian` 与对应的 `AURORA_LLM_CONFIG_*`：
 
 ```bash
 AURORA_LIVE_TESTS=1 uv run pytest -q tests/test_live_bailian_vnext.py
@@ -207,11 +207,11 @@ aurora/
 
 ## 架构说明
 
-[`docs/aurora-architecture-blueprint.md`](/Users/lewis/Aurora/docs/aurora-architecture-blueprint.md)
+[`docs/aurora-architecture-blueprint.md`](docs/aurora-architecture-blueprint.md)
 
 ## MCP 说明
 
-[`docs/aurora-mcp-v1.md`](/Users/lewis/Aurora/docs/aurora-mcp-v1.md)
+[`docs/aurora-mcp-v1.md`](docs/aurora-mcp-v1.md)
 
 ## 许可证
 

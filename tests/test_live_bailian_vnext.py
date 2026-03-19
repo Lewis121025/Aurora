@@ -40,7 +40,7 @@ def _load_dotenv(path: Path) -> dict[str, str]:
 def _live_env() -> dict[str, str]:
     dotenv_path = _REPO_ROOT / ".env"
     if not dotenv_path.is_file():
-        pytest.skip("live Bailian tests require /Users/lewis/Aurora/.env")
+        pytest.skip("live Bailian tests require a repo-root .env")
     env = os.environ.copy()
     env.update(_load_dotenv(dotenv_path))
     if env.get("AURORA_LLM_PROVIDER", "").strip().lower() != "bailian":
