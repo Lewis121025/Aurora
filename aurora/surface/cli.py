@@ -24,6 +24,12 @@ def main() -> None:
     turn_parser = subparsers.add_parser("turn", help="Run one subject-scoped turn")
     turn_parser.add_argument("text", type=_require_non_empty, help="Input text for Aurora")
     turn_parser.add_argument("--subject-id", required=True, type=_require_non_empty)
+    turn_parser.add_argument("--session-id", required=True, type=_require_non_empty)
+
+    finalize_parser = subparsers.add_parser("finalize-session", help="Finalize one session and distill memory")
+    finalize_parser.add_argument("--subject-id", required=True, type=_require_non_empty)
+    finalize_parser.add_argument("--session-id", required=True, type=_require_non_empty)
+    finalize_parser.add_argument("--ended-at", type=float, default=None)
 
     state_parser = subparsers.add_parser("state", help="Show the current memory field")
     state_parser.add_argument("--subject-id", required=True, type=_require_non_empty)
@@ -40,8 +46,13 @@ def main() -> None:
 
     try:
         if args.command == "turn":
-            output = kernel.turn(subject_id=args.subject_id, text=args.text)
-            print(output.response_text)
+            turn_output = kernel.turn(subject_id=args.subject_id, session_id=args.session_id, text=args.text)
+            print(turn_output.response_text)
+            return
+
+        if args.command == "finalize-session":
+            ingest_output = kernel.finalize_session(args.subject_id, args.session_id, ended_at=args.ended_at)
+            print(json.dumps(asdict(ingest_output), ensure_ascii=False, indent=2))
             return
 
         if args.command == "state":

@@ -9,7 +9,7 @@ from dataclasses import asdict
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
-from aurora.runtime.contracts import ActivatedAtom, ActivatedEdge, RecallResult, SubjectMemoryState, TurnOutput
+from aurora.runtime.contracts import ActivatedAtom, ActivatedEdge, IngestOutput, RecallResult, SubjectMemoryState, TurnOutput
 from aurora.runtime.engine import AuroraKernel
 
 mcp = FastMCP("Aurora")
@@ -20,8 +20,15 @@ _cleanup_registered = False
 class MCPTurnOutput(BaseModel):
     turn_id: str
     subject_id: str
+    session_id: str
     response_text: str
     recall_used: bool
+    segment_committed: bool = False
+
+
+class MCPIngestOutput(BaseModel):
+    subject_id: str
+    session_id: str
     created_atom_ids: list[str] = Field(default_factory=list)
     created_edge_ids: list[str] = Field(default_factory=list)
 
@@ -90,11 +97,29 @@ def _turn_payload(output: TurnOutput) -> MCPTurnOutput:
     return MCPTurnOutput(
         turn_id=output.turn_id,
         subject_id=output.subject_id,
+        session_id=output.session_id,
         response_text=output.response_text,
         recall_used=output.recall_used,
+        segment_committed=output.segment_committed,
+    )
+
+
+def _ingest_payload(output: IngestOutput) -> MCPIngestOutput:
+    return MCPIngestOutput(
+        subject_id=output.subject_id,
+        session_id=output.session_id,
         created_atom_ids=list(output.created_atom_ids),
         created_edge_ids=list(output.created_edge_ids),
     )
+
+
+def _invoke_finalize_session(subject_id: str, session_id: str, ended_at: float | None) -> MCPIngestOutput:
+    output = _get_kernel().finalize_session(
+        _require_non_empty(subject_id, "subject_id"),
+        _require_non_empty(session_id, "session_id"),
+        ended_at=ended_at,
+    )
+    return _ingest_payload(output)
 
 
 def _atom_payload(atom: ActivatedAtom) -> MCPActivatedAtom:
@@ -120,15 +145,22 @@ def _state_payload(subject_id: str) -> SubjectMemoryState:
 
 
 @mcp.tool(name="aurora_turn", structured_output=True)
-def aurora_turn(subject_id: str, text: str, now_ts: float | None = None) -> MCPTurnOutput:
+def aurora_turn(subject_id: str, session_id: str, text: str, now_ts: float | None = None) -> MCPTurnOutput:
     """Run one subject-scoped turn."""
     return _turn_payload(
         _get_kernel().turn(
             subject_id=_require_non_empty(subject_id, "subject_id"),
+            session_id=_require_non_empty(session_id, "session_id"),
             text=_require_non_empty(text, "text"),
             now_ts=now_ts,
         )
     )
+
+
+@mcp.tool(name="aurora_finalize_session", structured_output=True)
+def aurora_finalize_session(subject_id: str, session_id: str, ended_at: float | None = None) -> MCPIngestOutput:
+    """Finalize one session and distill durable memory."""
+    return _invoke_finalize_session(subject_id, session_id, ended_at)
 
 
 @mcp.tool(name="aurora_recall", structured_output=True)

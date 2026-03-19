@@ -11,9 +11,11 @@ AtomKind = Literal[
     "episode",
     "inhibition",
 ]
+TranscriptRole = Literal["user", "assistant"]
 EventKind = Literal["user_turn", "assistant_turn", "compile_failure"]
 _ATOM_KINDS = frozenset({"evidence", "memory", "episode", "inhibition"})
 _EVENT_KINDS = frozenset({"user_turn", "assistant_turn", "compile_failure"})
+_TRANSCRIPT_ROLES = frozenset({"user", "assistant"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +54,15 @@ class EpisodeContent:
 
 
 AtomContent = EvidenceContent | MemoryContent | EpisodeContent
+
+
+@dataclass(frozen=True, slots=True)
+class TranscriptItem:
+    """One ordered item in a session transcript."""
+
+    role: TranscriptRole
+    text: str
+    created_at: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,15 +137,25 @@ class RecallResult:
 
 
 @dataclass(frozen=True, slots=True)
+class IngestOutput:
+    """Session-level durable ingest output."""
+
+    subject_id: str
+    session_id: str
+    created_atom_ids: tuple[str, ...] = ()
+    created_edge_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class TurnOutput:
     """Turn output."""
 
     turn_id: str
     subject_id: str
+    session_id: str
     response_text: str
     recall_used: bool
-    created_atom_ids: tuple[str, ...] = ()
-    created_edge_ids: tuple[str, ...] = ()
+    segment_committed: bool = False
 
 
 def atom_text(atom: MemoryAtom) -> str:
@@ -198,6 +219,13 @@ def atom_kind_from_value(value: object) -> AtomKind:
     if text not in _ATOM_KINDS:
         raise ValueError(f"invalid atom_kind: {text}")
     return cast(AtomKind, text)
+
+
+def transcript_role_from_value(value: object) -> TranscriptRole:
+    text = _non_empty_string(value, "role")
+    if text not in _TRANSCRIPT_ROLES:
+        raise ValueError(f"invalid transcript role: {text}")
+    return cast(TranscriptRole, text)
 
 
 def _event_kind(value: str) -> EventKind:

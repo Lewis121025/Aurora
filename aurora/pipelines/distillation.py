@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
 from typing import cast
 from uuid import uuid4
@@ -16,36 +15,16 @@ from aurora.runtime.contracts import (
     MemoryContent,
     MemoryAtom,
     MemoryEdge,
+    TranscriptItem,
     TimeSpan,
-    evidence_content,
 )
 
-_USER_ALLOWED_KINDS: frozenset[AtomKind] = frozenset({"memory", "inhibition"})
-_TURN_ALLOWED_KINDS: frozenset[AtomKind] = frozenset({"memory", "episode", "inhibition"})
+_SESSION_ALLOWED_KINDS: frozenset[AtomKind] = frozenset({"memory", "episode", "inhibition"})
 
-_USER_FIELD_PROMPT = (
-    "[AURORA_USER_FIELD_COMPILER]\n"
-    "Convert one user message into memory field nodes and signed weighted edges.\n"
-    "Return JSON only with this exact schema:\n"
-    "{\n"
-    '  "atoms": [\n'
-    '    {"kind":"memory|inhibition","text":"...","confidence":0.0,"salience":0.0,"referents":["..."]}\n'
-    "  ],\n"
-    '  "edges": [\n'
-    '    {"source":"new:0|atom-id","target":"new:0|atom-id","influence":-1.0,"confidence":0.0}\n'
-    "  ]\n"
-    "}\n"
-    "Rules:\n"
-    "- Emit only durable memory traces or inhibition traces.\n"
-    "- Use positive influence for reinforcement/association and negative influence for inhibition/tension.\n"
-    "- Only reference existing atom ids that appear in current_field.\n"
-    "- Never create edges that touch evidence atoms.\n"
-    "- If nothing durable should be written, return empty arrays.\n"
-)
-
-_TURN_FIELD_PROMPT = (
-    "[AURORA_TURN_FIELD_COMPILER]\n"
-    "Convert a completed user/assistant turn into memory field nodes and signed weighted edges.\n"
+_SESSION_FIELD_PROMPT = (
+    "[AURORA_SESSION_FIELD_COMPILER]\n"
+    "Convert one closed session transcript into memory field nodes and signed weighted edges.\n"
+    "The input JSON contains transcript, local_field, and stable_field_summary.\n"
     "Return JSON only with this exact schema:\n"
     "{\n"
     '  "atoms": [\n'
@@ -56,9 +35,11 @@ _TURN_FIELD_PROMPT = (
     "  ]\n"
     "}\n"
     "Rules:\n"
-    "- Episode nodes should capture both sides of the turn in one text.\n"
+    "- Episode nodes should capture the whole closed session in one text.\n"
     "- Non-episode durable traces must use kind=memory or kind=inhibition.\n"
     "- Only emit future-facing traces when the assistant clearly committed to something durable.\n"
+    "- Use stable_field_summary only as global orientation.\n"
+    "- Only reference existing atom ids that appear in local_field.\n"
     "- Never create edges that touch evidence atoms.\n"
     "- If nothing durable should be written, return empty arrays.\n"
 )
@@ -76,63 +57,34 @@ class MemoryCompiler:
     def __init__(self, llm: LLMProvider) -> None:
         self.llm = llm
 
-    def compile_user_turn(
+    def compile_session(
         self,
         *,
         subject_id: str,
-        user_atom: MemoryAtom,
-        existing_atoms: tuple[MemoryAtom, ...],
+        transcript: tuple[TranscriptItem, ...],
+        local_atoms: tuple[MemoryAtom, ...],
+        stable_field_summary: str,
         now_ts: float,
     ) -> tuple[tuple[MemoryAtom, ...], tuple[MemoryEdge, ...]]:
-        compiled = _compile_user_field(
+        compiled = _compile_session_field(
             llm=self.llm,
-            user_text=evidence_content(user_atom).text,
-            existing_atoms=existing_atoms,
+            transcript=transcript,
+            local_atoms=local_atoms,
+            stable_field_summary=stable_field_summary,
         )
         created_atoms = _atoms_from_payload(
             subject_id=subject_id,
-            source_atom_ids=(user_atom.atom_id,),
+            source_atom_ids=(),
             payload=_object_list(compiled.get("atoms")),
             now_ts=now_ts,
-            allowed_kinds=_USER_ALLOWED_KINDS,
+            episode_span=_session_time_span(transcript),
+            allowed_kinds=_SESSION_ALLOWED_KINDS,
         )
         created_edges = _edges_from_payload(
             subject_id=subject_id,
             payload=_object_list(compiled.get("edges")),
             created_atoms=created_atoms,
-            existing_atoms=existing_atoms,
-            now_ts=now_ts,
-        )
-        return created_atoms, created_edges
-
-    def compile_completed_turn(
-        self,
-        *,
-        subject_id: str,
-        user_atom: MemoryAtom,
-        assistant_atom: MemoryAtom,
-        existing_atoms: tuple[MemoryAtom, ...],
-        now_ts: float,
-    ) -> tuple[tuple[MemoryAtom, ...], tuple[MemoryEdge, ...]]:
-        compiled = _compile_turn_field(
-            llm=self.llm,
-            user_text=evidence_content(user_atom).text,
-            assistant_text=evidence_content(assistant_atom).text,
-            existing_atoms=existing_atoms,
-        )
-        created_atoms = _atoms_from_payload(
-            subject_id=subject_id,
-            source_atom_ids=(user_atom.atom_id, assistant_atom.atom_id),
-            payload=_object_list(compiled.get("atoms")),
-            now_ts=now_ts,
-            episode_span=TimeSpan(start=user_atom.created_at, end=assistant_atom.created_at),
-            allowed_kinds=_TURN_ALLOWED_KINDS,
-        )
-        created_edges = _edges_from_payload(
-            subject_id=subject_id,
-            payload=_object_list(compiled.get("edges")),
-            created_atoms=created_atoms,
-            existing_atoms=existing_atoms,
+            existing_atoms=local_atoms,
             now_ts=now_ts,
         )
         return created_atoms, created_edges
@@ -165,22 +117,24 @@ def make_evidence_atom(
     )
 
 
-def _compile_user_field(
+def _compile_session_field(
     *,
     llm: LLMProvider,
-    user_text: str,
-    existing_atoms: tuple[MemoryAtom, ...],
+    transcript: tuple[TranscriptItem, ...],
+    local_atoms: tuple[MemoryAtom, ...],
+    stable_field_summary: str,
 ) -> dict[str, object]:
     return _json_object(
         llm.complete(
             [
-                {"role": "system", "content": _USER_FIELD_PROMPT},
+                {"role": "system", "content": _SESSION_FIELD_PROMPT},
                 {
                     "role": "user",
                     "content": json.dumps(
                         {
-                            "user_text": user_text,
-                            "current_field": _compiler_context(existing_atoms),
+                            "transcript": _compiler_transcript(transcript),
+                            "local_field": _compiler_context(local_atoms),
+                            "stable_field_summary": stable_field_summary,
                         },
                         ensure_ascii=False,
                     ),
@@ -190,34 +144,7 @@ def _compile_user_field(
     )
 
 
-def _compile_turn_field(
-    *,
-    llm: LLMProvider,
-    user_text: str,
-    assistant_text: str,
-    existing_atoms: tuple[MemoryAtom, ...],
-) -> dict[str, object]:
-    return _json_object(
-        llm.complete(
-            [
-                {"role": "system", "content": _TURN_FIELD_PROMPT},
-                {
-                    "role": "user",
-                    "content": json.dumps(
-                        {
-                            "user_text": user_text,
-                            "assistant_text": assistant_text,
-                            "current_field": _compiler_context(existing_atoms),
-                        },
-                        ensure_ascii=False,
-                    ),
-                },
-            ]
-        )
-    )
-
-
-def _compiler_context(existing_atoms: tuple[MemoryAtom, ...]) -> list[dict[str, object]]:
+def _compiler_context(local_atoms: tuple[MemoryAtom, ...]) -> list[dict[str, object]]:
     return [
         {
             "atom_id": atom.atom_id,
@@ -225,11 +152,22 @@ def _compiler_context(existing_atoms: tuple[MemoryAtom, ...]) -> list[dict[str, 
             "text": atom.content.text if hasattr(atom.content, "text") else "",
             "confidence": atom.confidence,
             "salience": atom.salience,
+            "referents": list(getattr(atom.content, "referents", ())),
             "source_atom_ids": list(atom.source_atom_ids),
-            "content": asdict(atom.content),
             "created_at": atom.created_at,
         }
-        for atom in existing_atoms
+        for atom in local_atoms
+    ]
+
+
+def _compiler_transcript(transcript: tuple[TranscriptItem, ...]) -> list[dict[str, object]]:
+    return [
+        {
+            "role": item.role,
+            "text": item.text,
+            "created_at": item.created_at,
+        }
+        for item in transcript
     ]
 
 
@@ -368,3 +306,9 @@ def _unit_interval(value: float) -> bool:
 
 def _signed_unit_interval(value: float) -> bool:
     return -1.0 <= value <= 1.0
+
+
+def _session_time_span(transcript: tuple[TranscriptItem, ...]) -> TimeSpan | None:
+    if not transcript:
+        return None
+    return TimeSpan(start=transcript[0].created_at, end=transcript[-1].created_at)

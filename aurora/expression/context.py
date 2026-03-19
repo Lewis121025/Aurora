@@ -11,3 +11,4 @@ class ExpressionContext:
 
     input_text: str
     memory_brief: str
+    session_transcript: str

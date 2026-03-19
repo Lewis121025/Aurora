@@ -12,6 +12,8 @@ class CognitionError(Exception):
 
 DEFAULT_SYSTEM_PROMPT = (
     "Respond from the memory brief.\n"
+    "Use the active session transcript for local continuity and the memory brief for durable history.\n"
+    "When the active session transcript conflicts with the memory brief, prefer the active session transcript.\n"
     "Read the brief in order: current_mainline, query_relevant, recent_changes, active_tensions, ongoing_commitments.\n"
     "Prefer query_relevant for the current question and use current_mainline as the default continuity anchor.\n"
     "Use recent_changes to understand recency and preserve active_tensions instead of flattening them.\n"
@@ -26,7 +28,11 @@ def build_messages(
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
 ) -> list[dict[str, str]]:
     """Build messages for response generation."""
-    system_message = f"{system_prompt.rstrip()}\n\n{context.memory_brief.strip()}"
+    system_message = (
+        f"{system_prompt.rstrip()}\n\n"
+        f"{context.memory_brief.strip()}\n\n"
+        f"{context.session_transcript.strip()}"
+    )
     return [
         {"role": "system", "content": system_message},
         {"role": "user", "content": context.input_text},

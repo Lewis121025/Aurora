@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field, field_validator
 
-from aurora.runtime.contracts import RecallResult, SubjectMemoryState, TurnOutput
+from aurora.runtime.contracts import IngestOutput, RecallResult, SubjectMemoryState, TurnOutput
 from aurora.runtime.engine import AuroraKernel
 
 _OPEN_PATHS = frozenset({"/health", "/docs", "/openapi.json"})
@@ -25,10 +25,22 @@ def _require_non_empty(value: str) -> str:
 
 class TurnRequest(BaseModel):
     subject_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
     text: str = Field(min_length=1)
     now_ts: float | None = None
 
-    @field_validator("subject_id", "text")
+    @field_validator("subject_id", "session_id", "text")
+    @classmethod
+    def validate_non_empty(cls, value: str) -> str:
+        return _require_non_empty(value)
+
+
+class FinalizeSessionRequest(BaseModel):
+    subject_id: str = Field(min_length=1)
+    session_id: str = Field(min_length=1)
+    ended_at: float | None = None
+
+    @field_validator("subject_id", "session_id")
     @classmethod
     def validate_non_empty(cls, value: str) -> str:
         return _require_non_empty(value)
@@ -53,7 +65,20 @@ class SurfaceKernel(Protocol):
     @property
     def store(self) -> SurfaceStore: ...
 
-    def turn(self, subject_id: str, text: str, now_ts: float | None = None) -> TurnOutput: ...
+    def turn(
+        self,
+        subject_id: str,
+        session_id: str,
+        text: str,
+        now_ts: float | None = None,
+    ) -> TurnOutput: ...
+
+    def finalize_session(
+        self,
+        subject_id: str,
+        session_id: str,
+        ended_at: float | None = None,
+    ) -> IngestOutput: ...
 
     def state(self, subject_id: str) -> SubjectMemoryState: ...
 
@@ -88,7 +113,17 @@ def build_app(engine: SurfaceKernel) -> FastAPI:
 
     @app.post("/turn")
     def turn(payload: TurnRequest) -> dict[str, object]:
-        return asdict(engine.turn(payload.subject_id, payload.text, now_ts=payload.now_ts))
+        return asdict(engine.turn(payload.subject_id, payload.session_id, payload.text, now_ts=payload.now_ts))
+
+    @app.post("/finalize-session")
+    def finalize_session(payload: FinalizeSessionRequest) -> dict[str, object]:
+        return asdict(
+            engine.finalize_session(
+                payload.subject_id,
+                payload.session_id,
+                ended_at=payload.ended_at,
+            )
+        )
 
     @app.get("/state/{subject_id}")
     def state(subject_id: str) -> dict[str, object]:

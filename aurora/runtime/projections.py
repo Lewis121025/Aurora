@@ -16,6 +16,8 @@ _COMMITMENT_LIMIT = 3
 def build_memory_brief(
     state: SubjectMemoryState,
     recall: RecallResult | None = None,
+    *,
+    heading: str = "[MEMORY_BRIEF]",
 ) -> str:
     """Build a query-shaped memory brief for response generation."""
     recall_atoms = () if recall is None else recall.atoms
@@ -26,6 +28,7 @@ def build_memory_brief(
     active_tensions = _active_tensions(state.atoms, recall_atoms, state.edges, recall_edges)
     ongoing_commitments = _ongoing_commitments(state.atoms, recall_atoms)
     return _render_brief(
+        heading=heading,
         current_mainline=current_mainline,
         query_relevant=query_relevant,
         recent_changes=recent_changes,
@@ -120,13 +123,14 @@ def _ongoing_commitments(
 
 def _render_brief(
     *,
+    heading: str,
     current_mainline: tuple[ActivatedAtom, ...],
     query_relevant: tuple[ActivatedAtom, ...],
     recent_changes: tuple[ActivatedAtom, ...],
     active_tensions: tuple[str, ...],
     ongoing_commitments: tuple[ActivatedAtom, ...],
 ) -> str:
-    lines = ["[MEMORY_BRIEF]"]
+    lines = [heading]
     _append_atom_section(lines, "current_mainline", current_mainline)
     _append_atom_section(lines, "query_relevant", query_relevant)
     _append_atom_section(lines, "recent_changes", recent_changes)

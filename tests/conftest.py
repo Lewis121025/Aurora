@@ -62,110 +62,135 @@ _LIKE_PATTERN = re.compile(r"\b(?:I|also) like ([^,.!?;]+)", re.IGNORECASE)
 def scripted_memory_llm(messages: list[dict[str, str]]) -> str:
     system_text = "\n".join(message["content"] for message in messages if message["role"] == "system")
     payload = json.loads(messages[-1]["content"])
-    if "[AURORA_USER_FIELD_COMPILER]" in system_text:
-        return json.dumps(_compile_user_field(payload), ensure_ascii=False)
-    if "[AURORA_TURN_FIELD_COMPILER]" in system_text:
-        return json.dumps(_compile_turn_field(payload), ensure_ascii=False)
+    if "[AURORA_SESSION_FIELD_COMPILER]" in system_text:
+        return json.dumps(_compile_session_field(payload), ensure_ascii=False)
     raise AssertionError("structured compiler received an unknown prompt")
 
 
-def _compile_user_field(payload: object) -> dict[str, object]:
+def _compile_session_field(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict):
         raise AssertionError("compiler payload must be an object")
-    text = str(payload.get("user_text", ""))
-    current_field = payload.get("current_field")
-    memory = current_field if isinstance(current_field, list) else []
-    is_forget = any(marker in text.lower() for marker in ("please forget", "forget that", "do not remember", "don't remember"))
+    local_field = payload.get("local_field")
+    memory = local_field if isinstance(local_field, list) else []
+    transcript = payload.get("transcript")
+    items = transcript if isinstance(transcript, list) else []
     atoms: list[dict[str, object]] = []
     edges: list[dict[str, object]] = []
-
-    for match in _LOCATION_PATTERN.finditer(text):
-        atoms.append(_field_atom("memory", f"I now live in {match.group(1).strip()}", 0.94, 0.90))
-    for match in _WORK_PATTERN.finditer(text):
-        atoms.append(_field_atom("memory", f"I work in {match.group(1).strip()}", 0.92, 0.84))
-    for match in _LIKE_PATTERN.finditer(text):
-        value = match.group(1).strip()
-        if value and not is_forget:
-            atoms.append(_field_atom("memory", f"I like {value}", 0.90, 0.82))
-
-    plan_match = _PLAN_PATTERN.search(text)
-    if plan_match is not None:
-        first_step = plan_match.group(1).strip(" .!?")
-        second_step = plan_match.group(2).strip(" .!?")
-        atoms.append(_field_atom("memory", f"first {first_step}, then {second_step}", 0.86, 0.88))
-
-    lowered = text.lower()
-    if "want" in lowered and "do not want" in lowered:
-        atoms.append(_field_atom("memory", text.strip(" .!?"), 0.78, 0.76))
-    elif "want" in lowered:
-        atoms.append(_field_atom("memory", text.strip(" .!?"), 0.74, 0.72))
-
-    emotional_trace = _emotion_trace(text)
-    if emotional_trace is not None:
-        atoms.append(emotional_trace)
-
-    if any(marker in lowered for marker in ("correction", "actually", "let me correct that")):
-        existing_location_ids = _match_atoms(memory, lambda item: _item_kind(item) == "memory" and "live in" in _item_text(item))
-        if existing_location_ids:
-            for atom_index, atom in enumerate(atoms):
-                if atom.get("kind") == "memory" and "live in" in str(atom.get("text", "")).lower():
-                    edges.extend(
-                        _edge(f"new:{atom_index}", target_atom_id, -0.92, 0.94)
-                        for target_atom_id in existing_location_ids
-                    )
-
-    if is_forget:
-        atoms.append(_field_atom("inhibition", text.strip(), 0.96, 0.84))
-        inhibition_index = len(atoms) - 1
-        target_ids = _match_atoms(
-            memory,
-            lambda item: _item_kind(item) != "evidence" and bool(_item_text(item)) and _item_text(item) in text,
-        )
-        edges.extend(_edge(f"new:{inhibition_index}", atom_id, -0.95, 0.97) for atom_id in target_ids)
-
-    return {"atoms": atoms, "edges": edges}
-
-
-def _compile_turn_field(payload: object) -> dict[str, object]:
-    if not isinstance(payload, dict):
-        raise AssertionError("compiler payload must be an object")
-    user_text = str(payload.get("user_text", "")).strip()
-    assistant_text = str(payload.get("assistant_text", "")).strip()
-    current_field = payload.get("current_field")
-    memory = current_field if isinstance(current_field, list) else []
-    atoms: list[dict[str, object]] = [
-        _field_atom(
-            "episode",
-            " | ".join(
-                fragment
-                for fragment in (
-                    f"user: {user_text}" if user_text else "",
-                    f"aurora: {assistant_text}" if assistant_text else "",
+    transcript_lines: list[str] = []
+    created_memory_ids: dict[str, str] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role", "")).strip()
+        text = str(item.get("text", "")).strip()
+        if role not in {"user", "assistant"} or not text:
+            continue
+        transcript_lines.append(f"{role}: {text}")
+        if role == "assistant":
+            if text.startswith(("I will", "I'll", "I can")):
+                action = (
+                    text.removeprefix("I will")
+                    .removeprefix("I'll")
+                    .removeprefix("I can")
+                    .strip(" ,.!?")
                 )
-                if fragment
-            ),
-            0.98,
-            0.70,
-        )
-    ]
-    if assistant_text.startswith(("I will", "I'll", "I can")):
-        action = (
-            assistant_text.removeprefix("I will")
-            .removeprefix("I'll")
-            .removeprefix("I can")
-            .strip(" ,.!?")
-        )
-        if action:
-            atoms.append(_field_atom("memory", f"Aurora commitment: {action}", 0.88, 0.86))
-    if any(token in user_text for token in ("Hangzhou", "life", "adjust", "friends", "exercise")):
-        atoms.append(_field_atom("memory", user_text[:48], 0.78, 0.80))
+                if action:
+                    atom_index = len(atoms)
+                    atoms.append(_field_atom("memory", f"Aurora commitment: {action}", 0.88, 0.86))
+                    created_memory_ids[f"Aurora commitment: {action}"] = f"new:{atom_index}"
+            continue
 
-    edges: list[dict[str, object]] = []
-    if len(atoms) > 1:
-        episode_targets = _match_atoms(memory, lambda item: _item_kind(item) == "episode")
-        for atom_index in range(1, len(atoms)):
-            edges.extend(_edge(f"new:{atom_index}", target_atom_id, 0.35, 0.70) for target_atom_id in episode_targets[-2:])
+        lowered = text.lower()
+        is_forget = any(marker in lowered for marker in ("please forget", "forget that", "do not remember", "don't remember"))
+        new_location_indices: list[int] = []
+        for match in _LOCATION_PATTERN.finditer(text):
+            atom_text = f"I now live in {match.group(1).strip()}"
+            atom_index = len(atoms)
+            atoms.append(_field_atom("memory", atom_text, 0.94, 0.90))
+            created_memory_ids[atom_text] = f"new:{atom_index}"
+            new_location_indices.append(atom_index)
+        for match in _WORK_PATTERN.finditer(text):
+            atom_text = f"I work in {match.group(1).strip()}"
+            atom_index = len(atoms)
+            atoms.append(_field_atom("memory", atom_text, 0.92, 0.84))
+            created_memory_ids[atom_text] = f"new:{atom_index}"
+        for match in _LIKE_PATTERN.finditer(text):
+            value = match.group(1).strip()
+            if value and not is_forget:
+                atom_text = f"I like {value}"
+                atom_index = len(atoms)
+                atoms.append(_field_atom("memory", atom_text, 0.90, 0.82))
+                created_memory_ids[atom_text] = f"new:{atom_index}"
 
+        plan_match = _PLAN_PATTERN.search(text)
+        if plan_match is not None:
+            first_step = plan_match.group(1).strip(" .!?")
+            second_step = plan_match.group(2).strip(" .!?")
+            atom_text = f"first {first_step}, then {second_step}"
+            atom_index = len(atoms)
+            atoms.append(_field_atom("memory", atom_text, 0.86, 0.88))
+            created_memory_ids[atom_text] = f"new:{atom_index}"
+
+        if "want" in lowered and "do not want" in lowered:
+            atom_text = text.strip(" .!?")
+            atom_index = len(atoms)
+            atoms.append(_field_atom("memory", atom_text, 0.78, 0.76))
+            created_memory_ids[atom_text] = f"new:{atom_index}"
+        elif "want" in lowered:
+            atom_text = text.strip(" .!?")
+            atom_index = len(atoms)
+            atoms.append(_field_atom("memory", atom_text, 0.74, 0.72))
+            created_memory_ids[atom_text] = f"new:{atom_index}"
+
+        emotional_trace = _emotion_trace(text)
+        if emotional_trace is not None:
+            atom_index = len(atoms)
+            atoms.append(emotional_trace)
+            created_memory_ids[str(emotional_trace["text"])] = f"new:{atom_index}"
+
+        if any(token in text for token in ("Hangzhou", "life", "adjust", "friends", "exercise")):
+            atom_text = text[:48]
+            atom_index = len(atoms)
+            atoms.append(_field_atom("memory", atom_text, 0.78, 0.80))
+            created_memory_ids[atom_text] = f"new:{atom_index}"
+
+        if any(marker in lowered for marker in ("correction", "actually", "let me correct that")):
+            existing_location_ids = _match_atoms(memory, lambda item: _item_kind(item) == "memory" and "live in" in _item_text(item))
+            existing_location_ids.extend(
+                reference
+                for atom_text, reference in created_memory_ids.items()
+                if "live in" in atom_text.lower()
+            )
+            for atom_index in new_location_indices:
+                edges.extend(
+                    _edge(f"new:{atom_index}", target_atom_id, -0.92, 0.94)
+                    for target_atom_id in existing_location_ids
+                    if target_atom_id != f"new:{atom_index}"
+                )
+
+        if is_forget:
+            inhibition_index = len(atoms)
+            atoms.append(_field_atom("inhibition", text.strip(), 0.96, 0.84))
+            target_ids = _match_atoms(
+                memory,
+                lambda item: _item_kind(item) != "evidence" and bool(_item_text(item)) and _item_text(item) in text,
+            )
+            target_ids.extend(
+                reference
+                for atom_text, reference in created_memory_ids.items()
+                if atom_text and atom_text in text
+            )
+            edges.extend(_edge(f"new:{inhibition_index}", atom_id, -0.95, 0.97) for atom_id in target_ids)
+
+    if transcript_lines:
+        atoms.append(
+            _field_atom(
+                "episode",
+                " | ".join(transcript_lines),
+                0.98,
+                0.70,
+            )
+        )
     return {"atoms": atoms, "edges": edges}
 
 
@@ -231,10 +256,7 @@ def _item_kind(item: dict[str, object]) -> str:
 
 
 def _item_text(item: dict[str, object]) -> str:
-    content = item.get("content")
-    if isinstance(content, dict):
-        return str(content.get("text", "")).strip()
-    return ""
+    return str(item.get("text", "")).strip()
 
 
 class KernelFactory(Protocol):
