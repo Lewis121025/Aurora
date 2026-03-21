@@ -31,7 +31,13 @@ class OpenAICompatProvider:
         """
         self._config = config
 
-    def complete(self, messages: list[dict[str, str]]) -> str:
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
         """Call LLM to complete the request.
 
         Sends a chat completion request to the LLM API, parses the response,
@@ -53,6 +59,10 @@ class OpenAICompatProvider:
             "temperature": 0.7,
             "max_tokens": self._config.max_tokens,
         }
+        if temperature is not None:
+            payload_obj["temperature"] = temperature
+        if max_tokens is not None:
+            payload_obj["max_tokens"] = max_tokens
         if self._config.enable_thinking is not None:
             payload_obj["enable_thinking"] = self._config.enable_thinking
 

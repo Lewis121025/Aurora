@@ -1,6 +1,6 @@
 """Package entry module."""
 
-from aurora.surface.cli import main
+from aurora.cli import main
 
 
 if __name__ == "__main__":

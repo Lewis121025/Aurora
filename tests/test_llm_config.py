@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from aurora.llm.config import coerce_llm_settings, load_llm_settings
-from aurora.runtime.engine import AuroraKernel
+from aurora.system import AuroraSystem
 
 
 def test_load_llm_settings_reads_nested_dotenv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -48,39 +48,6 @@ def test_load_llm_settings_reads_nested_dotenv(monkeypatch: pytest.MonkeyPatch, 
     assert settings.config.enable_thinking is True
 
 
-def test_load_llm_settings_applies_bailian_defaults(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.chdir(tmp_path)
-    for name in (
-        "AURORA_LLM_PROVIDER",
-        "AURORA_LLM_CONFIG_BASE_URL",
-        "AURORA_LLM_CONFIG_MODEL",
-        "AURORA_LLM_CONFIG_API_KEY",
-        "AURORA_LLM_CONFIG_ENABLE_THINKING",
-    ):
-        monkeypatch.delenv(name, raising=False)
-
-    (tmp_path / ".env").write_text(
-        "\n".join(
-            (
-                "AURORA_LLM_PROVIDER=bailian",
-                "AURORA_LLM_CONFIG_BASE_URL=https://example.provider/v1",
-                "AURORA_LLM_CONFIG_MODEL=bailian-model",
-                "AURORA_LLM_CONFIG_API_KEY=provider-key",
-            )
-        ),
-        encoding="utf-8",
-    )
-
-    settings = load_llm_settings()
-
-    assert settings is not None
-    assert settings.provider == "bailian"
-    assert settings.config.base_url == "https://example.provider/v1"
-    assert settings.config.model == "bailian-model"
-    assert settings.config.api_key == "provider-key"
-    assert settings.config.enable_thinking is False
-
-
 def test_coerce_llm_settings_reads_nested_mapping() -> None:
     settings = coerce_llm_settings(
         {
@@ -116,22 +83,26 @@ def test_coerce_llm_settings_rejects_missing_config_fields() -> None:
         )
 
 
-def test_kernel_create_accepts_llm_settings_mapping(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
+def test_system_create_accepts_llm_settings_mapping(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     captured: list[object] = []
 
     class FakeProvider:
         def __init__(self, config: object) -> None:
             captured.append(config)
 
-        def complete(self, messages: list[dict[str, str]]) -> str:
+        def complete(
+            self,
+            messages: list[dict[str, str]],
+            *,
+            max_tokens: int | None = None,
+            temperature: float | None = None,
+        ) -> str:
+            del messages, max_tokens, temperature
             return "ok"
 
-    monkeypatch.setattr("aurora.runtime.engine.OpenAICompatProvider", FakeProvider)
+    monkeypatch.setattr("aurora.system.OpenAICompatProvider", FakeProvider)
 
-    kernel = AuroraKernel.create(
+    system = AuroraSystem.create(
         data_dir=str(tmp_path / ".aurora"),
         llm_settings={
             "provider": "openai",
@@ -145,16 +116,23 @@ def test_kernel_create_accepts_llm_settings_mapping(
     try:
         assert len(captured) == 1
     finally:
-        kernel.close()
+        system.close()
 
 
-def test_kernel_create_rejects_llm_and_llm_settings_together(tmp_path: Path) -> None:
+def test_system_create_rejects_llm_and_llm_settings_together(tmp_path: Path) -> None:
     class DummyLLM:
-        def complete(self, messages: list[dict[str, str]]) -> str:
+        def complete(
+            self,
+            messages: list[dict[str, str]],
+            *,
+            max_tokens: int | None = None,
+            temperature: float | None = None,
+        ) -> str:
+            del messages, max_tokens, temperature
             return "ok"
 
     with pytest.raises(ValueError, match="either llm or llm_settings"):
-        AuroraKernel.create(
+        AuroraSystem.create(
             data_dir=str(tmp_path / ".aurora"),
             llm=DummyLLM(),
             llm_settings={

@@ -1,8 +1,6 @@
 # Aurora
 
-Aurora is a single-subject memory kernel. It stores immutable memory atoms, immutable edges, and a derived activation cache. State and recall are read-only projections over the current memory field.
-
-This release is an academic-grade launch: a rigorously validated kernel release for internal research use, technical review, benchmark publication, and controlled demonstration. It is not a business GA service.
+Aurora is a unified ingest-and-evolve memory kernel. Every input becomes immutable memory material first. Reinforcement, suppression, replay, abstraction, and current-state readout all happen inside the same evolving field.
 
 ## Installation
 
@@ -12,7 +10,7 @@ pip install -e '.[dev]'
 
 ## Configuration
 
-Set the LLM configuration in `.env` or pass the same shape directly to `AuroraKernel.create(...)`.
+Aurora only needs LLM settings when you call `respond(...)` or serve an endpoint that can respond.
 
 ```env
 AURORA_LLM_PROVIDER=openai
@@ -24,7 +22,7 @@ AURORA_API_KEY=your-http-api-key
 
 `AURORA_API_KEY` is optional. When it is set, every HTTP endpoint except `/health`, `/docs`, and `/openapi.json` requires `Authorization: Bearer ...`.
 
-Aurora exposes one public LLM settings shape:
+Public LLM settings shape:
 
 ```python
 {
@@ -37,72 +35,43 @@ Aurora exposes one public LLM settings shape:
 }
 ```
 
-The runtime accepts providers backed by the OpenAI-compatible chat completions protocol.
-
-## Launch Envelope
-
-This release supports a narrow and explicit operating envelope:
-
-- single subject at a time
-- single-host persistence
-- no high-availability guarantees
-- no multi-writer guarantees
-- no cross-subject retrieval service
-
-## Release Scope
-
-This release is:
-
-- suitable for controlled deployment and rigorous evaluation
-- suitable for technical review and benchmark-style regression checks
-- suitable for embedded use inside a host application or agent
-
-This release is not:
-
-- a horizontally scaled shared service
-- a multi-tenant memory platform
-- a business-SLA service
-
 ## Python SDK
 
 ```python
-from aurora.runtime.engine import AuroraKernel
+from aurora import AuroraSystem
 
-kernel = AuroraKernel.create(
-    llm_settings={
-        "provider": "openai",
-        "config": {
-            "base_url": "https://api.openai.com/v1",
-            "model": "gpt-4o-mini",
-            "api_key": "your-api-key",
-        },
-    }
-)
+system = AuroraSystem.create()
 
-turn = kernel.turn("subject-alice", "I live in Hangzhou and I like jazz.")
-state = kernel.state("subject-alice")
-recall = kernel.recall("subject-alice", "Hangzhou jazz", limit=8)
+system.ingest("I live in Hangzhou.", metadata={"speaker": "user"})
+state = system.current_state()
+recall = system.retrieve("Where do I live?")
+reply = system.respond("session-a", "What city do I live in?")
 
-kernel.close()
+system.close()
 ```
-
-If `llm_settings` is omitted, `AuroraKernel.create()` reads `AURORA_LLM_PROVIDER` and `AURORA_LLM_CONFIG_*`.
 
 Public runtime surface:
 
-- `AuroraKernel.create(...) -> AuroraKernel`
-- `turn(subject_id, text, now_ts=None) -> TurnOutput`
-- `state(subject_id) -> SubjectMemoryState`
-- `recall(subject_id, query, limit=8) -> RecallResult`
+- `AuroraSystem.create(...) -> AuroraSystem`
+- `ingest(text, metadata=None, source="dialogue", now_ts=None) -> EventIngestResult`
+- `ingest_batch(events, source="dialogue") -> dict`
+- `retrieve(cue, top_k=8, propagation_steps=3) -> RecallResult`
+- `current_state(top_k=10) -> RecallResult`
+- `replay(budget=8, reason="replay") -> dict`
+- `respond(session_id, text, metadata=None, source="dialogue", top_k=8, propagation_steps=3, now_ts=None) -> ResponseOutput`
+- `stats() -> dict`
+- `operation_history(limit=50) -> list[dict]`
+- `get_atom(atom_id) -> dict`
 - `close() -> None`
 
 ## CLI
 
 ```bash
-aurora turn "Hello Aurora" --subject-id subject-alice
-aurora state --subject-id subject-alice
-aurora recall "Where do I live?" --subject-id subject-alice --limit 8
-aurora status
+aurora ingest --text "I live in Hangzhou." --metadata '{"speaker":"user"}'
+aurora retrieve --cue "Where do I live?"
+aurora current-state
+aurora respond --session-id session-a --text "What city do I live in?"
+aurora stats
 ```
 
 ## MCP
@@ -113,90 +82,46 @@ aurora-mcp
 
 Exposed MCP interface:
 
-- tools: `aurora_turn`, `aurora_recall`
-- resources: `aurora://subject/{subject_id}/memory-field`
+- tools: `aurora_ingest`, `aurora_retrieve`, `aurora_current_state`, `aurora_replay`, `aurora_respond`
+- resource: `aurora://memory/current-state`
 
 ## HTTP API
 
 ```bash
-uv run uvicorn aurora.surface.api:create_app --factory --host 0.0.0.0 --port 8000
+uv run uvicorn aurora.api:create_app --factory --host 0.0.0.0 --port 8000
 ```
 
-| Endpoint | Method | Body | Description |
-| --- | --- | --- | --- |
-| `/health` | `GET` | - | Health check |
-| `/turn` | `POST` | `{"subject_id": "...", "text": "...", "now_ts": 0}` | Execute one turn |
-| `/state/{subject_id}` | `GET` | - | Read the current memory field |
-| `/recall` | `POST` | `{"subject_id": "...", "query": "...", "limit": 8}` | Read a query-scoped memory slice |
+| Endpoint | Method | Description |
+| --- | --- | --- |
+| `/health` | `GET` | Health check |
+| `/ingest` | `POST` | Ingest one event |
+| `/ingest-batch` | `POST` | Ingest multiple events |
+| `/retrieve` | `POST` | Query the evolving field |
+| `/current-state` | `POST` | Read the current field projection |
+| `/replay` | `POST` | Run replay over the field |
+| `/respond` | `POST` | Generate a reply with short-lived session continuity |
+| `/stats` | `GET` | Read system statistics |
+| `/operations` | `GET` | Read operation history |
+| `/atoms/{atom_id}` | `GET` | Inspect one atom and its edges |
 
 ## Runtime Model
 
-Each turn follows the same flow:
+Each input follows the same write path:
 
-1. Append a user evidence atom.
-2. Compile the input into new `memory`, `episode`, and `inhibition` nodes plus signed edges.
-3. Evolve the subject memory field and refresh the activation cache.
-4. Build a `MemoryBrief` from state and recall.
-5. Generate a response.
-6. Append an assistant evidence atom.
-7. Compile the completed exchange into new nodes and edges.
-8. Evolve the field again.
+1. Store one raw anchor atom.
+2. Compile one or more fact atoms from the input.
+3. Link new atoms into the field with support, suppression, contradiction, and reference edges.
+4. Let retrieval and replay reweight the same field over time instead of building separate summaries.
 
-Aurora never mutates old atoms. Conflict, inhibition, and continuity are expressed through new immutable nodes and edges.
-
-## Invariants
-
-Aurora maintains these runtime boundaries:
-
-1. Truth consists of immutable `memory_atoms`, immutable `memory_edges`, and derived `activation_cache`.
-2. `state()` and `recall()` are read-only projections, not truth declarations.
-3. Positive edges only propagate activation above intrinsic baseline.
-4. Negative edges apply suppression pressure and do not encode logical negation.
-5. `evidence` records observations only and does not participate in field coupling.
-6. Payload decoding is strict. Invalid kinds, malformed payloads, and illegal references fail explicitly.
-
-## Reproducibility
-
-The academic-grade release guarantee applies to the kernel behavior and the repository-kept validation suite. Provider-backed responses still depend on the configured provider and model. Provider-specific demo validation stays local and untracked.
+`retrieve()` and `current_state()` are stateful. Recall is part of reconsolidation, not a read-only projection.
 
 ## Validation
-
-The canonical repo-kept release validation entrypoint is the GitHub workflow at `.github/workflows/release-validation.yml`.
-
-The repository keeps unit tests, repository audit checks, academic regression scenarios, and standard static checks only.
 
 ```bash
 uv run pytest -q
 uv run mypy aurora tests --show-error-codes --pretty
 uv run ruff check aurora tests
 python -m compileall -q aurora tests
-```
-
-## Release Checklist
-
-Release is blocked unless all of the following hold:
-
-- tracked tests pass
-- `ruff`, `mypy`, and `compileall` pass
-- tracked files contain no non-English content
-- tracked files contain no development-only docs or files
-- tracked files contain no live, integration, or provider-only tests
-- the academic regression suite is green
-- the public config shape remains `llm_settings = {"provider": "...", "config": {...}}`
-- the public runtime methods remain `create`, `turn`, `state`, `recall`, and `close`
-- the tracked repository boundary remains limited to production code, minimal release notes, CI, config example, and kept evaluation tests
-
-## Project Layout
-
-```text
-aurora/
-|-- __main__.py
-|-- expression/
-|-- llm/
-|-- memory/
-|-- pipelines/
-|-- runtime/
-`-- surface/
 ```
 
 ## License

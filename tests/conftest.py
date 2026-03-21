@@ -1,315 +1,63 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Callable, Iterator
-import json
+from collections.abc import Generator
 from pathlib import Path
-import re
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 import pytest
 
-if TYPE_CHECKING:
-    from aurora.llm.provider import LLMProvider
-    from aurora.runtime.engine import AuroraKernel
-
-CompilerOutput = str | Callable[[list[dict[str, str]]], str]
-StructuredResponder = Callable[[list[dict[str, str]]], str]
+from aurora.system import AuroraSystem, AuroraSystemConfig
 
 
 class QueueLLM:
-    """Explicit step-driven LLM stub."""
+    """Deterministic step-driven LLM stub."""
 
-    def __init__(
-        self,
-        *steps: CompilerOutput,
-        repeat_last: bool = False,
-        structured: StructuredResponder | None = None,
-    ) -> None:
+    def __init__(self, *steps: str, repeat_last: bool = False) -> None:
         self._steps = deque(steps)
         self._repeat_last = repeat_last
-        self._last_step: CompilerOutput | None = None
-        self._structured = structured
+        self._last: str | None = None
         self.calls: list[list[dict[str, str]]] = []
 
-    def complete(self, messages: list[dict[str, str]]) -> str:
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
+        del max_tokens, temperature
         self.calls.append(messages)
-        system_text = "\n".join(message["content"] for message in messages if message["role"] == "system")
-        if self._structured is not None and "[AURORA_" in system_text:
-            return self._structured(messages)
-        if not self._steps:
-            if self._repeat_last and self._last_step is not None:
-                step = self._last_step
-                return step(messages) if callable(step) else step
-            raise AssertionError("QueueLLM received an unexpected extra call")
-        step = self._steps.popleft()
-        self._last_step = step
-        return step(messages) if callable(step) else step
-
-    def assert_exhausted(self) -> None:
-        if self._repeat_last:
-            return
         if self._steps:
-            raise AssertionError(f"QueueLLM has {len(self._steps)} unconsumed step(s)")
+            self._last = self._steps.popleft()
+            return self._last
+        if self._repeat_last and self._last is not None:
+            return self._last
+        raise AssertionError("QueueLLM received an unexpected extra call")
 
 
-_PLAN_PATTERN = re.compile(r"first (.+?)(?:,)? then (.+)", re.IGNORECASE)
-_LOCATION_PATTERN = re.compile(r"\bI(?: now)? live in ([A-Za-z][A-Za-z0-9 -]{0,31})", re.IGNORECASE)
-_WORK_PATTERN = re.compile(r"\bI work in ([A-Za-z][A-Za-z0-9 -]{0,31})", re.IGNORECASE)
-_LIKE_PATTERN = re.compile(r"\b(?:I|also) like ([^,.!?;]+)", re.IGNORECASE)
-
-
-def scripted_memory_llm(messages: list[dict[str, str]]) -> str:
-    system_text = "\n".join(message["content"] for message in messages if message["role"] == "system")
-    payload = json.loads(messages[-1]["content"])
-    if "[AURORA_SESSION_FIELD_COMPILER]" in system_text:
-        return json.dumps(_compile_session_field(payload), ensure_ascii=False)
-    raise AssertionError("structured compiler received an unknown prompt")
-
-
-def _compile_session_field(payload: object) -> dict[str, object]:
-    if not isinstance(payload, dict):
-        raise AssertionError("compiler payload must be an object")
-    local_field = payload.get("local_field")
-    memory = local_field if isinstance(local_field, list) else []
-    transcript = payload.get("transcript")
-    items = transcript if isinstance(transcript, list) else []
-    atoms: list[dict[str, object]] = []
-    edges: list[dict[str, object]] = []
-    transcript_lines: list[str] = []
-    created_memory_ids: dict[str, str] = {}
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        role = str(item.get("role", "")).strip()
-        text = str(item.get("text", "")).strip()
-        if role not in {"user", "assistant"} or not text:
-            continue
-        transcript_lines.append(f"{role}: {text}")
-        if role == "assistant":
-            if text.startswith(("I will", "I'll", "I can")):
-                action = (
-                    text.removeprefix("I will")
-                    .removeprefix("I'll")
-                    .removeprefix("I can")
-                    .strip(" ,.!?")
-                )
-                if action:
-                    atom_index = len(atoms)
-                    atoms.append(_field_atom("memory", f"Aurora commitment: {action}", 0.88, 0.86))
-                    created_memory_ids[f"Aurora commitment: {action}"] = f"new:{atom_index}"
-            continue
-
-        lowered = text.lower()
-        is_forget = any(marker in lowered for marker in ("please forget", "forget that", "do not remember", "don't remember"))
-        new_location_indices: list[int] = []
-        for match in _LOCATION_PATTERN.finditer(text):
-            atom_text = f"I now live in {match.group(1).strip()}"
-            atom_index = len(atoms)
-            atoms.append(_field_atom("memory", atom_text, 0.94, 0.90))
-            created_memory_ids[atom_text] = f"new:{atom_index}"
-            new_location_indices.append(atom_index)
-        for match in _WORK_PATTERN.finditer(text):
-            atom_text = f"I work in {match.group(1).strip()}"
-            atom_index = len(atoms)
-            atoms.append(_field_atom("memory", atom_text, 0.92, 0.84))
-            created_memory_ids[atom_text] = f"new:{atom_index}"
-        for match in _LIKE_PATTERN.finditer(text):
-            value = match.group(1).strip()
-            if value and not is_forget:
-                atom_text = f"I like {value}"
-                atom_index = len(atoms)
-                atoms.append(_field_atom("memory", atom_text, 0.90, 0.82))
-                created_memory_ids[atom_text] = f"new:{atom_index}"
-
-        plan_match = _PLAN_PATTERN.search(text)
-        if plan_match is not None:
-            first_step = plan_match.group(1).strip(" .!?")
-            second_step = plan_match.group(2).strip(" .!?")
-            atom_text = f"first {first_step}, then {second_step}"
-            atom_index = len(atoms)
-            atoms.append(_field_atom("memory", atom_text, 0.86, 0.88))
-            created_memory_ids[atom_text] = f"new:{atom_index}"
-
-        if "want" in lowered and "do not want" in lowered:
-            atom_text = text.strip(" .!?")
-            atom_index = len(atoms)
-            atoms.append(_field_atom("memory", atom_text, 0.78, 0.76))
-            created_memory_ids[atom_text] = f"new:{atom_index}"
-        elif "want" in lowered:
-            atom_text = text.strip(" .!?")
-            atom_index = len(atoms)
-            atoms.append(_field_atom("memory", atom_text, 0.74, 0.72))
-            created_memory_ids[atom_text] = f"new:{atom_index}"
-
-        emotional_trace = _emotion_trace(text)
-        if emotional_trace is not None:
-            atom_index = len(atoms)
-            atoms.append(emotional_trace)
-            created_memory_ids[str(emotional_trace["text"])] = f"new:{atom_index}"
-
-        if any(token in text for token in ("Hangzhou", "life", "adjust", "friends", "exercise")):
-            atom_text = text[:48]
-            atom_index = len(atoms)
-            atoms.append(_field_atom("memory", atom_text, 0.78, 0.80))
-            created_memory_ids[atom_text] = f"new:{atom_index}"
-
-        if any(marker in lowered for marker in ("correction", "actually", "let me correct that")):
-            existing_location_ids = _match_atoms(memory, lambda item: _item_kind(item) == "memory" and "live in" in _item_text(item))
-            existing_location_ids.extend(
-                reference
-                for atom_text, reference in created_memory_ids.items()
-                if "live in" in atom_text.lower()
-            )
-            for atom_index in new_location_indices:
-                edges.extend(
-                    _edge(f"new:{atom_index}", target_atom_id, -0.92, 0.94)
-                    for target_atom_id in existing_location_ids
-                    if target_atom_id != f"new:{atom_index}"
-                )
-
-        if is_forget:
-            inhibition_index = len(atoms)
-            atoms.append(_field_atom("inhibition", text.strip(), 0.96, 0.84))
-            target_ids = _match_atoms(
-                memory,
-                lambda item: _item_kind(item) != "evidence" and bool(_item_text(item)) and _item_text(item) in text,
-            )
-            target_ids.extend(
-                reference
-                for atom_text, reference in created_memory_ids.items()
-                if atom_text and atom_text in text
-            )
-            edges.extend(_edge(f"new:{inhibition_index}", atom_id, -0.95, 0.97) for atom_id in target_ids)
-
-    if transcript_lines:
-        atoms.append(
-            _field_atom(
-                "episode",
-                " | ".join(transcript_lines),
-                0.98,
-                0.70,
-            )
-        )
-    return {"atoms": atoms, "edges": edges}
-
-
-def _field_atom(kind: str, text: str, confidence: float, salience: float) -> dict[str, object]:
-    return {
-        "kind": kind,
-        "text": text,
-        "confidence": confidence,
-        "salience": salience,
-        "referents": ["subject"],
-    }
-
-
-def _emotion_trace(text: str) -> dict[str, object] | None:
-    labels: list[str] = []
-    for label, _, _ in (
-        ("feeling great", 0.7, 0.76),
-        ("happy", 0.7, 0.88),
-        ("glad", 0.7, 0.84),
-        ("relaxed", 0.6, 0.66),
-        ("at ease", 0.6, 0.64),
-        ("sad", -0.7, 0.82),
-        ("anxious", -0.7, 0.86),
-        ("tense", -0.6, 0.78),
-        ("frustrated", -0.7, 0.80),
-        ("angry", -0.9, 0.90),
-    ):
-        if label not in text:
-            continue
-        labels.append(label)
-    if not labels:
-        return None
-    return {
-        "kind": "memory",
-        "text": " / ".join(labels),
-        "confidence": 0.82,
-        "salience": 0.78,
-        "referents": ["subject"],
-    }
-
-
-def _edge(source: str, target: str, influence: float, confidence: float) -> dict[str, object]:
-    return {
-        "source": source,
-        "target": target,
-        "influence": influence,
-        "confidence": confidence,
-    }
-
-
-def _match_atoms(memory: list[object], predicate: Callable[[dict[str, object]], bool]) -> list[str]:
-    matches: list[str] = []
-    for item in memory:
-        if not isinstance(item, dict):
-            continue
-        if predicate(item):
-            matches.append(str(item.get("atom_id", "")))
-    return [item for item in matches if item]
-
-
-def _item_kind(item: dict[str, object]) -> str:
-    return str(item.get("kind", "")).strip()
-
-
-def _item_text(item: dict[str, object]) -> str:
-    return str(item.get("text", "")).strip()
-
-
-class KernelFactory(Protocol):
-    def __call__(self, *, llm: LLMProvider | None = None) -> AuroraKernel: ...
-
-    def track(self, llm: QueueLLM) -> QueueLLM: ...
-
-
-class _KernelFactory:
-    def __init__(self, data_dir: Path) -> None:
-        self._data_dir = data_dir
-        self._kernels: list[AuroraKernel] = []
-        self._tracked: list[QueueLLM] = []
-
-    def __call__(self, *, llm: LLMProvider | None = None) -> AuroraKernel:
-        if llm is None:
-            raise AssertionError("kernel_factory requires an explicit llm")
-        if isinstance(llm, QueueLLM):
-            self._tracked.append(llm)
-        from aurora.runtime.engine import AuroraKernel
-
-        kernel = AuroraKernel.create(data_dir=str(self._data_dir), llm=llm)
-        self._kernels.append(kernel)
-        return kernel
-
-    def track(self, llm: QueueLLM) -> QueueLLM:
-        self._tracked.append(llm)
-        return llm
-
-    def close_all(self) -> list[BaseException]:
-        close_errors: list[BaseException] = []
-        for kernel in self._kernels:
-            try:
-                kernel.close()
-            except Exception as exc:  # pragma: no cover
-                close_errors.append(exc)
-        return close_errors
-
-    def assert_exhausted(self) -> None:
-        for llm in self._tracked:
-            llm.assert_exhausted()
+class SystemFactory(Protocol):
+    def __call__(self, *, llm: object | None = None) -> AuroraSystem: ...
 
 
 @pytest.fixture
-def kernel_factory(tmp_path: Path) -> Iterator[KernelFactory]:
-    data_dir = tmp_path / "aurora-data"
-    factory = _KernelFactory(data_dir)
+def system_factory(tmp_path: Path) -> Generator[SystemFactory, None, None]:
+    created: list[AuroraSystem] = []
+
+    def factory(*, llm: object | None = None) -> AuroraSystem:
+        db_path = tmp_path / f"aurora-{len(created)}.sqlite"
+        system = AuroraSystem(
+            AuroraSystemConfig(
+                db_path=str(db_path),
+                save_on_retrieve=True,
+                session_context_messages=12,
+            ),
+            llm=llm,  # type: ignore[arg-type]
+        )
+        created.append(system)
+        return system
 
     yield factory
 
-    close_errors = factory.close_all()
-    factory.assert_exhausted()
-
-    if close_errors:
-        rendered = "\n".join(f"- {type(exc).__name__}: {exc}" for exc in close_errors)
-        raise AssertionError(f"kernel.close() raised {len(close_errors)} error(s):\n{rendered}")
+    for system in created:
+        system.close()

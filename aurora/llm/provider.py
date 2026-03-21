@@ -18,11 +18,19 @@ class LLMProvider(Protocol):
         complete: Call LLM to complete the request.
     """
 
-    def complete(self, messages: list[dict[str, str]]) -> str:
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> str:
         """Call LLM to complete the request.
 
         Args:
             messages: List of messages, each containing role and content fields.
+            max_tokens: Optional request-local output budget override.
+            temperature: Optional request-local sampling temperature override.
 
         Returns:
             LLM response text.
