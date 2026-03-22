@@ -1,14 +1,16 @@
-"""Hot path expression context."""
+"""Expression-layer context for a single response turn."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from aurora.core.types import Workspace
+
 
 @dataclass(frozen=True, slots=True)
 class ExpressionContext:
-    """Context required for single response generation."""
+    """Context required for response generation."""
 
     input_text: str
-    memory_brief: str
-    session_transcript: str
+    workspace: Workspace
+    rendered_workspace: str

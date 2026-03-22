@@ -1,6 +1,6 @@
 # Aurora
 
-Aurora is a unified ingest-and-evolve memory kernel. Every input becomes immutable memory material first. Reinforcement, suppression, replay, abstraction, and current-state readout all happen inside the same evolving field.
+Aurora is a unified trace-field memory system. Raw experience enters one evolving field, and replay, consolidation, competition, compression, forgetting, and workspace readout all happen inside that same runtime.
 
 ## Installation
 
@@ -42,10 +42,16 @@ from aurora import AuroraSystem
 
 system = AuroraSystem.create()
 
-system.ingest("I live in Hangzhou.", metadata={"speaker": "user"})
-state = system.current_state()
-recall = system.retrieve("Where do I live?")
-reply = system.respond("session-a", "What city do I live in?")
+system.inject(
+    {
+        "payload": "I live in Hangzhou.",
+        "session_id": "session-a",
+        "turn_id": "turn-1",
+        "source": "user",
+    }
+)
+workspace = system.read_workspace({"payload": "Where do I live?", "session_id": "session-a"})
+reply = system.respond({"payload": "What city do I live in?", "session_id": "session-a"})
 
 system.close()
 ```
@@ -53,25 +59,23 @@ system.close()
 Public runtime surface:
 
 - `AuroraSystem.create(...) -> AuroraSystem`
-- `ingest(text, metadata=None, source="dialogue", now_ts=None) -> EventIngestResult`
-- `ingest_batch(events, source="dialogue") -> dict`
-- `retrieve(cue, top_k=8, propagation_steps=3) -> RecallResult`
-- `current_state(top_k=10) -> RecallResult`
-- `replay(budget=8, reason="replay") -> dict`
-- `respond(session_id, text, metadata=None, source="dialogue", top_k=8, propagation_steps=3, now_ts=None) -> ResponseOutput`
-- `stats() -> dict`
-- `operation_history(limit=50) -> list[dict]`
-- `get_atom(atom_id) -> dict`
+- `inject(raw_event) -> InjectResult`
+- `maintenance_cycle(ms_budget=None) -> MaintenanceStats`
+- `read_workspace(cue, k=None) -> Workspace`
+- `respond(cue) -> ResponseResult`
+- `snapshot() -> SnapshotMeta`
+- `field_stats() -> FieldStats`
 - `close() -> None`
 
 ## CLI
 
 ```bash
-aurora ingest --text "I live in Hangzhou." --metadata '{"speaker":"user"}'
-aurora retrieve --cue "Where do I live?"
-aurora current-state
-aurora respond --session-id session-a --text "What city do I live in?"
-aurora stats
+aurora inject --payload "I live in Hangzhou." --session-id session-a --turn-id turn-1 --source user
+aurora read-workspace --cue "Where do I live?" --session-id session-a
+aurora maintenance-cycle --ms-budget 12
+aurora respond --cue "What city do I live in?" --session-id session-a
+aurora snapshot
+aurora field-stats
 ```
 
 ## MCP
@@ -82,38 +86,49 @@ aurora-mcp
 
 Exposed MCP interface:
 
-- tools: `aurora_ingest`, `aurora_retrieve`, `aurora_current_state`, `aurora_replay`, `aurora_respond`
-- resource: `aurora://memory/current-state`
+- tools: `aurora_inject`, `aurora_read_workspace`, `aurora_maintenance_cycle`, `aurora_respond`, `aurora_snapshot`, `aurora_field_stats`
 
 ## HTTP API
 
 ```bash
-uv run uvicorn aurora.api:create_app --factory --host 0.0.0.0 --port 8000
+uv run aurora serve --host 0.0.0.0 --port 8000
 ```
 
 | Endpoint | Method | Description |
 | --- | --- | --- |
 | `/health` | `GET` | Health check |
-| `/ingest` | `POST` | Ingest one event |
-| `/ingest-batch` | `POST` | Ingest multiple events |
-| `/retrieve` | `POST` | Query the evolving field |
-| `/current-state` | `POST` | Read the current field projection |
-| `/replay` | `POST` | Run replay over the field |
-| `/respond` | `POST` | Generate a reply with short-lived session continuity |
-| `/stats` | `GET` | Read system statistics |
-| `/operations` | `GET` | Read operation history |
-| `/atoms/{atom_id}` | `GET` | Inspect one atom and its edges |
+| `/inject` | `POST` | Inject one raw event |
+| `/read-workspace` | `POST` | Read a structured workspace |
+| `/maintenance-cycle` | `POST` | Run one maintenance cycle |
+| `/respond` | `POST` | Generate one response turn |
+| `/snapshot` | `POST` | Persist an internal snapshot |
+| `/field-stats` | `GET` | Read runtime statistics |
 
 ## Runtime Model
 
 Each input follows the same write path:
 
-1. Store one raw anchor atom.
-2. Compile one or more fact atoms from the input.
-3. Link new atoms into the field with support, suppression, contradiction, and reference edges.
-4. Let retrieval and replay reweight the same field over time instead of building separate summaries.
+1. Packetize raw input only by mechanical boundaries.
+2. Persist raw payloads and anchors.
+3. Propose `birth / assimilate / split / attach` against existing traces.
+4. Let replay, procedure induction, prototype induction, and budget control reshape the same field over time.
 
-`retrieve()` and `current_state()` are stateful. Recall is part of reconsolidation, not a read-only projection.
+The runtime is split into:
+
+- `aurora/runtime`: canonical `AuroraField` and `AuroraSystem`
+- `aurora/surfaces`: HTTP, CLI, and MCP transports
+- `aurora/expression`: workspace rendering and response context
+- `aurora/core`: canonical types, config, and math
+- `aurora/store`: blob, trace, edge, ANN, and snapshot persistence
+
+The implemented kernel follows the scientist spec at a practical v2 baseline:
+
+- local-energy proposal over `ASSIMILATE / ATTACH / SPLIT / BIRTH`
+- posterior groups with an explicit null slot
+- sparse workspace settling with inhibitory edges
+- replay-driven slow predictor updates
+- prototype / procedure role promotion inside the same trace schema
+- hard budget pruning inside the field rather than offline cleanup
 
 ## Validation
 

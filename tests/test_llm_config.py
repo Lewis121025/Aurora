@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from aurora.llm.config import coerce_llm_settings, load_llm_settings
-from aurora.system import AuroraSystem
+from aurora.runtime import AuroraSystem
 
 
 def test_load_llm_settings_reads_nested_dotenv(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -100,7 +100,7 @@ def test_system_create_accepts_llm_settings_mapping(monkeypatch: pytest.MonkeyPa
             del messages, max_tokens, temperature
             return "ok"
 
-    monkeypatch.setattr("aurora.system.OpenAICompatProvider", FakeProvider)
+    monkeypatch.setattr("aurora.runtime.system.OpenAICompatProvider", FakeProvider)
 
     system = AuroraSystem.create(
         data_dir=str(tmp_path / ".aurora"),

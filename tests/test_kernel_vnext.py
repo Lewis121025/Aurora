@@ -1,71 +1,102 @@
 from __future__ import annotations
 
-from aurora.field_engine import MemoryKernel
+from aurora.runtime import AuroraField
+
+from tests.conftest import FieldFactory
 
 
-def _fact_ids(kernel: MemoryKernel) -> list[str]:
-    return [atom_id for atom_id, atom in kernel.atoms.items() if atom.core.kind == "fact"]
+def test_inject_creates_packets_anchors_and_session_traces(field_factory: FieldFactory) -> None:
+    field = field_factory()
 
-
-def test_ingest_writes_anchor_and_fact_atoms() -> None:
-    kernel = MemoryKernel(seed=13)
-
-    result = kernel.ingest(
-        "I live in Hangzhou. I like tea.",
-        metadata={"speaker": "user", "epistemic_mode": "asserted"},
+    result = field.inject(
+        {
+            "session_id": "session-a",
+            "turn_id": "turn-1",
+            "source": "user",
+            "payload_type": "text",
+            "payload": "I live in Hangzhou. I like tea.",
+            "meta": {"role": "user"},
+        }
     )
 
-    assert result.anchor_id in kernel.atoms
-    assert kernel.atoms[result.anchor_id].core.kind == "anchor"
-    assert len(result.atom_ids) == 3
-    assert len(_fact_ids(kernel)) == 2
+    assert isinstance(field, AuroraField)
+    assert result.packet_ids
+    assert result.anchor_ids
+    assert result.trace_ids
+    assert len(field.anchor_store.packets) == len(result.packet_ids)
+    assert len(field.anchor_store.anchors) == len(result.anchor_ids)
+    assert len(field.trace_store.traces) == len(result.trace_ids)
+
+    trace = field.trace_store.get(result.trace_ids[0])
+    assert trace is not None
+    assert trace.metadata["session_id"] == "session-a"
+    assert trace.metadata["source"] == "user"
+    assert list(trace.anchor_reservoir)
 
 
-def test_retrieve_reinforces_activation() -> None:
-    kernel = MemoryKernel(seed=13)
-    kernel.ingest("I like tea.", metadata={"speaker": "user"})
-    fact_id = _fact_ids(kernel)[0]
-    baseline = kernel.atoms[fact_id].state.activation
+def test_maintenance_cycle_updates_replay_and_budget(field_factory: FieldFactory) -> None:
+    field = field_factory()
 
-    result = kernel.retrieve("What do I like?", top_k=4)
+    for turn_id, payload, source in (
+        ("turn-1", "I live in Hangzhou.", "user"),
+        ("turn-2", "I will remind you tomorrow.", "assistant"),
+        ("turn-3", "I build Aurora systems.", "user"),
+        ("turn-4", "Please remind me tomorrow.", "user"),
+    ):
+        field.inject(
+            {
+                "session_id": "session-a",
+                "turn_id": turn_id,
+                "source": source,
+                "payload": payload,
+                "meta": {"role": source},
+            }
+        )
 
-    assert result.items
-    assert any("tea" in item.text.lower() for item in result.items)
-    assert kernel.atoms[fact_id].state.activation > baseline
-    assert kernel.atoms[fact_id].state.recall_hits == 1
+    stats = field.maintenance_cycle(ms_budget=12)
 
-
-def test_correction_builds_negative_pressure_without_deleting_old_fact() -> None:
-    kernel = MemoryKernel(seed=13)
-    kernel.ingest("I live in Shanghai.", metadata={"speaker": "user"})
-    kernel.ingest("I do not live in Shanghai.", metadata={"speaker": "user"})
-
-    facts = [atom for atom in kernel.atoms.values() if atom.core.kind == "fact"]
-    shanghai_facts = [atom for atom in facts if "shanghai" in str(atom.core.payload.get("text", "")).lower()]
-
-    assert len(shanghai_facts) == 2
-    negative_edges = [edge for edge in kernel._iter_edges() if edge.kind in {"contradicts", "suppresses"}]
-    assert negative_edges
-
-
-def test_replay_can_form_abstractions() -> None:
-    kernel = MemoryKernel(seed=13)
-    kernel.ingest("I build Aurora systems.", metadata={"speaker": "user"})
-    kernel.ingest("I design Aurora workflows.", metadata={"speaker": "user"})
-    kernel.ingest("I develop Aurora tooling.", metadata={"speaker": "user"})
-
-    traces = kernel.replay(budget=6)
-
-    assert traces
-    assert any(atom.core.kind == "abstract" for atom in kernel.atoms.values())
+    assert stats.elapsed_ms >= 0
+    assert stats.replay_batch >= 0
+    assert field.hot_trace_ids
+    assert field.field_stats()["budget_state"]["max_traces"] == field.budget_config.max_traces
 
 
-def test_current_state_dedupes_same_signature() -> None:
-    kernel = MemoryKernel(seed=13)
-    kernel.ingest("I live in Shanghai.", metadata={"speaker": "user"})
-    kernel.ingest("I live in Hangzhou.", metadata={"speaker": "user"})
+def test_snapshot_round_trip_restores_v5_kernel_state(field_factory: FieldFactory) -> None:
+    field = field_factory()
+    field.inject(
+        {
+            "session_id": "session-a",
+            "turn_id": "turn-1",
+            "source": "user",
+            "payload": "I live in Hangzhou.",
+            "meta": {"role": "user"},
+        }
+    )
+    field.inject(
+        {
+            "session_id": "session-a",
+            "turn_id": "turn-2",
+            "source": "assistant",
+            "payload": "I will remind you tomorrow.",
+            "meta": {"role": "assistant"},
+        }
+    )
+    field.maintenance_cycle(ms_budget=12)
 
-    state = kernel.current_state(top_k=8)
+    payload = field.to_snapshot_payload()
+    restored = AuroraField.from_snapshot_payload(payload)
 
-    live_items = [item for item in state.items if "live" in item.text.lower()]
-    assert len(live_items) == 1
+    assert payload["schema_version"] == 5
+    assert restored.step == field.step
+    assert len(restored.anchors) == len(field.anchors)
+    assert len(restored.traces) == len(field.traces)
+    assert len(restored.frames) == len(field.frames)
+    assert restored.predictor.export_state().theta
+
+
+def test_field_exposes_no_response_or_decoder_surface(field_factory: FieldFactory) -> None:
+    field = field_factory()
+
+    assert not hasattr(field, "respond")
+    assert not hasattr(field, "local_decoder")
+    assert not hasattr(field, "workspace_serializer")

@@ -11,6 +11,13 @@ dependencies = [
   "fastapi>=0.110",
   "uvicorn>=0.27",
   "mcp>=1.12.4,<2",
+  "numpy>=1.26",
+  "scipy>=1.11",
+  "torch>=2.2",
+  "transformers>=4.46",
+  "tokenizers>=0.15",
+  "safetensors>=0.4",
+  "hnswlib>=0.8",
 ]
 
 [project.optional-dependencies]
@@ -21,8 +28,8 @@ dev = [
 ]
 
 [project.scripts]
-aurora = "aurora.cli:main"
-aurora-mcp = "aurora.mcp:main"
+aurora = "aurora.surfaces.cli:main"
+aurora-mcp = "aurora.surfaces.mcp:main"
 
 [tool.ruff]
 line-length = 100
@@ -52,3 +59,6 @@ warn_unused_ignores = true
 warn_no_return = true
 strict_equality = true
 ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

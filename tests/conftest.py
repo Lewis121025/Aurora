@@ -7,7 +7,9 @@ from typing import Protocol
 
 import pytest
 
-from aurora.system import AuroraSystem, AuroraSystemConfig
+from aurora.core.config import FieldConfig
+from aurora.llm.provider import LLMProvider
+from aurora.runtime import AuroraField, AuroraSystem, AuroraSystemConfig
 
 
 class QueueLLM:
@@ -37,22 +39,24 @@ class QueueLLM:
 
 
 class SystemFactory(Protocol):
-    def __call__(self, *, llm: object | None = None) -> AuroraSystem: ...
+    def __call__(self, *, llm: LLMProvider | None = None) -> AuroraSystem: ...
+
+
+class FieldFactory(Protocol):
+    def __call__(self) -> AuroraField: ...
 
 
 @pytest.fixture
 def system_factory(tmp_path: Path) -> Generator[SystemFactory, None, None]:
     created: list[AuroraSystem] = []
 
-    def factory(*, llm: object | None = None) -> AuroraSystem:
+    def factory(*, llm: LLMProvider | None = None) -> AuroraSystem:
         db_path = tmp_path / f"aurora-{len(created)}.sqlite"
         system = AuroraSystem(
             AuroraSystemConfig(
                 db_path=str(db_path),
-                save_on_retrieve=True,
-                session_context_messages=12,
             ),
-            llm=llm,  # type: ignore[arg-type]
+            llm=llm,
         )
         created.append(system)
         return system
@@ -61,3 +65,21 @@ def system_factory(tmp_path: Path) -> Generator[SystemFactory, None, None]:
 
     for system in created:
         system.close()
+
+
+@pytest.fixture
+def field_factory(tmp_path: Path) -> Generator[FieldFactory, None, None]:
+    created: list[AuroraField] = []
+
+    def factory() -> AuroraField:
+        index = len(created)
+        config = FieldConfig(
+            data_dir=str(tmp_path / f"aurora-field-{index}"),
+            db_path=str(tmp_path / f"aurora-field-{index}" / "aurora.sqlite"),
+            blob_dir=str(tmp_path / f"aurora-field-{index}" / "blobs"),
+        )
+        field = AuroraField(config)
+        created.append(field)
+        return field
+
+    yield factory
