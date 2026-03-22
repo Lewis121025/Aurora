@@ -17,7 +17,7 @@ from aurora.expression.projections import render_workspace_for_llm
 from aurora.llm.config import LLMSettings, coerce_llm_settings, load_llm_settings
 from aurora.llm.openai_compat import OpenAICompatProvider
 from aurora.llm.provider import LLMProvider
-from aurora.models import build_local_decoder
+from aurora.models import LocalDecoder, build_local_decoder
 from aurora.runtime.field import AuroraField
 from aurora.store import SQLiteSnapshotStore
 
@@ -79,6 +79,7 @@ class FieldStats:
     edge_count: int
     posterior_group_count: int
     hot_trace_ids: tuple[str, ...]
+    objective: dict[str, Any]
     budget_state: dict[str, Any]
     snapshot_count: int
     latest_snapshot: dict[str, Any]
@@ -125,7 +126,8 @@ class AuroraSystem:
         decoder_kwargs: dict[str, Any] = {}
         if self.config.local_decoder_backend == "transformers":
             decoder_kwargs["model_id"] = self.config.default_decoder_model
-        self._local_decoder = build_local_decoder(kind=self.config.local_decoder_backend, **decoder_kwargs)
+        self._decoder_kwargs = decoder_kwargs
+        self._local_decoder: LocalDecoder | None = None
         self._stop_maintenance = threading.Event()
         self._maintenance_thread: threading.Thread | None = None
         self._closed = False
@@ -249,6 +251,7 @@ class AuroraSystem:
             edge_count=int(raw.get("edge_count", 0)),
             posterior_group_count=int(raw.get("posterior_group_count", 0)),
             hot_trace_ids=tuple(raw.get("hot_trace_ids", [])),
+            objective=dict(raw.get("objective", {})),
             budget_state=dict(raw.get("budget_state", {})),
             snapshot_count=self._store.snapshot_count(),
             latest_snapshot=self._store.latest_snapshot_meta(),
@@ -273,7 +276,14 @@ class AuroraSystem:
             anchor_refs=workspace.anchor_refs,
             prompt=rendered_workspace,
         )
-        return self._local_decoder.decode(request).text
+        return self._get_local_decoder().decode(request).text
+
+    def _get_local_decoder(self) -> LocalDecoder:
+        decoder = self._local_decoder
+        if decoder is None:
+            decoder = build_local_decoder(kind=self.config.local_decoder_backend, **self._decoder_kwargs)
+            self._local_decoder = decoder
+        return decoder
 
     def _save(self, reason: str, payload: dict[str, Any]) -> None:
         if not self.config.autosave:

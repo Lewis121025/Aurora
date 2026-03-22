@@ -121,14 +121,20 @@ The runtime is split into:
 - `aurora/core`: canonical types, config, and math
 - `aurora/store`: blob, trace, edge, ANN, and snapshot persistence
 
-The implemented kernel follows the scientist spec at a practical v2 baseline:
+The implemented kernel is a closed-loop v2.1 baseline:
 
-- local-energy proposal over `ASSIMILATE / ATTACH / SPLIT / BIRTH`
-- posterior groups with an explicit null slot
-- sparse workspace settling with inhibitory edges
-- replay-driven slow predictor updates
-- prototype / procedure role promotion inside the same trace schema
-- hard budget pruning inside the field rather than offline cleanup
+- online action scoring is reported through one objective ledger
+- online proposal and replay structural mutation now share the same finite empirical block objective
+- `INHIBIT` is evaluated as a structural modifier on the same objective table
+- posterior groups keep an explicit null slot and can be updated by replay
+- traces and groups accumulate continuation pressure through replay-side future alignment and drift EMAs
+- workspace settling uses soft group projection with operator-norm capped coupling, explicit energy descent, backtracking, and an exposed energy trace
+- replay updates the slow predictor and the same field structure
+- maintenance objective is replay-batch aware, including activation drift, transition gaps, future pressure, and group heat, and can run multiple structural passes per cycle
+- maintenance `ms_budget` now constrains replay sampling instead of acting as a no-op hint
+- replay can reinterpret historical frames and accept controlled structural `BIRTH / SPLIT` mutations
+- prototype / procedure role changes now go through objective-gated mutations instead of one-way threshold promotion
+- budget pressure is computed from effective storage mass, so fidelity compression reduces pressure before hard pruning
 
 ## Validation
 

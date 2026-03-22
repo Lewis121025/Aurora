@@ -15,7 +15,7 @@ Aurora v2 内核只保留 4 条硬约束：
    只允许机械分包、通用编码、原始落锚。
 
 2. **单一 trace 宇宙**
-   prototype / procedure 不是新 memory class，而是 `TraceRecord` 的高阶角色状态。
+   prototype / procedure 不是新 memory class，而是 `TraceRecord` 的高阶角色状态；角色跃迁应通过局部 objective 的 mutation 接受来发生。
 
 3. **在线决策 = 局部能量下降**
    `ASSIMILATE / ATTACH / SPLIT / BIRTH / INHIBIT` 都用同一套局部目标近似比较。
@@ -1179,28 +1179,22 @@ class PredictorState:
 
 * `_make_context(q, frontier, pred_mu)`
 * `_make_candidates(q, c)`
-* `_local_energy(S, x, c)`
-* `_simulate_assimilate(i, x, c)`
-* `_simulate_attach(i, x, c)`
-* `_simulate_split(i, x, c)`
-* `_simulate_birth(x, c)`
-* `_score_primary_actions(anchor)`
+* `_objective_terms(S, x, c, pred)`
+* `_score_action_candidate(action, trace_id, anchor, c, candidates, pred)`
+* `_score_primary_actions(anchor, pred)`
 * `_bf_separate(i, j, x, c)`
-* `_maybe_inhibit(i, j, x, c)`
+* `_apply_inhibit_pair(pair, x, c, ...)`
 * `_posterior_slice(group, x, c)`
-* `_settle_workspace(cue)`
+* `_replay_groups_from_batch(batch)`
+* `_fidelity_step()`
+* `_role_lifecycle_step()`
+* `_settle_workspace(cue, context, pred_mu, session_id)`
 
 ---
 
 ## 4.3 `runtime/system.py` 要新增的方法
 
-* `_sample_replay_batch()`
-* `_predictor_train_step(batch)`
-* `_reconsolidate_batch(batch)`
-* `_update_edges_from_batch(batch)`
-* `_maybe_promote_prototype(batch)`
-* `_maybe_promote_procedure(batch)`
-* `_budget_step()`
+`runtime/system.py` 仍保持外层编排层；慢系统、proposal、budget 与 role lifecycle 已全部下沉到 `runtime/field.py`。
 
 ---
 
@@ -1251,6 +1245,8 @@ class PredictorState:
 * slow predictor
 * trace/edge updates from replay
 * posterior updates during replay
+* replay-driven structural objective over activation drift, transition support, and group heat
+* replay-driven structural mutation acceptance for deferred `BIRTH / SPLIT`
 
 ### 第三步：prototype / procedure role transition
 
@@ -1259,7 +1255,7 @@ class PredictorState:
 * prototype promotion/demotion
 * procedure promotion/demotion
 * option edge strengthening
-* budget-aware downgrade
+* effective-mass budget with fidelity-aware downgrade
 
 ---
 
@@ -1385,6 +1381,8 @@ class PredictorState:
 # 一句话总结
 
 **Aurora v2 的核心不是“更聪明的 heuristic trace engine”，而是：用在线局部能量 (E_{loc}) 决定 proposal，用显式 posterior group 处理冲突，用 replay + predictor 形成慢系统，用 role transition 形成 prototype/procedure，再用一个带抑制与 posterior slice 的场方程读出 workspace，从而把系统升级成真正预算约束下的统一 trace-field memory。**
+
+当前实现继续沿这条路线推进：replay 侧会累计 trace/group 的 continuation 统计，把 future alignment / future drift 显式并入 objective；online proposal 与 replay structural mutation 已经开始共享 finite empirical block objective；workspace settle 已经采用带 backtracking 的 energy descent，并输出 energy trace；deferred structural mutation 也受 replay-driven objective 控制，而不是再退回到独立的启发式门控；maintenance 的 `ms_budget` 也已经真正进入 replay 采样，而不再只是一个表面参数。
 
 [1]: https://www.sciencedirect.com/science/article/pii/S037015732300203X?utm_source=chatgpt.com "The free energy principle made simpler but not too simple"
 [2]: https://arxiv.org/abs/2008.02217?utm_source=chatgpt.com "Hopfield Networks is All You Need"

@@ -8,6 +8,7 @@ import numpy as np
 
 from aurora.core.math import EPS, safe_variance
 from aurora.core.types import FieldConfig, TraceRecord
+from aurora.runtime.objective import trace_structural_role_mass
 
 
 def compute_uncertainty(trace: TraceRecord, config: FieldConfig) -> float:
@@ -88,7 +89,7 @@ def trace_forget_risk(trace: TraceRecord, now_ts: float) -> float:
 def trace_utility(trace: TraceRecord, now_ts: float) -> float:
     age = max(float(now_ts - trace.last_access_ts), 0.0)
     recency = 1.0 / (1.0 + age)
-    role_bonus = float(max(trace.role_logits.values()))
+    role_bonus = trace_structural_role_mass(trace)
     return float(
         0.45 * trace.evidence
         + 0.25 * trace.access_ema

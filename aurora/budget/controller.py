@@ -10,11 +10,11 @@ class BudgetController:
     def __init__(self, config: BudgetConfig):
         self.config = config
 
-    def pressure(self, *, trace_count: int, edge_count: int, group_count: int) -> float:
+    def pressure(self, *, trace_mass: float, edge_mass: float, group_mass: float) -> float:
         return max(
-            trace_count / max(self.config.max_traces, 1),
-            edge_count / max(self.config.max_edges, 1),
-            group_count / max(self.config.max_groups, 1),
+            trace_mass / max(self.config.max_traces, 1),
+            edge_mass / max(self.config.max_edges, 1),
+            group_mass / max(self.config.max_groups, 1),
         )
 
     def trace_score(self, trace: TraceRecord, *, now_ts: float) -> float:

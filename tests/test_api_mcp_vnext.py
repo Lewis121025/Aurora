@@ -9,9 +9,10 @@ from fastapi.testclient import TestClient
 import aurora.surfaces.mcp as mcp_module
 from aurora.core.types import DecoderOutput, DecoderRequest
 from aurora.models.decoder import TransformersLocalDecoder, build_local_decoder
+import aurora.runtime.system as system_module
 from aurora.surfaces.http import build_app
 
-from tests.conftest import SystemFactory
+from tests.conftest import QueueLLM, SystemFactory
 
 
 def test_snapshot_uses_internal_data_dir_path(system_factory: SystemFactory) -> None:
@@ -89,6 +90,24 @@ def test_respond_rolls_back_when_generation_fails(system_factory: SystemFactory)
     assert system.field.anchor_store.anchors == {}
     assert system.field.trace_store.traces == {}
     assert system.field.edge_store.edges == {}
+
+
+def test_system_does_not_build_local_decoder_when_llm_is_present(
+    system_factory: SystemFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = 0
+
+    def fail(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        nonlocal calls
+        calls += 1
+        raise AssertionError("local decoder should not be built during responder-backed init")
+
+    monkeypatch.setattr(system_module, "build_local_decoder", fail)
+    system = system_factory(llm=QueueLLM("ok"))
+
+    assert calls == 0
+    system.close()
 
 
 def test_close_is_idempotent(system_factory: SystemFactory) -> None:

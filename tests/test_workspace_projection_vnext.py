@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 from pathlib import Path
 
-from aurora.core.types import FieldConfig, TraceEdge, TraceRecord
-from aurora.readout import WorkspaceSerializer
+from aurora.core.types import FieldConfig, PosteriorGroup, TraceEdge, TraceRecord
+from aurora.readout import WorkspaceSerializer, settle_workspace
 from aurora.runtime import AuroraField
 
 from tests.conftest import FieldFactory
@@ -122,3 +122,111 @@ def test_workspace_settle_prefers_session_frontier_over_cross_session_hot_trace(
 
     assert workspace.active_trace_ids == ("trace-a-frontier",)
     assert workspace.metadata["session_id"] == "session-a"
+
+
+def test_workspace_group_projection_reports_group_kl() -> None:
+    config = FieldConfig(latent_dim=2, context_dim=2, workspace_size=2, settle_steps=5)
+    left = TraceRecord(
+        trace_id="left",
+        z_mu=np.array([1.0, 0.0], dtype=np.float64),
+        z_sigma_diag=np.array([0.1, 0.1], dtype=np.float64),
+        ctx_mu=np.array([1.0, 0.0], dtype=np.float64),
+        ctx_sigma_diag=np.array([0.1, 0.1], dtype=np.float64),
+        evidence=5.0,
+        stability=0.8,
+        uncertainty=0.1,
+        posterior_group_ids=("g0",),
+    )
+    right = TraceRecord(
+        trace_id="right",
+        z_mu=np.array([0.9, 0.1], dtype=np.float64),
+        z_sigma_diag=np.array([0.1, 0.1], dtype=np.float64),
+        ctx_mu=np.array([-1.0, 0.0], dtype=np.float64),
+        ctx_sigma_diag=np.array([0.1, 0.1], dtype=np.float64),
+        evidence=5.0,
+        stability=0.8,
+        uncertainty=0.1,
+        posterior_group_ids=("g0",),
+    )
+    traces = {left.trace_id: left, right.trace_id: right}
+    posterior_group = PosteriorGroup(
+        group_id="g0",
+        member_ids=["left", "right"],
+        alpha=np.array([2.0, 2.0, 0.2], dtype=np.float64),
+        ctx_mu=np.array([[1.0, 0.0], [-1.0, 0.0], [0.0, 0.0]], dtype=np.float64),
+        ctx_sigma_diag=np.full((3, 2), 0.2, dtype=np.float64),
+        pred_success_ema=np.array([0.8, 0.8, 0.5], dtype=np.float64),
+    )
+
+    def posterior_slice_fn(group: PosteriorGroup, cue: np.ndarray, context: np.ndarray) -> np.ndarray:
+        if context[0] >= 0.0:
+            return np.array([0.9, 0.05, 0.05], dtype=np.float64)
+        return np.array([0.05, 0.9, 0.05], dtype=np.float64)
+
+    workspace = settle_workspace(
+        candidate_ids=["left", "right"],
+        traces=traces,
+        edges={},
+        groups={"g0": posterior_group},
+        cue=np.array([1.0, 0.0], dtype=np.float64),
+        context=np.array([1.0, 0.0], dtype=np.float64),
+        frontier=np.zeros(2, dtype=np.float64),
+        pred_mu=np.zeros(2, dtype=np.float64),
+        config=config,
+        posterior_slice_fn=posterior_slice_fn,
+        session_id="session-a",
+    )
+
+    assert workspace.activation["left"] > workspace.activation["right"]
+    assert workspace.metadata["group_kl"] >= 0.0
+    assert np.isfinite(workspace.metadata["energy"])
+    assert config.workspace_min_eta <= workspace.metadata["effective_eta"] <= config.settle_eta
+    assert workspace.metadata["energy_trace"]
+    assert workspace.metadata["energy_trace"][-1] == workspace.metadata["energy"]
+
+
+def test_workspace_inhibitory_edges_remain_normalized() -> None:
+    config = FieldConfig(latent_dim=2, context_dim=2, workspace_size=2, settle_steps=8)
+    left = TraceRecord(
+        trace_id="left",
+        z_mu=np.array([1.0, 0.0], dtype=np.float64),
+        z_sigma_diag=np.array([0.1, 0.1], dtype=np.float64),
+        ctx_mu=np.array([0.0, 1.0], dtype=np.float64),
+        ctx_sigma_diag=np.array([0.1, 0.1], dtype=np.float64),
+        evidence=5.0,
+        stability=0.8,
+        uncertainty=0.1,
+    )
+    right = TraceRecord(
+        trace_id="right",
+        z_mu=np.array([0.0, 1.0], dtype=np.float64),
+        z_sigma_diag=np.array([0.1, 0.1], dtype=np.float64),
+        ctx_mu=np.array([0.0, 1.0], dtype=np.float64),
+        ctx_sigma_diag=np.array([0.1, 0.1], dtype=np.float64),
+        evidence=5.0,
+        stability=0.8,
+        uncertainty=0.1,
+    )
+    edges = {
+        ("left", "right", "inhib"): TraceEdge(src="left", dst="right", kind="inhib", weight=10.0),
+        ("right", "left", "inhib"): TraceEdge(src="right", dst="left", kind="inhib", weight=10.0),
+    }
+
+    workspace = settle_workspace(
+        candidate_ids=["left", "right"],
+        traces={"left": left, "right": right},
+        edges=edges,
+        groups={},
+        cue=np.array([1.0, 0.0], dtype=np.float64),
+        context=np.array([0.0, 1.0], dtype=np.float64),
+        frontier=np.zeros(2, dtype=np.float64),
+        pred_mu=np.zeros(2, dtype=np.float64),
+        config=config,
+        posterior_slice_fn=lambda *_: (_ for _ in ()).throw(AssertionError("no groups expected")),
+    )
+
+    assert abs(sum(workspace.activation.values()) - 1.0) < 1e-9
+    assert np.isfinite(workspace.metadata["energy"])
+    assert config.workspace_min_eta <= workspace.metadata["effective_eta"] <= config.settle_eta
+    assert workspace.metadata["energy_trace"]
+    assert workspace.metadata["energy_trace"][-1] == workspace.metadata["energy"]

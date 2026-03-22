@@ -1,4 +1,4 @@
-"""Canonical runtime types for the Aurora v2 trace field."""
+"""Canonical runtime types for the Aurora v2.1 closed-loop trace field."""
 
 from __future__ import annotations
 
@@ -51,6 +51,10 @@ class FieldConfig:
     lambda_storage: float = 0.05
     lambda_complexity: float = 0.03
     lambda_plasticity: float = 0.10
+    lambda_predictor: float = 0.18
+    lambda_drift: float = 0.08
+    lambda_fidelity: float = 0.05
+    lambda_role: float = 0.03
     lambda_inhibit_gain: float = 0.30
     lambda_group_kl: float = 0.25
     gamma_stability: float = 1.0
@@ -82,11 +86,50 @@ class FieldConfig:
     unresolved_buffer_maxlen: int = 16
     unresolved_compact_threshold: float = 0.35
     unresolved_context_cohesion_threshold: float = 0.5
+    unresolved_spawn_min_anchors: int = 3
+    group_uncertainty_inflate: float = 0.03
     predictor_context_weight: float = 0.25
     frontier_context_weight: float = 0.35
     cue_context_weight: float = 1.0
     active_role_threshold: float = 0.75
     reservoir_size: int = 8
+
+    workspace_bias_prior: float = 1.0
+    workspace_bias_cue: float = 1.0
+    workspace_bias_frontier: float = 0.35
+    workspace_bias_predictor: float = 0.25
+    workspace_bias_role: float = 0.10
+    workspace_bias_fidelity: float = 0.08
+    workspace_group_projection_eta: float = 0.65
+    workspace_operator_norm_cap: float = 0.95
+    workspace_l1: float = 0.015
+    workspace_l0_proxy: float = 0.02
+    workspace_backtrack_steps: int = 4
+    workspace_min_eta: float = 0.05
+
+    continuation_decay: float = 0.97
+    continuation_group_decay: float = 0.98
+    continuation_weight: float = 0.50
+    replay_mutation_min_delta: float = 0.08
+    replay_mutation_max_ratio: float = 0.35
+    maintenance_structural_passes: int = 1
+    objective_local_window: int = 12
+    objective_replay_window: int = 24
+
+    fidelity_min: float = 0.15
+    fidelity_compress_step: float = 0.20
+    fidelity_expand_step: float = 0.15
+    fidelity_sigma_inflate: float = 1.25
+    fidelity_restore_activation: float = 0.18
+    fidelity_prune_floor: float = 0.22
+    fidelity_reservoir_keep_ratio: float = 0.50
+
+    role_support_decay: float = 0.98
+    role_gain_decay: float = 0.95
+    role_logit_step: float = 0.20
+    role_demote_pressure: float = 1.10
+    prototype_demote_threshold: float = 1.00
+    procedure_demote_threshold: float = 1.00
 
     def __post_init__(self) -> None:
         if self.context_dim is None:
@@ -175,7 +218,10 @@ class TraceRecord:
     stability: float = 0.0
     uncertainty: float = 1.0
     fidelity: float = 1.0
+    compression_stage: int = 0
     pred_loss_ema: float = 0.0
+    future_alignment_ema: float = 0.0
+    future_drift_ema: float = 0.0
     access_ema: float = 0.0
     last_access_ts: float = 0.0
     t_start: float = 0.0
@@ -184,6 +230,8 @@ class TraceRecord:
     role_logits: dict[str, float] = field(
         default_factory=lambda: {"episodic": 1.0, "prototype": 0.0, "procedure": 0.0}
     )
+    role_support: dict[str, float] = field(default_factory=lambda: {"prototype": 0.0, "procedure": 0.0})
+    role_gain_ema: dict[str, float] = field(default_factory=lambda: {"prototype": 0.0, "procedure": 0.0})
     member_ids: tuple[str, ...] = field(default_factory=tuple)
     path_signature: tuple[str, ...] = field(default_factory=tuple)
     posterior_group_ids: tuple[str, ...] = field(default_factory=tuple)
@@ -209,13 +257,18 @@ class TraceRecord:
             stability=float(self.stability),
             uncertainty=float(self.uncertainty),
             fidelity=float(self.fidelity),
+            compression_stage=int(self.compression_stage),
             pred_loss_ema=float(self.pred_loss_ema),
+            future_alignment_ema=float(self.future_alignment_ema),
+            future_drift_ema=float(self.future_drift_ema),
             access_ema=float(self.access_ema),
             last_access_ts=float(self.last_access_ts),
             t_start=float(self.t_start),
             t_end=float(self.t_end),
             anchor_reservoir=deque(self.anchor_reservoir),
             role_logits=dict(self.role_logits),
+            role_support=dict(self.role_support),
+            role_gain_ema=dict(self.role_gain_ema),
             member_ids=tuple(self.member_ids),
             path_signature=tuple(self.path_signature),
             posterior_group_ids=tuple(self.posterior_group_ids),
@@ -251,6 +304,8 @@ class PosteriorGroup:
     pred_success_ema: Array
     temperature: float = 1.0
     unresolved_mass: float = 0.0
+    replay_alignment_ema: float = 0.0
+    replay_tension_ema: float = 0.0
     ambiguous_buffer: Deque[str] = field(default_factory=deque)
     ambiguous_ctx_buffer: Deque[Array] = field(default_factory=deque)
 
@@ -288,6 +343,9 @@ class ProposalDecision:
     context: Array
     base_energy: float
     top_responsibilities: dict[str, float] = field(default_factory=dict)
+    apply_inhibit: bool = False
+    inhibit_pair: tuple[str, str] | None = None
+    objective_terms: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -369,13 +427,19 @@ class InjectResult:
 @dataclass(frozen=True, slots=True)
 class MaintenanceStats:
     replayed_trace_ids: list[str] = field(default_factory=list)
+    structural_trace_ids: list[str] = field(default_factory=list)
     prototype_trace_ids: list[str] = field(default_factory=list)
     procedure_trace_ids: list[str] = field(default_factory=list)
     pruned_trace_ids: list[str] = field(default_factory=list)
+    compressed_trace_ids: list[str] = field(default_factory=list)
+    rehydrated_trace_ids: list[str] = field(default_factory=list)
+    demoted_trace_ids: list[str] = field(default_factory=list)
+    replayed_group_ids: list[str] = field(default_factory=list)
     elapsed_ms: int = 0
     replay_batch: int = 0
     predictor_loss: float = 0.0
     predictor_nll: float = 0.0
+    objective_total: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)

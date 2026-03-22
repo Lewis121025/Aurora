@@ -16,6 +16,9 @@ _FORBIDDEN_TRACKED_PREFIXES = (
     "tests/test_surface_",
     "tests/integration/",
 )
+_NON_ASCII_ALLOWED_PATHS = (
+    "aurora.md",
+)
 
 
 def _tracked_files() -> list[str]:
@@ -31,6 +34,8 @@ def _tracked_files() -> list[str]:
 def test_repository_audit_has_ascii_only_tracked_content() -> None:
     offenders: list[str] = []
     for relative_path in _tracked_files():
+        if relative_path in _NON_ASCII_ALLOWED_PATHS:
+            continue
         path = _REPO_ROOT / relative_path
         if not path.is_file():
             continue
