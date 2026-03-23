@@ -12,7 +12,7 @@ from aurora.core.math import cosine_similarity, l2_normalize, weighted_mean
 from aurora.core.types import Anchor, ExperienceFrame, ProposalDecision, TraceRecord, Workspace
 from aurora.readout.workspace import settle_workspace
 from aurora.replay.reconsolidate import trace_forget_risk
-from aurora.runtime.objective import trace_structural_role_mass
+from aurora.runtime.objective_terms import trace_structural_role_mass
 from aurora.runtime.proposals import ACTION_ORDER, action_vector
 
 

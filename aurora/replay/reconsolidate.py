@@ -9,7 +9,7 @@ import numpy as np
 from aurora.core.math import EPS, safe_variance
 from aurora.core.config import FieldConfig
 from aurora.core.types import TraceRecord
-from aurora.runtime.objective import trace_structural_role_mass
+from aurora.runtime.objective_terms import trace_structural_role_mass
 
 
 def compute_uncertainty(trace: TraceRecord, config: FieldConfig) -> float:

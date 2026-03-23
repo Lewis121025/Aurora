@@ -50,7 +50,7 @@ def test_workspace_serializer_renders_structured_sections(field_factory: FieldFa
     assert "provenance_anchors:" in rendered
 
 
-def test_workspace_projection_stays_expression_side_only(field_factory: FieldFactory) -> None:
+def test_workspace_projection_stays_generation_side_only(field_factory: FieldFactory) -> None:
     field = field_factory()
     _inject_sample_field(field)
     workspace = field.read_workspace("Where do I live?", k=6)

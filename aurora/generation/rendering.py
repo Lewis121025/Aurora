@@ -1,4 +1,4 @@
-"""Expression-layer projections for structured workspaces."""
+"""Generation-layer rendering for structured workspaces."""
 
 from __future__ import annotations
 

@@ -11,9 +11,9 @@ from typing import Any
 
 from aurora.core.config import FieldConfig
 from aurora.core.types import DecoderRequest, ResponseResult, Workspace
-from aurora.expression.cognition import DEFAULT_SYSTEM_PROMPT, Responder
-from aurora.expression.context import ExpressionContext
-from aurora.expression.projections import render_workspace_for_llm
+from aurora.generation.context import GenerationContext
+from aurora.generation.rendering import render_workspace_for_llm
+from aurora.generation.responder import DEFAULT_SYSTEM_PROMPT, Responder
 from aurora.llm.config import LLMSettings, coerce_llm_settings, load_llm_settings
 from aurora.llm.openai_compat import OpenAICompatProvider
 from aurora.llm.provider import LLMProvider
@@ -277,7 +277,7 @@ class AuroraSystem:
         responder = self._get_responder()
         if responder is not None:
             return responder.respond(
-                ExpressionContext(
+                GenerationContext(
                     input_text=cue_text,
                     workspace=workspace,
                     rendered_workspace=rendered_workspace,

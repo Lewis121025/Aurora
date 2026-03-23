@@ -5,7 +5,7 @@ import numpy as np
 from aurora.core.config import BudgetConfig, FieldConfig
 from aurora.core.types import Anchor, PosteriorGroup, TraceRecord
 from aurora.runtime import AuroraField
-from aurora.runtime.objective import (
+from aurora.runtime.objective_terms import (
     ObjectiveObservation,
     empirical_patch_terms,
     group_tension_cost,

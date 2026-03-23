@@ -23,17 +23,20 @@ def __getattr__(name: str) -> Any:
         from aurora.runtime import AuroraField
 
         return AuroraField
-    if name in {"AuroraSystem", "AuroraSystemConfig", "build_app"}:
-        from aurora.runtime import AuroraSystem, AuroraSystemConfig
-        from aurora.surfaces.http import build_app
+    if name == "AuroraSystem":
+        from aurora.runtime import AuroraSystem
 
-        return {
-            "AuroraSystem": AuroraSystem,
-            "AuroraSystemConfig": AuroraSystemConfig,
-            "build_app": build_app,
-        }[name]
+        return AuroraSystem
+    if name == "AuroraSystemConfig":
+        from aurora.runtime import AuroraSystemConfig
+
+        return AuroraSystemConfig
     if name == "FieldConfig":
         from aurora.core.config import FieldConfig
 
         return FieldConfig
+    if name == "build_app":
+        from aurora.surfaces.http import build_app
+
+        return build_app
     raise AttributeError(f"module 'aurora' has no attribute {name!r}")

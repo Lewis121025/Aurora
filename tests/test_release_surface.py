@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import sys
 from typing import Any, cast
 
 import pytest
@@ -87,6 +88,20 @@ def test_release_root_exports_are_minimal() -> None:
     assert not hasattr(aurora_pkg, "build_llm_provider")
     assert not hasattr(aurora_pkg, "to_dict")
     assert not hasattr(aurora_pkg, "RespondRequest")
+
+
+def test_release_root_runtime_exports_do_not_pull_http_surface() -> None:
+    aurora_pkg = importlib.import_module("aurora")
+    sys.modules.pop("aurora.surfaces.http", None)
+
+    _ = aurora_pkg.AuroraSystem
+    _ = aurora_pkg.AuroraSystemConfig
+
+    assert "aurora.surfaces.http" not in sys.modules
+
+    _ = aurora_pkg.build_app
+
+    assert "aurora.surfaces.http" in sys.modules
 
 
 def test_release_old_top_level_modules_are_gone() -> None:

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from aurora.expression.context import ExpressionContext
+from aurora.generation.context import GenerationContext
 from aurora.llm.provider import LLMProvider
 
 
-class CognitionError(Exception):
+class ResponderError(Exception):
     """Response generation error."""
 
 
@@ -21,7 +21,7 @@ DEFAULT_SYSTEM_PROMPT = (
 
 
 def build_messages(
-    context: ExpressionContext,
+    context: GenerationContext,
     *,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
 ) -> list[dict[str, str]]:
@@ -41,10 +41,10 @@ class Responder:
         self.llm = llm
         self.system_prompt = system_prompt
 
-    def respond(self, context: ExpressionContext) -> str:
+    def respond(self, context: GenerationContext) -> str:
         raw = self.llm.complete(build_messages(context, system_prompt=self.system_prompt)).strip()
         if not raw:
-            raise CognitionError("LLM returned an empty response")
+            raise ResponderError("LLM returned an empty response")
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
         return raw

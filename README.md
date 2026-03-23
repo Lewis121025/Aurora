@@ -128,7 +128,7 @@ The runtime is split into:
 
 - `aurora/runtime`: canonical `AuroraField` and `AuroraSystem`
 - `aurora/surfaces`: HTTP, CLI, and MCP transports
-- `aurora/expression`: workspace rendering and response context
+- `aurora/generation`: workspace rendering and response context
 - `aurora/core`: canonical types, config, and math
 - `aurora/store`: blob, trace, edge, ANN, and snapshot persistence
 

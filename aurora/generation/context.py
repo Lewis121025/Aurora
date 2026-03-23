@@ -1,4 +1,4 @@
-"""Expression-layer context for a single response turn."""
+"""Generation-layer context for a single response turn."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from aurora.core.types import Workspace
 
 
 @dataclass(frozen=True, slots=True)
-class ExpressionContext:
+class GenerationContext:
     """Context required for response generation."""
 
     input_text: str

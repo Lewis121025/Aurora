@@ -21,7 +21,7 @@ from aurora.core.types import (
     TraceRecord,
 )
 from aurora.replay.reconsolidate import compute_uncertainty, push_anchor_reference, update_stability
-from aurora.runtime.objective import (
+from aurora.runtime.objective_terms import (
     ActionEvaluation,
     ObjectiveObservation,
     posterior_slice,

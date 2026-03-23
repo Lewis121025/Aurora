@@ -5,25 +5,24 @@ description = "Aurora - First-principles adaptive memory architecture."
 requires-python = ">=3.10"
 authors = [{ name = "AURORA Contributors" }]
 readme = "README.md"
-license = { text = "Proprietary" }
+license = "LicenseRef-AURORA-Proprietary"
+license-files = ["LICENSE"]
 dependencies = [
   "pydantic>=2.6",
   "fastapi>=0.110",
   "uvicorn>=0.27",
   "mcp>=1.12.4,<2",
   "numpy>=1.26",
-  "scipy>=1.11",
   "torch>=2.2",
   "transformers>=4.46",
   "tokenizers>=0.15",
   "safetensors>=0.4",
-  "hnswlib>=0.8",
 ]
 
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
-  "mypy[html-report]>=1.8",
+  "mypy>=1.8",
   "ruff>=0.1",
 ]
 
@@ -35,7 +34,7 @@ aurora-mcp = "aurora.surfaces.mcp:main"
 line-length = 100
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=77.0.0"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]

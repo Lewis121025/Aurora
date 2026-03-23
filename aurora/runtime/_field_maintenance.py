@@ -11,7 +11,7 @@ import numpy as np
 from aurora.core.math import EPS, safe_variance
 from aurora.core.types import ExperienceFrame, PosteriorGroup, TraceEdge, TraceRecord
 from aurora.replay.reconsolidate import compute_uncertainty, reconsolidate_trace, trace_forget_risk
-from aurora.runtime.objective import (
+from aurora.runtime.objective_terms import (
     ObjectiveObservation,
     ObjectiveTerms,
     edge_storage_cost,

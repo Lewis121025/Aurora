@@ -9,7 +9,7 @@ import numpy as np
 from aurora.core.math import EPS
 from aurora.core.types import ExperienceFrame, TraceRecord, Workspace
 from aurora.readout.workspace import settle_workspace
-from aurora.runtime.objective import ObjectiveObservation, ObjectiveTerms, empirical_patch_terms
+from aurora.runtime.objective_terms import ObjectiveObservation, ObjectiveTerms, empirical_patch_terms
 
 
 class FieldObjectiveMixin:
