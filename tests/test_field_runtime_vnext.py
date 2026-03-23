@@ -237,6 +237,29 @@ def test_workspace_readout_prefers_matching_session(field_factory: FieldFactory)
     assert workspace.metadata["session_id"] == "session-a"
 
 
+def test_read_workspace_is_side_effect_free(field_factory: FieldFactory) -> None:
+    field = field_factory()
+    field.inject(
+        {
+            "session_id": "session-a",
+            "turn_id": "turn-1",
+            "source": "user",
+            "payload": "Remember the note.",
+            "meta": {"role": "user"},
+        }
+    )
+
+    before = field.to_snapshot_payload()
+    workspace = field.read_workspace({"payload": "Remember the note.", "session_id": "session-a"}, k=1)
+    after = field.to_snapshot_payload()
+
+    assert workspace.active_trace_ids
+    assert before["step"] == after["step"]
+    assert before["workspace_state"] == after["workspace_state"]
+    assert before["frontier_state"] == after["frontier_state"]
+    assert before["traces"] == after["traces"]
+
+
 def test_inhibitory_edges_reduce_activation_during_settle(field_factory: FieldFactory) -> None:
     del field_factory
     field = AuroraField(FieldConfig(latent_dim=2, context_dim=2, candidate_size=8, workspace_size=2))

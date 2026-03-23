@@ -1,4 +1,4 @@
-"""Transport surfaces for Aurora."""
+"""Aurora transport surfaces."""
 
 from aurora.surfaces.http import build_app
 

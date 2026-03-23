@@ -9,7 +9,7 @@ from typing import Any, Mapping
 
 from aurora.core.config import FieldConfig
 from aurora.core.types import PayloadType, SourceType
-from aurora.store import BlobStore
+from aurora.store.blob_store import BlobStore
 
 
 @dataclass(frozen=True, slots=True)

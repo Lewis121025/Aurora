@@ -10,7 +10,8 @@ import numpy as np
 from numpy.typing import NDArray
 
 from aurora.core.math import EPS, diag_gaussian_logpdf, logsumexp, safe_variance, softmax, weighted_mean
-from aurora.core.types import FieldConfig, PosteriorGroup, TraceEdge, TraceRecord
+from aurora.core.config import FieldConfig
+from aurora.core.types import PosteriorGroup, TraceEdge, TraceRecord
 
 
 @dataclass(slots=True)

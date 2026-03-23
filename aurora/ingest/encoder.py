@@ -11,7 +11,7 @@ import numpy as np
 from aurora.core.config import FieldConfig
 from aurora.core.types import Anchor
 from aurora.ingest.packetizer import PacketRecord
-from aurora.store import BlobStore
+from aurora.store.blob_store import BlobStore
 
 
 @runtime_checkable

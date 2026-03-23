@@ -62,6 +62,12 @@ class SQLiteSnapshotStore:
         if row is None:
             return None
         payload = json.loads(zlib.decompress(row["payload_blob"]).decode("utf-8"))
+        schema_version = int(payload.get("schema_version", 0))
+        if schema_version != 6:
+            raise RuntimeError(
+                f"snapshot store {self.db_path} contains unsupported snapshot schema_version {schema_version}; "
+                "use a fresh data directory or remove the old snapshot store"
+            )
         from aurora.runtime.field import AuroraField
 
         return AuroraField.from_snapshot_payload(payload)

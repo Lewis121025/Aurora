@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from aurora.core.types import BudgetConfig, PosteriorGroup, TraceEdge, TraceRecord
+from aurora.core.config import BudgetConfig
+from aurora.core.types import PosteriorGroup, TraceEdge, TraceRecord
 from aurora.replay.reconsolidate import trace_utility
 
 

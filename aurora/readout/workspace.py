@@ -8,7 +8,8 @@ from typing import Callable, Mapping, Sequence
 import numpy as np
 
 from aurora.core.math import EPS, cosine_similarity, diag_gaussian_logpdf, entmax_bisect, project_top_k, weighted_mean
-from aurora.core.types import FieldConfig, PosteriorGroup, TraceEdge, TraceRecord, Workspace
+from aurora.core.config import FieldConfig
+from aurora.core.types import PosteriorGroup, TraceEdge, TraceRecord, Workspace
 from aurora.runtime.objective import safe_kl, trace_structural_role_mass
 
 

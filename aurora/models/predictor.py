@@ -8,7 +8,8 @@ import numpy as np
 import torch
 from torch import nn
 
-from aurora.core.types import ExperienceFrame, PredictorConfig, PredictorPeek, PredictorState
+from aurora.core.config import PredictorConfig
+from aurora.core.types import ExperienceFrame, PredictorPeek, PredictorState
 
 
 class _PredictorNet(nn.Module):

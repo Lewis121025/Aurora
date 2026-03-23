@@ -8,8 +8,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from aurora.llm.config import load_llm_settings
-from aurora.runtime.system import AuroraSystem, AuroraSystemConfig, build_llm_provider, to_dict
+from aurora.runtime.system import AuroraSystem, AuroraSystemConfig, to_dict
 from aurora.surfaces.http import build_app
 
 
@@ -17,18 +16,12 @@ def _print(payload: Any) -> None:
     print(json.dumps(to_dict(payload), ensure_ascii=False, indent=2))
 
 
-def _load_provider() -> Any:
-    settings = load_llm_settings()
-    if settings is None:
-        return None
-    return build_llm_provider(settings)
-
-
 def _make_system(args: argparse.Namespace) -> AuroraSystem:
     root = Path(args.data_dir or ".aurora")
+    db_path = str(Path(args.db)) if args.db else str(root / "aurora.sqlite")
     config = AuroraSystemConfig(
         data_dir=str(root),
-        db_path=args.db,
+        db_path=db_path,
         blob_dir=str(root / "blobs"),
         autosave=not getattr(args, "no_autosave", False),
         max_snapshots=getattr(args, "max_snapshots", 256),
@@ -46,19 +39,23 @@ def _make_system(args: argparse.Namespace) -> AuroraSystem:
         background_maintenance_interval=getattr(args, "background_maintenance_interval", 5.0),
         background_maintenance_budget=getattr(args, "background_maintenance_budget", 6),
     )
-    return AuroraSystem(config, llm=_load_provider())
+    return AuroraSystem(config)._use_env_llm_settings()
 
 
 def _load_metadata(raw: str | None) -> dict[str, Any]:
     if not raw:
         return {}
-    payload = json.loads(raw)
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise SystemExit("metadata must be a valid JSON object") from exc
     if not isinstance(payload, dict):
         raise SystemExit("metadata must be a JSON object")
     return payload
 
 
 def cmd_inject(args: argparse.Namespace) -> None:
+    metadata = _load_metadata(args.metadata)
     system = _make_system(args)
     try:
         _print(
@@ -70,7 +67,7 @@ def cmd_inject(args: argparse.Namespace) -> None:
                     "source": args.source,
                     "payload_type": args.payload_type,
                     "ts": args.ts,
-                    "metadata": _load_metadata(args.metadata),
+                    "metadata": metadata,
                 }
             )
         )
@@ -95,6 +92,7 @@ def cmd_maintenance_cycle(args: argparse.Namespace) -> None:
 
 
 def cmd_respond(args: argparse.Namespace) -> None:
+    metadata = _load_metadata(args.metadata)
     system = _make_system(args)
     try:
         _print(
@@ -105,7 +103,7 @@ def cmd_respond(args: argparse.Namespace) -> None:
                     "turn_id": args.turn_id,
                     "source": args.source,
                     "ts": args.ts,
-                    "metadata": _load_metadata(args.metadata),
+                    "metadata": metadata,
                 }
             )
         )
@@ -148,7 +146,7 @@ def cmd_serve(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="aurora", description="Aurora unified trace-field runtime")
     parser.add_argument("--data-dir", default=".aurora")
-    parser.add_argument("--db", default=".aurora/aurora.sqlite", help="SQLite snapshot store path")
+    parser.add_argument("--db", default=None, help="SQLite snapshot store path; defaults to <data-dir>/aurora.sqlite")
     parser.add_argument("--max-snapshots", type=int, default=256)
     parser.add_argument("--no-autosave", action="store_true")
     parser.add_argument("--encoder-dim", type=int, default=128)

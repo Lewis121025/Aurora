@@ -118,23 +118,116 @@ def test_release_surface_cli_names_are_new_only() -> None:
         parser.parse_args(["snapshot", "--path", "custom.json"])
 
 
-def test_release_surface_mcp_tools_are_new_only(system_factory: SystemFactory) -> None:
-    system = system_factory(llm=QueueLLM("ok", repeat_last=True))
-    mcp_module._system = system
+def test_release_surface_cli_data_dir_owns_default_db_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    class CapturingSystem:
+        def __init__(self, config: Any, llm: Any = None, llm_settings: Any = None) -> None:
+            self.config = config
+            self.llm = llm
+            self.llm_settings = llm_settings
+            self.used_env_llm_settings = False
 
-    try:
-        assert hasattr(mcp_module, "aurora_inject")
-        assert hasattr(mcp_module, "aurora_read_workspace")
-        assert hasattr(mcp_module, "aurora_maintenance_cycle")
-        assert hasattr(mcp_module, "aurora_respond")
-        assert hasattr(mcp_module, "aurora_snapshot")
-        assert hasattr(mcp_module, "aurora_field_stats")
-        assert not hasattr(mcp_module, "aurora_append_material")
-        assert not hasattr(mcp_module, "aurora_build_workspace")
-        assert not hasattr(mcp_module, "aurora_run_scheduler")
-        assert not hasattr(mcp_module, "aurora_respond_turn")
-    finally:
-        mcp_module._system = None
+        def _use_env_llm_settings(self) -> "CapturingSystem":
+            self.used_env_llm_settings = True
+            return self
+
+    monkeypatch.setattr(cli_module, "AuroraSystem", CapturingSystem)
+
+    derived = cli_module._make_system(
+        cli_module.build_parser().parse_args(["--data-dir", "/tmp/aurora-data", "field-stats"])
+    )
+    explicit = cli_module._make_system(
+        cli_module.build_parser().parse_args(
+            ["--data-dir", "/tmp/aurora-data", "--db", "/tmp/custom.sqlite", "field-stats"]
+        )
+    )
+    derived_any = cast(Any, derived)
+
+    assert derived.config.data_dir == "/tmp/aurora-data"
+    assert derived.config.blob_dir == "/tmp/aurora-data/blobs"
+    assert derived.config.db_path == "/tmp/aurora-data/aurora.sqlite"
+    assert derived_any.llm is None
+    assert derived_any.llm_settings is None
+    assert derived_any.used_env_llm_settings is True
+    assert explicit.config.db_path == "/tmp/custom.sqlite"
+
+
+def test_release_surface_cli_defers_llm_provider_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    class CapturingSystem:
+        def __init__(self, config: Any, llm: Any = None, llm_settings: Any = None) -> None:
+            self.config = config
+            self.llm = llm
+            self.llm_settings = llm_settings
+            self.used_env_llm_settings = False
+
+        def _use_env_llm_settings(self) -> "CapturingSystem":
+            self.used_env_llm_settings = True
+            return self
+
+    monkeypatch.setattr(cli_module, "AuroraSystem", CapturingSystem)
+
+    system = cli_module._make_system(cli_module.build_parser().parse_args(["field-stats"]))
+    system_any = cast(Any, system)
+
+    assert system_any.llm is None
+    assert system_any.llm_settings is None
+    assert system_any.used_env_llm_settings is True
+
+
+@pytest.mark.parametrize(
+    ("command", "content_flag"),
+    [
+        ("inject", "--payload"),
+        ("respond", "--cue"),
+    ],
+)
+def test_release_surface_cli_rejects_invalid_metadata_before_runtime_init(
+    monkeypatch: pytest.MonkeyPatch, command: str, content_flag: str
+) -> None:
+    class UnexpectedSystem:
+        def __init__(self, config: Any, llm: Any = None, llm_settings: Any = None) -> None:
+            del config, llm, llm_settings
+            raise AssertionError("runtime should not be initialized for invalid metadata")
+
+    monkeypatch.setattr(cli_module, "AuroraSystem", UnexpectedSystem)
+    args = cli_module.build_parser().parse_args([command, content_flag, "hello", "--metadata", "{"])
+
+    with pytest.raises(SystemExit, match="metadata must be a valid JSON object"):
+        args.func(args)
+
+
+def test_release_subpackage_exports_are_available() -> None:
+    namespace: dict[str, Any] = {}
+
+    exec("from aurora.readout import WorkspaceSerializer, settle_workspace", namespace)
+    exec("from aurora.store import SQLiteSnapshotStore, TraceStore", namespace)
+    exec("from aurora.models import SlowPredictor, build_local_decoder", namespace)
+    exec("from aurora.replay import trace_utility, compute_uncertainty", namespace)
+    exec("from aurora.ingest import Packetizer, HashingEncoder", namespace)
+    exec("from aurora.budget import BudgetController", namespace)
+    exec("from aurora.surfaces import build_app", namespace)
+
+    assert namespace["WorkspaceSerializer"].__name__ == "WorkspaceSerializer"
+    assert namespace["SQLiteSnapshotStore"].__name__ == "SQLiteSnapshotStore"
+    assert namespace["SlowPredictor"].__name__ == "SlowPredictor"
+    assert namespace["trace_utility"].__name__ == "trace_utility"
+    assert namespace["Packetizer"].__name__ == "Packetizer"
+    assert namespace["BudgetController"].__name__ == "BudgetController"
+    assert namespace["build_app"].__name__ == "build_app"
+
+
+def test_release_surface_mcp_tools_are_new_only(system_factory: SystemFactory) -> None:
+    del system_factory
+
+    assert hasattr(mcp_module, "aurora_inject")
+    assert hasattr(mcp_module, "aurora_read_workspace")
+    assert hasattr(mcp_module, "aurora_maintenance_cycle")
+    assert hasattr(mcp_module, "aurora_respond")
+    assert hasattr(mcp_module, "aurora_snapshot")
+    assert hasattr(mcp_module, "aurora_field_stats")
+    assert not hasattr(mcp_module, "aurora_append_material")
+    assert not hasattr(mcp_module, "aurora_build_workspace")
+    assert not hasattr(mcp_module, "aurora_run_scheduler")
+    assert not hasattr(mcp_module, "aurora_respond_turn")
 
 
 def test_release_http_surface_uses_new_routes_only(system_factory: SystemFactory) -> None:
@@ -160,6 +253,8 @@ def test_release_http_surface_uses_new_routes_only(system_factory: SystemFactory
     )
     snapshot_response = client.post("/snapshot")
     stats_response = client.get("/field-stats")
+    redoc_response = client.get("/redoc")
+    oauth_redirect_response = client.get("/docs/oauth2-redirect")
 
     assert inject_response.status_code == 200
     assert workspace_response.status_code == 200
@@ -167,6 +262,8 @@ def test_release_http_surface_uses_new_routes_only(system_factory: SystemFactory
     assert respond_response.status_code == 200
     assert snapshot_response.status_code == 200
     assert stats_response.status_code == 200
+    assert redoc_response.status_code == 404
+    assert oauth_redirect_response.status_code == 404
     assert "memory_brief" not in respond_response.text
 
     for old_route in ("/append-material", "/build-workspace", "/run-scheduler", "/respond-turn"):

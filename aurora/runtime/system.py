@@ -17,11 +17,14 @@ from aurora.expression.projections import render_workspace_for_llm
 from aurora.llm.config import LLMSettings, coerce_llm_settings, load_llm_settings
 from aurora.llm.openai_compat import OpenAICompatProvider
 from aurora.llm.provider import LLMProvider
-from aurora.models import LocalDecoder, build_local_decoder
+from aurora.models.decoder import LocalDecoder, build_local_decoder
 from aurora.runtime.field import AuroraField
-from aurora.store import SQLiteSnapshotStore
+from aurora.store.snapshot_store import SQLiteSnapshotStore
 
 _OPENAI_COMPAT_PROVIDERS = frozenset({"openai", "openai_compatible", "bailian"})
+_DEFAULT_DB_PATH = Path(".aurora/aurora.sqlite")
+_DEFAULT_DATA_DIR = Path(".aurora")
+_DEFAULT_BLOB_DIR = Path(".aurora/blobs")
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,12 +119,23 @@ class AuroraSystem:
         config: AuroraSystemConfig | None = None,
         *,
         llm: LLMProvider | None = None,
+        llm_settings: LLMSettings | Mapping[str, object] | None = None,
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     ) -> None:
+        if llm is not None and llm_settings is not None:
+            raise ValueError("Pass either llm or llm_settings, not both")
         self.config = _normalize_config(config or AuroraSystemConfig())
         self._lock = threading.RLock()
         self._store = SQLiteSnapshotStore(self.config.db_path, max_snapshots=self.config.max_snapshots)
-        self.field = self._store.load_latest_field() or AuroraField(self.config.field_config())
+        restored_field = self._store.load_latest_field()
+        if restored_field is None:
+            self.field = AuroraField(self.config.field_config())
+        else:
+            restored_field._apply_runtime_config(self.config.field_config())
+            self.field = restored_field
+        self._system_prompt = system_prompt
+        self._llm_settings = coerce_llm_settings(llm_settings) if llm_settings is not None else None
+        self._load_llm_settings_from_env = False
         self._responder = Responder(llm, system_prompt=system_prompt) if llm is not None else None
         decoder_kwargs: dict[str, Any] = {}
         if self.config.local_decoder_backend == "transformers":
@@ -142,18 +156,16 @@ class AuroraSystem:
     ) -> "AuroraSystem":
         if llm is not None and llm_settings is not None:
             raise ValueError("Pass either llm or llm_settings, not both")
-        provider = llm
-        if provider is None:
-            settings = coerce_llm_settings(llm_settings) if llm_settings is not None else load_llm_settings()
-            if settings is not None:
-                provider = build_llm_provider(settings)
         root = Path(data_dir or ".aurora")
         config = AuroraSystemConfig(
             data_dir=str(root),
             db_path=str(root / "aurora.sqlite"),
             blob_dir=str(root / "blobs"),
         )
-        return cls(config, llm=provider, system_prompt=system_prompt)
+        system = cls(config, llm=llm, llm_settings=llm_settings, system_prompt=system_prompt)
+        if llm is None and llm_settings is None:
+            system._use_env_llm_settings()
+        return system
 
     def close(self) -> None:
         if self._closed:
@@ -241,28 +253,30 @@ class AuroraSystem:
             return result
 
     def field_stats(self) -> FieldStats:
-        raw = self.field.field_stats()
-        return FieldStats(
-            db_path=str(self._store.db_path.resolve()),
-            step=int(raw.get("step", 0)),
-            packet_count=int(raw.get("packet_count", 0)),
-            anchor_count=int(raw.get("anchor_count", 0)),
-            trace_count=int(raw.get("trace_count", 0)),
-            edge_count=int(raw.get("edge_count", 0)),
-            posterior_group_count=int(raw.get("posterior_group_count", 0)),
-            hot_trace_ids=tuple(raw.get("hot_trace_ids", [])),
-            objective=dict(raw.get("objective", {})),
-            budget_state=dict(raw.get("budget_state", {})),
-            snapshot_count=self._store.snapshot_count(),
-            latest_snapshot=self._store.latest_snapshot_meta(),
-            background_maintenance_running=bool(
-                self._maintenance_thread is not None and self._maintenance_thread.is_alive()
-            ),
-        )
+        with self._lock:
+            raw = self.field.field_stats()
+            return FieldStats(
+                db_path=str(self._store.db_path.resolve()),
+                step=int(raw.get("step", 0)),
+                packet_count=int(raw.get("packet_count", 0)),
+                anchor_count=int(raw.get("anchor_count", 0)),
+                trace_count=int(raw.get("trace_count", 0)),
+                edge_count=int(raw.get("edge_count", 0)),
+                posterior_group_count=int(raw.get("posterior_group_count", 0)),
+                hot_trace_ids=tuple(raw.get("hot_trace_ids", [])),
+                objective=dict(raw.get("objective", {})),
+                budget_state=dict(raw.get("budget_state", {})),
+                snapshot_count=self._store.snapshot_count(),
+                latest_snapshot=self._store.latest_snapshot_meta(),
+                background_maintenance_running=bool(
+                    self._maintenance_thread is not None and self._maintenance_thread.is_alive()
+                ),
+            )
 
     def _generate_response(self, cue_text: str, workspace: Workspace, rendered_workspace: str) -> str:
-        if self._responder is not None:
-            return self._responder.respond(
+        responder = self._get_responder()
+        if responder is not None:
+            return responder.respond(
                 ExpressionContext(
                     input_text=cue_text,
                     workspace=workspace,
@@ -277,6 +291,24 @@ class AuroraSystem:
             prompt=rendered_workspace,
         )
         return self._get_local_decoder().decode(request).text
+
+    def _use_env_llm_settings(self) -> "AuroraSystem":
+        self._load_llm_settings_from_env = True
+        return self
+
+    def _get_responder(self) -> Responder | None:
+        responder = self._responder
+        if responder is None and self._llm_settings is None and self._load_llm_settings_from_env:
+            self._llm_settings = load_llm_settings()
+            self._load_llm_settings_from_env = False
+        if responder is None and self._llm_settings is not None:
+            responder = Responder(
+                build_llm_provider(self._llm_settings),
+                system_prompt=self._system_prompt,
+            )
+            self._responder = responder
+            self._llm_settings = None
+        return responder
 
     def _get_local_decoder(self) -> LocalDecoder:
         decoder = self._local_decoder
@@ -323,18 +355,24 @@ def _normalize_source(value: object) -> str:
 
 
 def _normalize_config(config: AuroraSystemConfig) -> AuroraSystemConfig:
+    data_dir = Path(config.data_dir)
     db_path = Path(config.db_path)
-    root = db_path.parent
-    data_dir = config.data_dir
-    blob_dir = config.blob_dir
-    if data_dir == ".aurora":
-        data_dir = str(root)
-    if blob_dir == ".aurora/blobs":
-        blob_dir = str(root / "blobs")
+    blob_dir = Path(config.blob_dir)
+
+    if data_dir != _DEFAULT_DATA_DIR:
+        if db_path == _DEFAULT_DB_PATH:
+            db_path = data_dir / "aurora.sqlite"
+        if blob_dir == _DEFAULT_BLOB_DIR:
+            blob_dir = data_dir / "blobs"
+    else:
+        data_dir = db_path.parent
+        if blob_dir == _DEFAULT_BLOB_DIR:
+            blob_dir = db_path.parent / "blobs"
+
     return AuroraSystemConfig(
         db_path=str(db_path),
-        data_dir=data_dir,
-        blob_dir=blob_dir,
+        data_dir=str(data_dir),
+        blob_dir=str(blob_dir),
         autosave=config.autosave,
         max_snapshots=config.max_snapshots,
         encoder_dim=config.encoder_dim,

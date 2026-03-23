@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import json
+import zlib
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from aurora.core.types import PosteriorGroup
 from aurora.runtime import AuroraField
+from aurora.store import SQLiteSnapshotStore
 
 from tests.conftest import FieldFactory
+
 
 def _json_default(value: object) -> object:
     if hasattr(value, "tolist"):
@@ -116,3 +120,28 @@ def test_snapshot_payload_preserves_budget_and_replay_state(field_factory: Field
     assert isinstance(payload["experience_frames"], list)
     assert isinstance(payload["frontier_state"]["global"], dict)
     assert isinstance(payload["objective_state"]["last"], dict)
+
+
+def test_snapshot_store_rejects_unsupported_schema_version(tmp_path: Path) -> None:
+    db_path = tmp_path / "aurora.sqlite"
+    store = SQLiteSnapshotStore(db_path)
+    payload_json = json.dumps({"schema_version": 3}, separators=(",", ":"))
+
+    try:
+        with store.conn:
+            store.conn.execute(
+                """
+                INSERT INTO snapshots (created_at, step, reason, payload_blob, payload_size)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (0.0, 0, "legacy", zlib.compress(payload_json.encode("utf-8"), level=6), len(payload_json)),
+            )
+
+        with pytest.raises(RuntimeError, match="unsupported snapshot schema_version 3") as excinfo:
+            store.load_latest_field()
+    finally:
+        store.close()
+
+    message = str(excinfo.value)
+    assert str(db_path) in message
+    assert "fresh data directory" in message

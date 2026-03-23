@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import numpy as np
 
-from aurora.core.types import Anchor, BudgetConfig, FieldConfig, PosteriorGroup, TraceRecord
+from aurora.core.config import BudgetConfig, FieldConfig
+from aurora.core.types import Anchor, PosteriorGroup, TraceRecord
 from aurora.runtime import AuroraField
 from aurora.runtime.objective import (
     ObjectiveObservation,

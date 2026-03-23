@@ -83,7 +83,7 @@ def test_coerce_llm_settings_rejects_missing_config_fields() -> None:
         )
 
 
-def test_system_create_accepts_llm_settings_mapping(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_system_create_accepts_llm_settings_mapping_lazily(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     captured: list[object] = []
 
     class FakeProvider:
@@ -114,7 +114,42 @@ def test_system_create_accepts_llm_settings_mapping(monkeypatch: pytest.MonkeyPa
         },
     )
     try:
+        assert len(captured) == 0
+        assert system._get_responder() is not None
         assert len(captured) == 1
+    finally:
+        system.close()
+
+
+def test_system_create_defers_invalid_env_provider_until_respond(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AURORA_LLM_PROVIDER", "unsupported")
+    monkeypatch.setenv("AURORA_LLM_CONFIG_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("AURORA_LLM_CONFIG_API_KEY", "secret")
+
+    system = AuroraSystem.create(data_dir=str(tmp_path / ".aurora"))
+    try:
+        assert system.inject("hello").packet_ids
+        with pytest.raises(RuntimeError, match="Unsupported AURORA_LLM_PROVIDER"):
+            system.respond({"payload": "hello", "session_id": "session-a"})
+    finally:
+        system.close()
+
+
+def test_system_create_defers_invalid_env_settings_until_respond(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("AURORA_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("AURORA_LLM_CONFIG_BASE_URL", "https://example.test/v1")
+    monkeypatch.setenv("AURORA_LLM_CONFIG_API_KEY", "secret")
+    monkeypatch.setenv("AURORA_LLM_CONFIG_TIMEOUT_S", "not-a-float")
+
+    system = AuroraSystem.create(data_dir=str(tmp_path / ".aurora"))
+    try:
+        assert system.inject("hello").packet_ids
+        with pytest.raises(ValueError, match="could not convert string to float"):
+            system.respond({"payload": "hello", "session_id": "session-a"})
     finally:
         system.close()
 

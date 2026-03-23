@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from aurora.core.types import Workspace
-from aurora.readout import WorkspaceSerializer
+from aurora.readout.serializer import WorkspaceSerializer
 
 
 def render_workspace_for_llm(workspace: Workspace, *, cue: str = "", prompt: str = "") -> str:

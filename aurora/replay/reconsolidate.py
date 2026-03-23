@@ -7,7 +7,8 @@ import math
 import numpy as np
 
 from aurora.core.math import EPS, safe_variance
-from aurora.core.types import FieldConfig, TraceRecord
+from aurora.core.config import FieldConfig
+from aurora.core.types import TraceRecord
 from aurora.runtime.objective import trace_structural_role_mass
 
 

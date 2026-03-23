@@ -3,8 +3,10 @@ from __future__ import annotations
 import numpy as np
 from pathlib import Path
 
-from aurora.core.types import FieldConfig, PosteriorGroup, TraceEdge, TraceRecord
-from aurora.readout import WorkspaceSerializer, settle_workspace
+from aurora.core.config import FieldConfig
+from aurora.core.types import PosteriorGroup, TraceEdge, TraceRecord
+from aurora.readout.serializer import WorkspaceSerializer
+from aurora.readout.workspace import settle_workspace
 from aurora.runtime import AuroraField
 
 from tests.conftest import FieldFactory

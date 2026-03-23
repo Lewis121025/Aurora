@@ -18,9 +18,12 @@ AURORA_LLM_CONFIG_BASE_URL=https://api.openai.com/v1
 AURORA_LLM_CONFIG_MODEL=gpt-4o-mini
 AURORA_LLM_CONFIG_API_KEY=your-api-key
 AURORA_API_KEY=your-http-api-key
+AURORA_DATA_DIR=.aurora
 ```
 
 `AURORA_API_KEY` is optional. When it is set, every HTTP endpoint except `/health`, `/docs`, and `/openapi.json` requires `Authorization: Bearer ...`.
+
+`AURORA_DATA_DIR` is optional. `aurora-mcp` uses it as the runtime storage root; when unset, it defaults to `.aurora`.
 
 Public LLM settings shape:
 
@@ -67,6 +70,8 @@ Public runtime surface:
 - `field_stats() -> FieldStats`
 - `close() -> None`
 
+`read_workspace(...)` is side-effect free. Runtime state changes only through `inject(...)`, `maintenance_cycle(...)`, `respond(...)`, and `snapshot()`.
+
 ## CLI
 
 ```bash
@@ -82,6 +87,12 @@ aurora field-stats
 
 ```bash
 aurora-mcp
+```
+
+To isolate MCP state from the current working directory, set `AURORA_DATA_DIR` before launch:
+
+```bash
+AURORA_DATA_DIR=/path/to/aurora-data aurora-mcp
 ```
 
 Exposed MCP interface:
