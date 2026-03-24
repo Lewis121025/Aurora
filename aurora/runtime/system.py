@@ -178,10 +178,15 @@ class AuroraSystem:
             self._closed = True
 
     def start_background_maintenance(self, interval: float | None = None, ms_budget: int | None = None) -> None:
-        maintenance_interval = float(interval or self.config.background_maintenance_interval)
-        maintenance_budget = int(ms_budget or self.config.background_maintenance_budget)
         if self._maintenance_thread is not None and self._maintenance_thread.is_alive():
             return
+        maintenance_interval = (
+            self.config.background_maintenance_interval if interval is None else float(interval)
+        )
+        if maintenance_interval <= 0.0:
+            raise ValueError("background maintenance interval must be > 0")
+        raw_budget = self.config.background_maintenance_budget if ms_budget is None else ms_budget
+        maintenance_budget = max(int(raw_budget), 1)
         self._stop_maintenance.clear()
 
         def loop() -> None:

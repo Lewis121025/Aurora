@@ -1,5 +1,7 @@
 # Contributing
 
+Aurora is archived. Keep changes minimal, correct, and release-safe.
+
 Aurora targets single-user local deployment and supports Python 3.13 or newer.
 The supported validation matrix is Python 3.13 and 3.14, with Python 3.15-dev
 running as a non-blocking smoke check in CI.

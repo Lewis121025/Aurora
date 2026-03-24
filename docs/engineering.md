@@ -1,8 +1,7 @@
 # Engineering Notes
 
-Aurora is a single-user local deployment system. The repository keeps a compact
-engineering surface on purpose: only assets that directly improve correctness,
-reviewability, and maintenance belong here.
+Aurora is archived. This repository keeps only the engineering surface needed to
+understand, validate, and preserve the released system.
 
 ## Python Policy
 
@@ -19,10 +18,9 @@ reviewability, and maintenance belong here.
 
 ## Repository Shape
 
-- `README.md` stays user-facing
+- `README.md` is the public engineering-facing overview
 - `CONTRIBUTING.md` owns the contributor workflow
-- `docs/` is reserved for current engineering or product documentation
-- `tests/integration/` holds black-box happy-path coverage for published surfaces
+- `docs/` is reserved for current engineering documentation
+- `tests/integration/` holds black-box coverage for published surfaces
 
-Aurora does not mirror the full `mem0` repository shape. It only adopts the
-engineering assets that solve an active maintenance problem in this repository.
+The repository does not grow beyond those needs.

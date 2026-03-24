@@ -142,6 +142,7 @@ def test_repository_audit_python_policy_is_consistent_across_configs() -> None:
     pyproject = tomllib.loads(_read_repository_text("pyproject.toml"))
     readme = _read_repository_text("README.md")
     contributing = _read_repository_text("CONTRIBUTING.md")
+    license_text = _read_repository_text("LICENSE")
     workflow = _read_yaml_object(".github/workflows/release-validation.yml")
     dependabot = _read_yaml_object(".github/dependabot.yml")
     makefile = _read_repository_text("Makefile")
@@ -160,14 +161,16 @@ def test_repository_audit_python_policy_is_consistent_across_configs() -> None:
     developer_make_targets = _string_list(policy["developer_make_targets"])
 
     assert pyproject["project"]["requires-python"] == requires_python
+    assert pyproject["project"]["license"] == "MIT"
     assert pyproject["tool"]["mypy"]["python_version"] == mypy_python_version
     assert "pre-commit>=4.5.1" in pyproject["project"]["optional-dependencies"]["dev"]
     assert "pyyaml>=6.0.3" in pyproject["project"]["optional-dependencies"]["dev"]
+    assert "MIT License" in license_text
 
     assert "Aurora requires Python 3.13 or newer." in readme
     assert user_install_command in readme
     assert developer_sync_command not in readme
-    assert validation_command not in readme
+    assert validation_command in readme
     assert pre_commit_command not in readme
 
     assert "Python 3.13 or newer" in contributing
@@ -219,5 +222,6 @@ def test_repository_audit_gitignore_covers_local_state_without_blocking_docs() -
     }
 
     assert "docs/" not in gitignore_lines
+    assert "aurora.md" not in gitignore_lines
     for pattern in required_gitignore_patterns:
         assert pattern in gitignore_lines

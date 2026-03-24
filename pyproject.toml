@@ -5,7 +5,7 @@ description = "Aurora - First-principles adaptive memory architecture."
 requires-python = ">=3.13"
 authors = [{ name = "AURORA Contributors" }]
 readme = "README.md"
-license = "LicenseRef-AURORA-Proprietary"
+license = "MIT"
 license-files = ["LICENSE"]
 dependencies = [
   "pydantic>=2.12.5",
@@ -87,7 +87,7 @@ required_tracked_paths = [
 required_tracked_prefixes = ["docs/", "tests/integration/"]
 forbidden_tracked_paths = ["AGENTS.md", "CLAUDE.md", "claude.md"]
 forbidden_tracked_prefixes = ["tests/test_live_", "tests/test_surface_"]
-non_ascii_allowed_paths = ["aurora.md"]
+non_ascii_allowed_paths = []
 required_gitignore_patterns = [
   ".DS_Store",
   ".aurora/",

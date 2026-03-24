@@ -5,7 +5,7 @@ import contextlib
 import threading
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import pytest
 from fastapi.testclient import TestClient
@@ -297,6 +297,41 @@ def test_background_maintenance_exceptions_are_not_swallowed(
         assert triggered.wait(timeout=1.0)
     finally:
         system.stop_background_maintenance()
+
+
+def test_background_maintenance_zero_budget_clamps_to_minimum(
+    system_factory: SystemFactory,
+) -> None:
+    system = system_factory()
+    system_any = cast(Any, system)
+    observed: list[int | None] = []
+    triggered = threading.Event()
+
+    def capture(*, ms_budget: int | None = None) -> None:
+        observed.append(ms_budget)
+        triggered.set()
+        system._stop_maintenance.set()
+
+    system_any.maintenance_cycle = capture
+
+    system.start_background_maintenance(interval=0.01, ms_budget=0)
+    try:
+        assert triggered.wait(timeout=1.0)
+    finally:
+        system.stop_background_maintenance()
+
+    assert observed == [1]
+
+
+@pytest.mark.parametrize("interval", [0.0, -0.5])
+def test_background_maintenance_rejects_non_positive_interval(
+    system_factory: SystemFactory,
+    interval: float,
+) -> None:
+    system = system_factory()
+
+    with pytest.raises(ValueError, match="background maintenance interval must be > 0"):
+        system.start_background_maintenance(interval=interval, ms_budget=1)
 
 
 def test_mcp_lifespan_owns_one_runtime_and_uses_explicit_data_dir(

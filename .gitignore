@@ -26,7 +26,6 @@ ENV/
 .idea/
 .claude/
 AGENTS.md
-aurora.md
 CLAUDE.md
 claude.md
 *.swp
