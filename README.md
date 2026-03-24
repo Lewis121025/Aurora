@@ -5,8 +5,11 @@ Aurora is a unified trace-field memory system. Raw experience enters one evolvin
 ## Installation
 
 ```bash
-pip install -e '.[dev]'
+uv sync --frozen
 ```
+
+Aurora requires Python 3.13 or newer.
+Aurora is designed for single-user local deployment.
 
 ## Configuration
 
@@ -75,24 +78,24 @@ Public runtime surface:
 ## CLI
 
 ```bash
-aurora inject --payload "I live in Hangzhou." --session-id session-a --turn-id turn-1 --source user
-aurora read-workspace --cue "Where do I live?" --session-id session-a
-aurora maintenance-cycle --ms-budget 12
-aurora respond --cue "What city do I live in?" --session-id session-a
-aurora snapshot
-aurora field-stats
+uv run aurora inject --payload "I live in Hangzhou." --session-id session-a --turn-id turn-1 --source user
+uv run aurora read-workspace --cue "Where do I live?" --session-id session-a
+uv run aurora maintenance-cycle --ms-budget 12
+uv run aurora respond --cue "What city do I live in?" --session-id session-a
+uv run aurora snapshot
+uv run aurora field-stats
 ```
 
 ## MCP
 
 ```bash
-aurora-mcp
+uv run aurora-mcp
 ```
 
 To isolate MCP state from the current working directory, set `AURORA_DATA_DIR` before launch:
 
 ```bash
-AURORA_DATA_DIR=/path/to/aurora-data aurora-mcp
+AURORA_DATA_DIR=/path/to/aurora-data uv run aurora-mcp
 ```
 
 Exposed MCP interface:
@@ -149,12 +152,7 @@ The implemented kernel is a closed-loop v2.1 baseline:
 
 ## Validation
 
-```bash
-uv run pytest -q
-uv run mypy aurora tests --show-error-codes --pretty
-uv run ruff check aurora tests
-python -m compileall -q aurora tests
-```
+For the contributor workflow and validation gate, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

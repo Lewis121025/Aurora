@@ -4,7 +4,8 @@ import contextlib
 import json
 import os
 from pathlib import Path
-import socket
+import re
+import selectors
 import subprocess
 import sys
 import time
@@ -13,6 +14,7 @@ import urllib.request
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_UVICORN_URL_PATTERN = re.compile(r"http://127\.0\.0\.1:(\d+)")
 
 
 def _json_object(raw: str) -> dict[str, object]:
@@ -37,12 +39,6 @@ def _run_cli(data_dir: Path, *args: str) -> dict[str, object]:
         timeout=20,
     )
     return _json_object(result.stdout)
-
-
-def _get_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
 
 
 def _request_json(url: str, *, method: str = "GET", payload: dict[str, object] | None = None) -> dict[str, object]:
@@ -76,9 +72,37 @@ def _wait_for_health(url: str, process: subprocess.Popen[str]) -> None:
     raise AssertionError(f"server did not become healthy: {last_error}")
 
 
+def _wait_for_server_base_url(process: subprocess.Popen[str]) -> str:
+    stdout = process.stdout
+    assert stdout is not None
+
+    deadline = time.monotonic() + 15.0
+    output: list[str] = []
+    selector = selectors.DefaultSelector()
+    selector.register(stdout, selectors.EVENT_READ)
+    try:
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                output.append(stdout.read())
+                raise AssertionError(
+                    f"server exited before reporting its port: {''.join(output)}"
+                )
+            if not selector.select(timeout=0.1):
+                continue
+            line = stdout.readline()
+            if not line:
+                continue
+            output.append(line)
+            match = _UVICORN_URL_PATTERN.search(line)
+            if match is not None:
+                return f"http://127.0.0.1:{match.group(1)}"
+    finally:
+        selector.close()
+    raise AssertionError(f"server did not report its port: {''.join(output)}")
+
+
 @contextlib.contextmanager
 def _running_server(data_dir: Path) -> Iterator[str]:
-    port = _get_free_port()
     process = subprocess.Popen(
         [
             sys.executable,
@@ -90,16 +114,17 @@ def _running_server(data_dir: Path) -> Iterator[str]:
             "--host",
             "127.0.0.1",
             "--port",
-            str(port),
+            "0",
         ],
         cwd=_REPO_ROOT,
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        bufsize=1,
     )
-    base_url = f"http://127.0.0.1:{port}"
     try:
+        base_url = _wait_for_server_base_url(process)
         _wait_for_health(f"{base_url}/health", process)
         yield base_url
     finally:

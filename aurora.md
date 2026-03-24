@@ -1,4 +1,4 @@
-下面这份就是**可直接交给开发者的 Aurora 内核动力学 spec**。
+**Aurora 内核动力学 **。
 
 理论姿态先定清楚：
 Aurora 这里把 FEP 只当**规范层启发**，不要求 `field.py` 去逐字实现其全部推导；这更符合近年的综述把它当作 self-organisation 的 normative account，同时也承认若把它当成严格定理需要额外假设。事件分割也不应只绑定在单一 prediction error spike 上，近年的综述把 prediction error、attention 和 working memory 放在同一个框架里讨论。([科学直通车][1])

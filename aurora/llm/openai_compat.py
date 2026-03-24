@@ -8,9 +8,32 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import urllib.error
 import urllib.request
 
 from aurora.llm.config import LLMConfig
+
+
+class OpenAICompatError(RuntimeError):
+    """Base error for OpenAI-compatible provider failures."""
+
+
+class OpenAICompatProtocolError(OpenAICompatError):
+    """Raised when the upstream response shape is invalid."""
+
+
+class OpenAICompatRefusalError(OpenAICompatError):
+    """Raised when the model returns an explicit refusal."""
+
+
+def _excerpt(value: object, *, limit: int = 240) -> str:
+    if isinstance(value, (dict, list)):
+        raw = json.dumps(value, ensure_ascii=False)
+    else:
+        raw = str(value)
+    if len(raw) <= limit:
+        return raw
+    return f"{raw[:limit]}..."
 
 
 class OpenAICompatProvider:
@@ -78,10 +101,48 @@ class OpenAICompatProvider:
             method="POST",
         )
 
-        with urllib.request.urlopen(request, timeout=self._config.timeout_s) as response:
-            data: dict[str, Any] = json.loads(response.read())
+        try:
+            with urllib.request.urlopen(request, timeout=self._config.timeout_s) as response:
+                data = json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace").strip()
+            detail = body or str(exc.reason or "empty response body")
+            raise OpenAICompatError(f"LLM request failed with HTTP {exc.code}: {_excerpt(detail)}") from exc
+        except json.JSONDecodeError as exc:
+            raise OpenAICompatProtocolError("LLM response body is not valid JSON") from exc
 
-        choices = data.get("choices", [])
-        if not choices:
-            return ""
-        return str(choices[0].get("message", {}).get("content", ""))
+        if not isinstance(data, dict):
+            raise OpenAICompatProtocolError("LLM response must be a JSON object")
+
+        choices = data.get("choices")
+        if not isinstance(choices, list) or not choices:
+            raise OpenAICompatProtocolError(
+                f"LLM response is missing choices: {_excerpt(data)}"
+            )
+
+        first_choice = choices[0]
+        if not isinstance(first_choice, dict):
+            raise OpenAICompatProtocolError("LLM response choice must be an object")
+
+        finish_reason = first_choice.get("finish_reason")
+        if finish_reason == "length":
+            raise OpenAICompatProtocolError("LLM response was truncated with finish_reason=length")
+        if finish_reason == "content_filter":
+            raise OpenAICompatProtocolError("LLM response was halted by content_filter")
+
+        message = first_choice.get("message")
+        if not isinstance(message, dict):
+            raise OpenAICompatProtocolError("LLM response choice is missing message")
+
+        refusal = message.get("refusal")
+        if isinstance(refusal, str) and refusal.strip():
+            raise OpenAICompatRefusalError(f"LLM refusal: {refusal.strip()}")
+        if refusal not in {None, ""}:
+            raise OpenAICompatProtocolError(f"LLM refusal has unsupported shape: {_excerpt(refusal)}")
+
+        content = message.get("content")
+        if not isinstance(content, str) or not content.strip():
+            raise OpenAICompatProtocolError(
+                f"LLM response is missing message.content: {_excerpt(message)}"
+            )
+        return content.strip()

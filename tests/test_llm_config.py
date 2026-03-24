@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
-from aurora.llm.config import coerce_llm_settings, load_llm_settings
+from aurora.llm.config import LLMConfig, coerce_llm_settings, load_llm_settings
+from aurora.llm.openai_compat import (
+    OpenAICompatProtocolError,
+    OpenAICompatProvider,
+    OpenAICompatRefusalError,
+)
 from aurora.runtime import AuroraSystem
 
 
@@ -81,6 +87,85 @@ def test_coerce_llm_settings_rejects_missing_config_fields() -> None:
                 },
             }
         )
+
+
+def test_openai_compat_provider_returns_stripped_message_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            del exc_type, exc, tb
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"content": "  hello  "},
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    monkeypatch.setattr("aurora.llm.openai_compat.urllib.request.urlopen", lambda *args, **kwargs: FakeResponse())
+    provider = OpenAICompatProvider(
+        LLMConfig(base_url="https://example.test/v1", model="gpt-test", api_key="secret")
+    )
+
+    assert provider.complete([{"role": "user", "content": "hi"}]) == "hello"
+
+
+def test_openai_compat_provider_rejects_missing_choices(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            del exc_type, exc, tb
+
+        def read(self) -> bytes:
+            return json.dumps({"id": "chatcmpl-test"}).encode("utf-8")
+
+    monkeypatch.setattr("aurora.llm.openai_compat.urllib.request.urlopen", lambda *args, **kwargs: FakeResponse())
+    provider = OpenAICompatProvider(
+        LLMConfig(base_url="https://example.test/v1", model="gpt-test", api_key="secret")
+    )
+
+    with pytest.raises(OpenAICompatProtocolError, match="missing choices"):
+        provider.complete([{"role": "user", "content": "hi"}])
+
+
+def test_openai_compat_provider_rejects_refusals(monkeypatch: pytest.MonkeyPatch) -> None:
+    class FakeResponse:
+        def __enter__(self) -> "FakeResponse":
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            del exc_type, exc, tb
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"refusal": "cannot help with that"},
+                        }
+                    ]
+                }
+            ).encode("utf-8")
+
+    monkeypatch.setattr("aurora.llm.openai_compat.urllib.request.urlopen", lambda *args, **kwargs: FakeResponse())
+    provider = OpenAICompatProvider(
+        LLMConfig(base_url="https://example.test/v1", model="gpt-test", api_key="secret")
+    )
+
+    with pytest.raises(OpenAICompatRefusalError, match="cannot help with that"):
+        provider.complete([{"role": "user", "content": "hi"}])
 
 
 def test_system_create_accepts_llm_settings_mapping_lazily(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

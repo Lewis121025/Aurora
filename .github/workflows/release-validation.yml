@@ -1,4 +1,4 @@
-name: Release Validation
+name: CI
 
 on:
   push:
@@ -10,35 +10,63 @@ permissions:
   contents: read
 
 jobs:
-  release-validation:
+  validation:
+    name: Validation (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
 
     steps:
-    - uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-    - name: Set up Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: '3.10'
-        cache: pip
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[dev]"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7.6.0
+        with:
+          enable-cache: true
 
-    - name: Compile sources
-      run: |
-        python -m compileall -q aurora tests
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev
 
-    - name: Run tests
-      run: |
-        pytest -q
+      - name: Run repository checks
+        run: make check
 
-    - name: Run mypy
-      run: |
-        mypy aurora tests --show-error-codes --pretty
+      - name: Run pre-commit
+        run: uv run pre-commit run --all-files
 
-    - name: Run ruff
-      run: |
-        ruff check aurora tests
+  future-smoke:
+    name: Future Smoke (Python 3.15-dev)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.15-dev"
+          allow-prereleases: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7.6.0
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Import package
+        run: uv run python -c "import aurora"
+
+      - name: Compile sources
+        run: uv run python -m compileall -q aurora tests
+
+      - name: Run tests
+        run: uv run pytest -q

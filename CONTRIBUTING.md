@@ -16,8 +16,9 @@ running as a non-blocking smoke check in CI.
 make sync
 ```
 
-`make sync` installs the locked development environment from `uv.lock`. Do not
-use `pip install -e` in this repository.
+`make sync` runs `uv sync --frozen --extra dev` and installs the locked
+development environment from `uv.lock`. Do not use `pip install -e` in this
+repository.
 
 ## Validation
 

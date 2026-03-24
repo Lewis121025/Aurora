@@ -4,3 +4,26 @@ updates:
     directory: /
     schedule:
       interval: weekly
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      runtime-dependencies:
+        patterns:
+          - fastapi
+          - mcp
+          - numpy
+          - pydantic
+          - safetensors
+          - tokenizers
+          - torch
+          - transformers
+          - uvicorn
+      developer-dependencies:
+        patterns:
+          - mypy
+          - pre-commit
+          - pytest
+          - ruff
+          - setuptools

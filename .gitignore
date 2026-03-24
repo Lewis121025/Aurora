@@ -26,6 +26,7 @@ ENV/
 .idea/
 .claude/
 AGENTS.md
+aurora.md
 CLAUDE.md
 claude.md
 *.swp
@@ -35,7 +36,6 @@ claude.md
 .env
 .env.*
 !.env.example
-docs/
 
 .DS_Store
 Thumbs.db
