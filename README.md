@@ -3,7 +3,7 @@
 >
 > Aurora is a first-principles adaptive memory runtime organized around one evolving trace field. Raw events, replay, consolidation, compression, forgetting, workspace readout, and response generation operate against the same runtime state instead of a separate retrieval stack.
 >
-> The repository targets single-user local deployment on Python 3.13+ and preserves four public surfaces: a Python SDK, a CLI, an HTTP API, and an MCP server. For the longer architecture reconstruction, see [aurora.md](aurora.md).
+> The repository targets single-user local deployment on Python 3.13+ and preserves four public surfaces: a Python SDK, a CLI, an HTTP API, and an MCP server. For the longer architecture reconstruction, see [Aurora.md](Aurora.md).
 
 ## What Aurora Provides
 
