@@ -55,3 +55,7 @@ snapshots/
 *.sqlite3
 next_wake.txt
 *.log
+$tmpdir/
+*.tmp/
+temp/
+tmp/
