@@ -25,6 +25,7 @@ ENV/
 .vscode/
 .idea/
 .claude/
+.cursor/
 AGENTS.md
 CLAUDE.md
 claude.md
